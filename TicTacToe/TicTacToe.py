@@ -126,7 +126,6 @@ class TicTacToeGame:
             (0,4,8), (2,4,6)            # diagonals
         ]
         for (a,b,c) in wins:
-            if board[a] is not None and \
-                    board[a] == board[b] == board[c]:
+            if board[a] is not None and board[a] == board[b] == board[c]:
                 return board[a]  # 'X' or 'O'
         return None

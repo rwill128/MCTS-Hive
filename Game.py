@@ -10,8 +10,8 @@ def play_tictactoe_mcts():
 
     # Create two MCTS instances, one for X and one for O
     # (They can have different iteration counts or the same.)
-    mcts_X = MCTS(game, num_iterations=1000, c_param=1.4)
-    mcts_O = MCTS(game, num_iterations=1000, c_param=1.4)
+    mcts_X = MCTS(game, num_iterations=5000, c_param=1.4)
+    mcts_O = MCTS(game, num_iterations=5000, c_param=1.4)
 
     # Start from the initial state
     state = game.getInitialState()

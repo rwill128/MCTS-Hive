@@ -22,29 +22,25 @@ class MCTSNode:
         return len(self.children) == len(legal_actions)
 
     def best_child(self, c_param=1.4):
-        """
-        Select a child node with the best UCB1 score.
-        UCB1 = (child.total_value / child.visit_count) +
-               c_param * sqrt(2 * ln(self.visit_count) / child.visit_count)
-        """
         best_score = -float('inf')
-        best_actions = []
+        best_children = []
 
         for action, child in self.children.items():
             if child.visit_count == 0:
-                # To avoid division by zero (or forced exploration), treat as infinite
-                return child
-            exploit = child.total_value / child.visit_count
-            explore = math.sqrt(2 * math.log(self.visit_count) / child.visit_count)
-            score = exploit + c_param * explore
+                # Give unvisited children a very large UCB to encourage exploration
+                score = float('inf')
+            else:
+                exploit = child.total_value / child.visit_count
+                explore = math.sqrt(2 * math.log(self.visit_count) / child.visit_count)
+                score = exploit + c_param * explore
 
             if score > best_score:
                 best_score = score
-                best_actions = [child]
+                best_children = [child]
             elif score == best_score:
-                best_actions.append(child)
+                best_children.append(child)
 
-        return random.choice(best_actions)  # tie-break randomly
+        return random.choice(best_children)
 
     def expand(self, game):
         """
