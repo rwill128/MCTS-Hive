@@ -73,6 +73,16 @@ class MCTSNode:
     def is_terminal(self, game):
         return game.isTerminal(self.state)
 
+    def __str__(self):
+        """
+        String representation of the node showing
+        its visit count, value, and state.
+        """
+        state_str = str(self.state)  # Convert state to string for display
+        return (f"MCTSNode(state={state_str}, "
+                f"visit_count={self.visit_count}, "
+                f"total_value={self.total_value})")
+
 
 class MCTS:
     """
@@ -101,7 +111,7 @@ class MCTS:
             final_state = self.game.simulateRandomPlayout(node.state)
 
             # 4. BACKPROP
-            self._backpropagate(node, final_state)
+            self._backpropagate(node, final_state, root_node)
 
         # Return the action leading to the best child of root
         best_action, best_child = self._best_action(root_node)
@@ -116,7 +126,7 @@ class MCTS:
             node = node.best_child(c_param=self.c_param)
         return node
 
-    def _backpropagate(self, node, final_state):
+    def _backpropagate(self, node, final_state, root_node):
         """
         Backpropagation: update the path from node up to the root.
         We assume a two-player or multi-player approach,
@@ -130,11 +140,16 @@ class MCTS:
         # For multi-player, you might store stats per player, but we'll keep it simple:
         # We'll track the perspective of the node's "current player" from each step.
 
+        # If you always want the reward from the root's perspective:
+        root_player = self.game.getCurrentPlayer(root_node.state)
+
         while node is not None:
-            current_player = self.game.getCurrentPlayer(node.state)
-            reward = self.game.getReward(final_state, current_player)
-            node.update(reward)
+            # We check if the root player won, lost, or drew:
+            reward_for_root = self.game.getReward(final_state, root_player)
+            # This is +1 if root_player won, -1 if root_player lost, etc.
+            node.update(reward_for_root)
             node = node.parent
+
 
     def _best_action(self, root_node):
         """
