@@ -7,11 +7,11 @@ def play_tictactoe_mcts():
     from time import sleep
 
     # Create the TicTacToe game
-    game = TicTacToeGame()
+    game = ConnectFourGame()
 
     # Create two MCTS instances, one for X and one for O
     # (They can have different iteration counts or the same.)
-    mcts = MCTS(game, num_iterations=100000, c_param=1.4)
+    mcts = MCTS(game, draw_reward=0, win_reward=1, lose_reward=-10, num_iterations=100000, c_param=1)
 
     # Start from the initial state
     state = game.getInitialState()

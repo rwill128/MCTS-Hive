@@ -88,10 +88,22 @@ class MCTS:
     """
     A generic MCTS implementation.
     """
-    def __init__(self, game, num_iterations=1000, c_param=1.4):
+    def __init__(self, game, win_reward=1.0, lose_reward=-1.0, draw_reward=0.0, c_param=1.4, num_iterations=1000):
+        """
+        :param game: an instance of ConnectFourGame (or TicTacToeGame, etc.)
+        :param win_reward: numeric reward if root player wins
+        :param lose_reward: numeric reward if root player loses
+        :param draw_reward: numeric reward if it's a draw
+        :param c_param: exploration constant
+        :param num_iterations: number of MCTS simulations
+        """
         self.game = game
-        self.num_iterations = num_iterations
+        self.win_reward = win_reward
+        self.lose_reward = lose_reward
+        self.draw_reward = draw_reward
         self.c_param = c_param
+        self.num_iterations = num_iterations
+
 
     def search(self, root_state):
         """
@@ -110,8 +122,9 @@ class MCTS:
             # 3. SIMULATE
             final_state = self.game.simulateRandomPlayout(node.state)
 
-            # 4. BACKPROP
-            self._backpropagate(node, final_state, root_node)
+            # 4. BACKPROP # 3. Backpropagation
+            outcome = self.game.getGameOutcome(final_state)  # "Player1", "Player2", "Draw", or None
+            self._backpropagate(node, final_state, root_node, outcome)
 
         # Return the action leading to the best child of root
         best_action, best_child = self._best_action(root_node)
@@ -126,7 +139,7 @@ class MCTS:
             node = node.best_child(c_param=self.c_param)
         return node
 
-    def _backpropagate(self, node, final_state, root_node):
+    def _backpropagate(self, node, final_state, root_node, outcome):
         """
         Backpropagation: update the path from node up to the root.
         We assume a two-player or multi-player approach,
@@ -142,14 +155,29 @@ class MCTS:
 
         # If you always want the reward from the root's perspective:
         root_player = self.game.getCurrentPlayer(root_node.state)
+        reward = self._getRewardFromOutcome(outcome, root_player)
 
         while node is not None:
-            # We check if the root player won, lost, or drew:
-            reward_for_root = self.game.getReward(final_state, root_player)
             # This is +1 if root_player won, -1 if root_player lost, etc.
-            node.update(reward_for_root)
+            node.update(reward)
             node = node.parent
 
+    def _getRewardFromOutcome(self, outcome, root_player):
+        """
+        Convert "Player1"|"Player2"|"Draw"|None into the numeric reward
+        from the perspective of the root_player.
+        """
+        if outcome is None:
+            # If the game somehow wasn't terminal, no reward
+            return 0.0
+
+        if outcome == root_player:
+            return self.win_reward
+        elif outcome == "Draw":
+            return self.draw_reward
+        else:
+            # The other player won => root_player lost
+            return self.lose_reward
 
     def _best_action(self, root_node):
         """

@@ -78,31 +78,28 @@ class ConnectFourGame:
 
         return False
 
-    def getReward(self, final_state, root_player):
+    def getGameOutcome(self, state):
         """
-        Returns the reward for the root_player in the final state:
-          +1 if root_player has won,
-          -1 if root_player has lost,
-           0 for a draw or no winner.
+        Returns a string describing the outcome of the game if terminal:
+          - "Player1" if Player1 has won
+          - "Player2" if Player2 has won
+          - "Draw" if the board is full and no one has won
+          - None if the game is not yet terminal
         """
-        board = final_state["board"]
-        winner = self._checkWinner(board)  # returns 1, 2, or None
+        board = state["board"]
+        winner = self._checkWinner(board)
 
-        # Map 'Player1'/'Player2' to 1 or 2
-        if root_player == "Player1":
-            root_label = 1
-            opp_label = 2
+        if winner == 1:
+            return "Player1"
+        elif winner == 2:
+            return "Player2"
         else:
-            root_label = 2
-            opp_label = 1
-
-        if winner == root_label:
-            return 1
-        elif winner == opp_label:
-            return -10
-        else:
-            # draw or no winner
-            return 0
+            # If board is full and no winner => draw
+            if all(board[0][c] != 0 for c in range(self.COLS)):
+                return "Draw"
+            else:
+                # Game not finished
+                return None
 
     def getCurrentPlayer(self, state):
         """
