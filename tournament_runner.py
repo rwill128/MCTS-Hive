@@ -69,10 +69,10 @@ def main():
 
     # 1) Generate a variety of parameter combos for MCTS
     param_combos = []
-    for c in [0.5, 1.4, 2.5]:
+    for c in [0.5, 1.0, 1.4, 2.0, 2.5, 3.0]:
         for w in [1, 2, 5]:
-            for l in [-1, -3, -10]:
-                for d in [0, 0.1]:
+            for l in [-1, -3, -10, -100]:
+                for d in [0, 0.1, 0.5]:
                     # Build an MCTS agent
                     agent = MCTS(
                         game=game,
@@ -80,7 +80,7 @@ def main():
                         lose_reward=l,
                         draw_reward=d,
                         c_param=c,
-                        num_iterations=2000  # Adjust as desired
+                        num_iterations=100000  # Adjust as desired
                     )
                     param_combos.append((c, w, l, d, agent))
 
