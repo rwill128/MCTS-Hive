@@ -70,7 +70,9 @@ class TicTacToeGame:
     def simulateRandomPlayout(self, state):
         """
         From the given state, play random legal moves until the game ends.
-        Returns the final state (terminal).
+
+        Modification: If the current player has a winning move, take it
+        immediately instead of choosing randomly.
         """
         temp_state = {
             "board": list(state["board"]),
@@ -81,7 +83,25 @@ class TicTacToeGame:
             legal_actions = self.getLegalActions(temp_state)
             if not legal_actions:
                 break  # no moves => terminal
-            action = random.choice(legal_actions)
+
+            current_player = temp_state["current_player"]
+
+            # 1) Attempt to find a winning move for the current player
+            winning_move = None
+            for action in legal_actions:
+                # Test applying the action
+                new_state = self.applyAction(temp_state, action)
+                if self.isTerminal(new_state):
+                    winning_move = action
+                    break
+
+            # 2) If a winning move is found, use it;
+            #    Otherwise pick a random move
+            if winning_move is not None:
+                action = winning_move
+            else:
+                action = random.choice(legal_actions)
+
             temp_state = self.applyAction(temp_state, action)
 
         return temp_state
