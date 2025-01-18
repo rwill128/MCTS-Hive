@@ -52,21 +52,14 @@ class TicTacToeGame:
         return self._checkWinner(state) is not None or \
             all(cell is not None for cell in state["board"])
 
-    def getReward(self, state, player):
-        """
-        Returns a numerical reward from the perspective of 'player'.
-        1.0 if the player won,
-        0.5 if it's a draw,
-        0.0 otherwise.
-        """
-        winner = self._checkWinner(state)
-        if winner == player:
-            return 1.0
-        elif winner is None and self.isTerminal(state):
-            # It's a draw
-            return 0.5
+    def getReward(self, final_state, root_player):
+        winner = self._checkWinner(final_state)
+        if winner is None:
+            return 0
+        elif winner == root_player:
+            return 1
         else:
-            return 0.0
+            return -1
 
     def getCurrentPlayer(self, state):
         """

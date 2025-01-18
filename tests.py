@@ -16,7 +16,7 @@ def run_tests():
         "current_player": 'O'  # next player doesn't matter here
     }
     assert game.isTerminal(state_x_win), "State should be terminal when X has a row."
-    assert game.getReward(state_x_win, 'X') == 1.0, "X should get reward 1.0 if X wins."
+    assert game.getReward(state_x_win, 'X',) == 1.0, "X should get reward 1.0 if X wins."
     assert game.getReward(state_x_win, 'O') == 0.0, "O should get reward 0.0 if X wins."
 
     # 2. Test O wins (middle row)
