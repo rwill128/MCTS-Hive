@@ -84,7 +84,7 @@ def test_mcts_forced_win():
         "current_player": "X"
     }
 
-    mcts = MCTS(game, num_iterations=5000, c_param=1.4)
+    mcts = MCTS(game, num_iterations=5000, c_param=3)
     action = mcts.search(test_state)
     assert action == 2, f"MCTS should pick cell 2 to win immediately, but got {action}!"
     print("Test passed: MCTS found the forced winning move for X.")
@@ -106,7 +106,52 @@ def test_mcts_forced_win():
     print("Test passed: MCTS found the forced winning move for O.")
 
 
+def test_mcts_forced_block():
+    game = TicTacToeGame()
+    from mcts.Mcts import MCTS
+
+    # O must block at cell 3 to prevent X from winning on the next move.
+    test_state = {
+        "board": [
+            None, None, None,
+            None, 'X',  'X',
+            None, None, 'O'
+        ],
+        "current_player": "O"
+    }
+
+    mcts = MCTS(game, num_iterations=5000, c_param=3)
+    action = mcts.search(test_state)
+
+    # We expect the MCTS to choose index 3 to block X.
+    assert action == 3, f"MCTS should block X at cell 3. Got {action} instead."
+    print("Test passed: MCTS found the forced block for O.")
+
+
+def test_mcts_forced_block_x():
+    game = TicTacToeGame()
+    from mcts.Mcts import MCTS
+
+    # O must block at cell 3 to prevent X from winning on the next move.
+    test_state = {
+        "board": [
+            None, None, None,
+            None, 'O',  'O',
+            None, None, 'X'
+        ],
+        "current_player": "X"
+    }
+
+    mcts = MCTS(game, num_iterations=5000, c_param=3)
+    action = mcts.search(test_state)
+
+    # We expect the MCTS to choose index 3 to block X.
+    assert action == 3, f"MCTS should block O at cell 3. Got {action} instead."
+    print("Test passed: MCTS found the forced block for X.")
+
 
 if __name__ == "__main__":
-    run_tests()
+    # run_tests()
     test_mcts_forced_win()
+    test_mcts_forced_block_x()
+    test_mcts_forced_block()

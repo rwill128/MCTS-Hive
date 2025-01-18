@@ -1,6 +1,6 @@
 import random
 
-class HivePocketGame:
+class ConnectFourGame:
     def __init__(self):
         pass
 

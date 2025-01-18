@@ -1,3 +1,4 @@
+from ConnectFour.ConnectFour import ConnectFourGame
 from TicTacToe.TicTacToe import TicTacToeGame
 from mcts.Mcts import MCTS
 
