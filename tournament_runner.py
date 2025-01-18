@@ -15,6 +15,7 @@ from ConnectFour.ConnectFour import ConnectFourGame
 from mcts.Mcts import MCTS
 
 RATING_DROP_THRESHOLD = 1000  # Agents below this rating are removed
+CHECKPOINT_FREQUENCY = 5      # How often (in rounds) to log current leader
 
 def initialize_elo(agent_count, initial_rating=1200):
     """
@@ -103,8 +104,9 @@ def main():
         logging.info(describe_agent(agent_id, param_combos, elo_ratings))
 
     logging.info(
-        f"Starting an indefinite tournament with drop-threshold ELO={RATING_DROP_THRESHOLD}.\n"
-        "Agents below this rating will be removed from further competition.\n"
+        f"Starting a King-of-the-Hill style tournament with drop-threshold ELO={RATING_DROP_THRESHOLD}.\n"
+        "In each round, the current top-rated agent faces a random challenger.\n"
+        "Agents below this rating are removed from further competition.\n"
         "Press Ctrl+C to stop at any time."
     )
 
@@ -118,61 +120,76 @@ def main():
                 logging.info("Not enough active agents remaining to continue.")
                 break
 
-            # Randomly pick two different agents from the *active* pool
-            idx1, idx2 = random.sample(active_agents, 2)
+            # Identify champion: the top-rated agent among active_agents
+            champion_id = max(active_agents, key=lambda aid: elo_ratings[aid])
+            champion_desc = describe_agent(champion_id, param_combos, elo_ratings)
 
-            # Log info about who is playing this round
+            # Pick one random challenger that is not the champion
+            if len(active_agents) == 1:
+                # Only champion left
+                logging.info("No challenger available; stopping.")
+                break
+            possible_challengers = list(active_agents - {champion_id})
+            challenger_id = random.choice(possible_challengers)
+            challenger_desc = describe_agent(challenger_id, param_combos, elo_ratings)
+
             logging.info(
                 f"Round {round_counter} match-up:\n"
-                f"   {describe_agent(idx1, param_combos, elo_ratings)}\n"
+                f"   CHAMPION: {champion_desc}\n"
                 f" vs\n"
-                f"   {describe_agent(idx2, param_combos, elo_ratings)}"
+                f"   CHALLENGER: {challenger_desc}"
             )
 
-            outcome = play_single_match(game, agents[idx1], agents[idx2])
+            # The champion plays as Player1, challenger as Player2
+            outcome = play_single_match(game, agents[champion_id], agents[challenger_id])
 
             if outcome == "Player1":
-                scoreA, scoreB = 1.0, 0.0
+                # champion (idxChampion) wins
+                scoreChamp, scoreChallenger = 1.0, 0.0
             elif outcome == "Player2":
-                scoreA, scoreB = 0.0, 1.0
+                # challenger (idxChallenger) wins
+                scoreChamp, scoreChallenger = 0.0, 1.0
             else:  # Draw
-                scoreA, scoreB = 0.5, 0.5
+                scoreChamp, scoreChallenger = 0.5, 0.5
 
             # Update Elo
-            oldA, oldB = elo_ratings[idx1], elo_ratings[idx2]
-            newA, newB = update_elo(oldA, oldB, scoreA, scoreB)
-            elo_ratings[idx1] = newA
-            elo_ratings[idx2] = newB
+            oldChamp, oldChall = elo_ratings[champion_id], elo_ratings[challenger_id]
+            newChamp, newChall = update_elo(oldChamp, oldChall, scoreChamp, scoreChallenger)
+            elo_ratings[champion_id] = newChamp
+            elo_ratings[challenger_id] = newChall
 
             # Log the result & rating updates
             logging.info(
                 f"Result: {outcome}.\n"
-                f"   {describe_agent(idx1, param_combos, elo_ratings)} was {oldA:.1f} -> {newA:.1f}\n"
-                f"   {describe_agent(idx2, param_combos, elo_ratings)} was {oldB:.1f} -> {newB:.1f}"
+                f"   {champion_desc} was {oldChamp:.1f} -> {newChamp:.1f}\n"
+                f"   {challenger_desc} was {oldChall:.1f} -> {newChall:.1f}"
             )
 
             # Check if either agent's rating fell below the threshold
             # If so, remove them from active_agents
-            if elo_ratings[idx1] < RATING_DROP_THRESHOLD and idx1 in active_agents:
-                active_agents.remove(idx1)
+            if elo_ratings[champion_id] < RATING_DROP_THRESHOLD and champion_id in active_agents:
+                active_agents.remove(champion_id)
                 logging.info(
-                    f"*** {describe_agent(idx1, param_combos, elo_ratings)} "
+                    f"*** {describe_agent(champion_id, param_combos, elo_ratings)} "
                     f"has fallen below {RATING_DROP_THRESHOLD} and is removed from competition."
                 )
-            if elo_ratings[idx2] < RATING_DROP_THRESHOLD and idx2 in active_agents:
-                active_agents.remove(idx2)
+            if elo_ratings[challenger_id] < RATING_DROP_THRESHOLD and challenger_id in active_agents:
+                active_agents.remove(challenger_id)
                 logging.info(
-                    f"*** {describe_agent(idx2, param_combos, elo_ratings)} "
+                    f"*** {describe_agent(challenger_id, param_combos, elo_ratings)} "
                     f"has fallen below {RATING_DROP_THRESHOLD} and is removed from competition."
                 )
 
-            # Every 5 rounds, log the current leader or top few
-            if round_counter % 5 == 0:
+            # Every X rounds, log the current leader or top few
+            if round_counter % CHECKPOINT_FREQUENCY == 0:
                 sorted_elo = sorted(elo_ratings.items(), key=lambda x: x[1], reverse=True)
                 leader_id = sorted_elo[0][0]
-                logging.info(f"--- After {round_counter} rounds, current leader: {describe_agent(leader_id, param_combos, elo_ratings)} ---\n")
+                logging.info(
+                    f"--- After {round_counter} rounds, overall top rating: "
+                    f"{describe_agent(leader_id, param_combos, elo_ratings)} ---\n"
+                )
 
-            # Optional delay to avoid spamming too fast
+            # Optional delay to slow things down
             # time.sleep(0.5)
 
     except KeyboardInterrupt:
