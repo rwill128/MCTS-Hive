@@ -10,8 +10,7 @@ def play_tictactoe_mcts():
 
     # Create two MCTS instances, one for X and one for O
     # (They can have different iteration counts or the same.)
-    mcts_X = MCTS(game, num_iterations=20000, c_param=1.4)
-    mcts_O = MCTS(game, num_iterations=20000, c_param=1.4)
+    mcts = MCTS(game, num_iterations=20000, c_param=1.4)
 
     # Start from the initial state
     state = game.getInitialState()
@@ -24,10 +23,7 @@ def play_tictactoe_mcts():
         current_player = game.getCurrentPlayer(state)
 
         # Decide which MCTS to use
-        if current_player == 'X':
-            best_move = mcts_X.search(state)
-        else:
-            best_move = mcts_O.search(state)
+        best_move = mcts.search(state)
 
         # Apply the move
         state = game.applyAction(state, best_move)

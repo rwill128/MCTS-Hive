@@ -17,7 +17,7 @@ def run_tests():
     }
     assert game.isTerminal(state_x_win), "State should be terminal when X has a row."
     assert game.getReward(state_x_win, 'X',) == 1.0, "X should get reward 1.0 if X wins."
-    assert game.getReward(state_x_win, 'O') == 0.0, "O should get reward 0.0 if X wins."
+    assert game.getReward(state_x_win, 'O') == -1.0, "O should get reward 0.0 if X wins."
 
     # 2. Test O wins (middle row)
     # Board layout:
@@ -32,7 +32,7 @@ def run_tests():
     }
     assert game.isTerminal(state_o_win), "State should be terminal when O has a row."
     assert game.getReward(state_o_win, 'O') == 1.0, "O should get 1.0 if O wins."
-    assert game.getReward(state_o_win, 'X') == 0.0, "X should get 0.0 if O wins."
+    assert game.getReward(state_o_win, 'X') == -1.0, "X should get 0.0 if O wins."
 
     # 3. Test Draw
     # One possible full-board draw:
@@ -49,8 +49,8 @@ def run_tests():
     }
     # No winner, board is full
     assert game.isTerminal(state_draw), "Full board with no winner is terminal."
-    assert game.getReward(state_draw, 'X') == 0.5, "Draw should give X reward of 0.5."
-    assert game.getReward(state_draw, 'O') == 0.5, "Draw should give O reward of 0.5."
+    assert game.getReward(state_draw, 'X') == 0, "Draw should give X reward of 0.5."
+    assert game.getReward(state_draw, 'O') == 0, "Draw should give O reward of 0.5."
 
     # 4. Test a non-terminal state
     # Board layout:
@@ -88,6 +88,23 @@ def test_mcts_forced_win():
     action = mcts.search(test_state)
     assert action == 2, f"MCTS should pick cell 2 to win immediately, but got {action}!"
     print("Test passed: MCTS found the forced winning move for X.")
+
+    game = TicTacToeGame()
+    from mcts.Mcts import MCTS  # your MCTS code
+
+    # State where X can win immediately by placing in cell 2.
+    test_state = {
+        "board": ["X", "X", None,  # X X ?
+                  "O", "O", None,
+                  None, None, None],
+        "current_player": "O"
+    }
+
+    mcts = MCTS(game, num_iterations=5000, c_param=1.4)
+    action = mcts.search(test_state)
+    assert action == 5, f"MCTS should pick cell 2 to win immediately, but got {action}!"
+    print("Test passed: MCTS found the forced winning move for O.")
+
 
 
 if __name__ == "__main__":
