@@ -151,7 +151,14 @@ class ConnectFourGame:
         Checks if there's a 4-in-a-row anywhere on the board.
         Returns 1 if Player1 has won, 2 if Player2 has won, or None otherwise.
         """
-        # Horizontal check
+        # Assert that board is a list (not a dictionary or anything else)
+        assert isinstance(board, list), f"Expected board to be a list, but got {type(board)}"
+
+        # Assert that all elements of board are lists (2D list structure)
+        assert all(isinstance(row, list) for row in board), "Expected board to be a 2D list"
+
+
+    # Horizontal check
         for r in range(self.ROWS):
             for c in range(self.COLS - 3):
                 if board[r][c] != 0 and \
