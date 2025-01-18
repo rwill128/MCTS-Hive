@@ -55,11 +55,11 @@ class TicTacToeGame:
     def getReward(self, final_state, root_player):
         winner = self._checkWinner(final_state)
         if winner is None:
-            return 0
+            return .5
         elif winner == root_player:
             return 1
         else:
-            return -1
+            return -100
 
     def getCurrentPlayer(self, state):
         """
@@ -83,8 +83,6 @@ class TicTacToeGame:
             legal_actions = self.getLegalActions(temp_state)
             if not legal_actions:
                 break  # no moves => terminal
-
-            current_player = temp_state["current_player"]
 
             # 1) Attempt to find a winning move for the current player
             winning_move = None
