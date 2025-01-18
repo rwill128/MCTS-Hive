@@ -82,7 +82,7 @@ def main():
                         lose_reward=l,
                         draw_reward=d,
                         c_param=c,
-                        num_iterations=20000  # Adjust as desired
+                        num_iterations=100000  # Adjust as desired
                     )
                     param_combos.append((c, w, l, d, agent))
 
