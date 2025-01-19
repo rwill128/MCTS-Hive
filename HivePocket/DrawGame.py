@@ -75,8 +75,8 @@ def drawStatePygame(state, hex_size=40, window_padding=50):
 
     # Determine board bounds
     minQ, maxQ, minR, maxR = get_board_bounds(board)
-    width_range  = maxQ - minQ + 1
-    height_range = maxR - minR + 1
+    width_range  = maxQ - minQ + 2
+    height_range = maxR - minR + 2
 
     # Estimate window size:
     # Each hex ~ (sqrt(3)*hex_size) wide and (1.5*hex_size) tall in pointy-top layout

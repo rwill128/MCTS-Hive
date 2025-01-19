@@ -115,6 +115,7 @@ class HiveGame:
         """
         Returns all legal actions for the current player: placements + moves
         """
+        # drawStatePygame(state)
         return self.placePieceActions(state) + self.movePieceActions(state)
         # return self.placePieceActions(state)
 
@@ -300,6 +301,7 @@ class HiveGame:
                     # If the new spot was valid and the board remains connected, we have a legal move
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (nq, nr)))
+
             # --- GRASSHOPPER (new logic) ---
             elif insectType == "Grasshopper":
                 # Compute all possible destinations
@@ -340,6 +342,53 @@ class HiveGame:
                     board.setdefault((q, r), []).append(piece)
 
                     # If good, we add the move
+                    if still_connected_after_placement and valid_new_spot:
+                        actions.append(("MOVE", (q, r), (tq, tr)))
+
+            # --- SPIDER ---
+            elif insectType == "Spider":
+                # 1) Find all cells reachable in EXACTLY 3 steps of empty adjacency
+                reachable_3 = self._bfsExactSteps(board, (q, r), steps=3)
+
+                # 2) We typically exclude the original cell (q, r) from the results
+                #    (the BFS code adds it if dist==3 from itself, but that can't happen
+                #     unless there's an odd loop, so just to be safe we filter it out)
+                if (q, r) in reachable_3:
+                    reachable_3.remove((q, r))
+
+                # 3) For each candidate, do the remove–check–place–check
+                for (tq, tr) in reachable_3:
+                    piece = board[(q, r)].pop()
+                    if len(board[(q, r)]) == 0:
+                        del board[(q, r)]
+
+                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
+                    if not still_connected_after_removal:
+                        board.setdefault((q, r), []).append(piece)
+                        continue
+
+                    # Place Spider
+                    board.setdefault((tq, tr), []).append(piece)
+
+                    # Optional adjacency/floating check
+                    valid_new_spot = True
+                    if len(board[(tq, tr)]) == 1:
+                        neighbors_occupied = False
+                        for (xq, xr) in self.getAdjacentCells(tq, tr):
+                            if (xq, xr) in board and board[(xq, xr)]:
+                                neighbors_occupied = True
+                                break
+                        if not neighbors_occupied:
+                            valid_new_spot = False
+
+                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
+
+                    # Restore
+                    board[(tq, tr)].pop()
+                    if len(board[(tq, tr)]) == 0:
+                        del board[(tq, tr)]
+                    board.setdefault((q, r), []).append(piece)
+
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (tq, tr)))
 
@@ -528,7 +577,7 @@ class HiveGame:
                 break
             action = random.choice(legal)
             temp_state = self.applyAction(temp_state, action)
-            # drawStatePygame(temp_state)
+            drawStatePygame(temp_state)
         return temp_state
 
     # ---------------------------------------------------------
