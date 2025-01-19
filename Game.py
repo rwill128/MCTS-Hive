@@ -1,4 +1,5 @@
 from ConnectFour.ConnectFour import ConnectFourGame
+from HivePocket.DrawGame import drawStatePygame
 from HivePocket.HivePocket import HiveGame
 from TicTacToe.TicTacToe import TicTacToeGame
 from mcts.Mcts import MCTS
@@ -15,7 +16,7 @@ def play_with_mcts():
     mcts = MCTS(game, draw_reward=0.1,
                 win_reward=1,
                 lose_reward=-1,
-                num_iterations=5,
+                num_iterations=10,
                 c_param=1.4,
                 forced_check_depth=0)
 
@@ -27,7 +28,6 @@ def play_with_mcts():
     game.printState(state)
 
     while not game.isTerminal(state):
-        current_player = game.getCurrentPlayer(state)
 
         # Decide which MCTS to use
         best_move = mcts.search(state)
@@ -35,10 +35,12 @@ def play_with_mcts():
         # Apply the move
         state = game.applyAction(state, best_move)
 
-        # Print the updated board
-        print(f"Player {current_player} moves at cell {best_move}:")
+        print("Took a move in the real game")
+        drawStatePygame(state)
 
-        sleep(1) # optional: to slow down the output
+        if game.isTerminal(state):
+            print("Game over, result: " + game.getGameOutcome(state))
+
 
 # Run the match
 if __name__ == "__main__":

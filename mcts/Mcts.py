@@ -1,6 +1,9 @@
 import math
 import random
 
+from HivePocket.DrawGame import drawStatePygame
+
+
 class MCTSNode:
     """
     A node in the game tree for MCTS.
@@ -144,6 +147,10 @@ class MCTS:
 
             # 3. SIMULATE
             final_state = self.game.simulateRandomPlayout(node.state)
+
+            # print("Simulated a random playout")
+            # print("Self.numiterations: " + str(self.num_iterations))
+            # drawStatePygame(final_state)
 
             # 4. BACKPROP
             outcome = self.game.getGameOutcome(final_state)

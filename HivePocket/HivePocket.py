@@ -103,6 +103,8 @@ class HiveGame:
                             neighbors_occupied += 1
                         else:
                             return False
+                    # print("Found a surrounded queen")
+                    # drawStatePygame(state)
                     return True
         return False
 
@@ -189,6 +191,40 @@ class HiveGame:
 
         return actions
 
+    def getGrasshopperJumps(self, board, q, r):
+        """
+        Grasshopper can jump in each of the 6 directions.
+        Starting from the cell immediately next to (q,r),
+        keep going while each cell is occupied,
+        stop at the first cell that is unoccupied => that's the landing spot.
+
+        If you never find an unoccupied cell before running out
+        of 'occupied cells', then there's no valid jump in that direction.
+
+        Returns a list of (tq, tr) possible destinations.
+        """
+        possible_destinations = []
+        for (dq, dr) in self.DIRECTIONS:
+            # Step at least once in that direction
+            step_count = 1
+            while True:
+                check_q = q + dq*step_count
+                check_r = r + dr*step_count
+
+                if (check_q, check_r) not in board or len(board[(check_q, check_r)]) == 0:
+                    # If it's unoccupied, then:
+                    # - We must have jumped over at least one occupied cell
+                    #   (meaning step_count > 1, otherwise there's no "jump")
+                    if step_count > 1:
+                        possible_destinations.append((check_q, check_r))
+                    break  # stop checking further in this direction
+
+                # if we found an occupied cell, keep going
+                step_count += 1
+
+        return possible_destinations
+
+
     def movePieceActions(self, state):
         """
         MOVE actions of the form ("MOVE", (from_q, from_r), (to_q, to_r)).
@@ -264,6 +300,48 @@ class HiveGame:
                     # If the new spot was valid and the board remains connected, we have a legal move
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (nq, nr)))
+            # --- GRASSHOPPER (new logic) ---
+            elif insectType == "Grasshopper":
+                # Compute all possible destinations
+                jumps = self.getGrasshopperJumps(board, q, r)
+
+                for (tq, tr) in jumps:
+                    # Same pattern: remove the piece, check connectivity,
+                    # place the piece, check connectivity, restore state.
+                    piece = board[(q, r)].pop()
+                    if len(board[(q, r)]) == 0:
+                        del board[(q, r)]
+
+                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
+                    if not still_connected_after_removal:
+                        board.setdefault((q, r), []).append(piece)
+                        continue
+
+                    # Place Grasshopper at (tq, tr)
+                    board.setdefault((tq, tr), []).append(piece)
+
+                    # Optionally, check adjacency to avoid "floating" if that matters to you:
+                    valid_new_spot = True
+                    if len(board[(tq, tr)]) == 1:  # newly placed piece => was empty
+                        neighbors_occupied = False
+                        for (xq, xr) in self.getAdjacentCells(tq, tr):
+                            if (xq, xr) in board and board[(xq, xr)]:
+                                neighbors_occupied = True
+                                break
+                        if not neighbors_occupied:
+                            valid_new_spot = False
+
+                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
+
+                    # Restore
+                    board[(tq, tr)].pop()
+                    if len(board[(tq, tr)]) == 0:
+                        del board[(tq, tr)]
+                    board.setdefault((q, r), []).append(piece)
+
+                    # If good, we add the move
+                    if still_connected_after_placement and valid_new_spot:
+                        actions.append(("MOVE", (q, r), (tq, tr)))
 
         return actions
 
@@ -444,15 +522,13 @@ class HiveGame:
         """
         temp_state = self.copyState(state)
         while not self.isTerminal(temp_state):
-            self.printState(temp_state)
-            sleep(1)
             legal = self.getLegalActions(temp_state)
             if not legal:
                 # No moves => break or treat as terminal
                 break
             action = random.choice(legal)
             temp_state = self.applyAction(temp_state, action)
-            drawStatePygame(temp_state)
+            # drawStatePygame(temp_state)
         return temp_state
 
     # ---------------------------------------------------------
