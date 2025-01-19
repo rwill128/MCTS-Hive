@@ -16,7 +16,7 @@ from mcts.Mcts import MCTS
 
 RATING_DROP_THRESHOLD = 1180     # Agents below this rating are removed
 CHECKPOINT_FREQUENCY = 5         # How often (in rounds) to log current leader
-WEIGHT_SCALE = 400.0             # Scaling factor for selecting a challenger
+WEIGHT_SCALE = 50.0             # Scaling factor for selecting a challenger
 # (higher rating => higher probability to be challenger)
 
 def initialize_elo(agent_count, initial_rating=1200):
@@ -175,15 +175,19 @@ def main():
                 logging.info("Not enough active agents remaining to continue.")
                 break
 
+
+            challengers = list(active_agents)
+            weights = [math.exp(elo_ratings[ch] / WEIGHT_SCALE) for ch in challengers]
+
             # 1. Identify champion: the top-rated agent among active_agents
-            champion_id = max(active_agents, key=lambda aid: elo_ratings[aid])
+            champion_id = random.choices(challengers, weights=weights, k=1)[0]
             champion_desc = describe_agent(champion_id, param_combos, elo_ratings)
 
             # 2. Build list of possible challengers (active, not champion)
-            challengers = list(active_agents - {champion_id})
+
 
             # Weighted random selection:
-            weights = [math.exp(elo_ratings[ch] / WEIGHT_SCALE) for ch in challengers]
+
             challenger_id = random.choices(challengers, weights=weights, k=1)[0]
             challenger_desc = describe_agent(challenger_id, param_combos, elo_ratings)
 
