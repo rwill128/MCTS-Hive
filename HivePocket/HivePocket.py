@@ -348,15 +348,9 @@ class HiveGame:
             # --- SPIDER ---
             elif insectType == "Spider":
                 # 1) Find all cells reachable in EXACTLY 3 steps of empty adjacency
-                spider = board[(q, r)].pop()
-                if not board[(q, r)]:
-                    del board[(q, r)]  # Now the cell is truly empty
-
                 # Now do BFS from (q, r) as if it's an empty cell
-                reachable_3 = self._bfsExactSteps(board, (q, r), steps=3)
+                reachable_3 = self.getSpiderDestinations3StepPath(board, q, r)
 
-                # Restore the spider
-                board.setdefault((q, r), []).append(spider)
 
                 # 2) We typically exclude the original cell (q, r) from the results
                 #    (the BFS code adds it if dist==3 from itself, but that can't happen
@@ -398,9 +392,31 @@ class HiveGame:
                     board.setdefault((q, r), []).append(piece)
 
                     if still_connected_after_placement and valid_new_spot:
-                        actions.append(("MOVE", (q, r), (tq, tr)))
+                        # print("Found a valid spider move")
+                        # print("Drawing original state:")
+                        # drawStatePygame(state)
+                        # temp_state = self._makeTempState(state, board)
+                        valid_spider_move = ("MOVE", (q, r), (tq, tr))
+                        # new_state = self.applyAction(temp_state, valid_spider_move)
+                        # print("Drawing spider move")
+                        # drawStatePygame(new_state)
+                        actions.append(valid_spider_move)
 
         return actions
+
+    def _makeTempState(self, original_state, temp_board):
+        """
+        Helper to create a state object that references the *current* board in progress
+        so we can draw it without mutating the original state object forever.
+        """
+        # We'll copy everything else but override 'board' with temp_board references.
+        temp_state = self.copyState(original_state)
+        # Wipe out the board in the copy, then shallow-copy the temp_board contents.
+        temp_state["board"] = {}
+        for coord, stack in temp_board.items():
+            temp_state["board"][coord] = stack[:]
+        return temp_state
+
 
     def getOtherPlayer(self, currentPlayer):
         """
@@ -436,6 +452,55 @@ class HiveGame:
 
         # If we've visited all occupied cells, the board is connected
         return len(visited) == len(occupied_cells)
+
+    def getSpiderDestinations3StepPath(self, board, start_q, start_r):
+        """
+        Return all cells the Spider can reach in exactly 3 steps
+        (turns are allowed) on empty cells, without revisiting cells.
+        Also commonly you'd do more checks for sliding rules, etc.
+        """
+        # Temporarily remove the Spider from (start_q, start_r)
+        # so BFS sees that cell as empty.
+        piece = board[(start_q, start_r)].pop()
+        if len(board[(start_q, start_r)]) == 0:
+            del board[(start_q, start_r)]
+
+        visited = set()  # We'll store (q, r, steps_remaining, path_so_far)
+        # We start from (start_q, start_r) but that is "empty" now
+        queue = [(start_q, start_r, 3, [])]
+
+        results = set()
+
+        while queue:
+            q, r, steps_left, path_so_far = queue.pop(0)  # BFS => pop(0)
+
+            if steps_left == 0:
+                # We used exactly 3 steps to arrive here
+                # Exclude the original position from final results if you don't want to “stand still”
+                if (q, r) != (start_q, start_r):
+                    results.add((q, r))
+                continue
+
+            # Explore adjacent empty cells
+            for (nq, nr) in self.getAdjacentCells(q, r):
+                # Must be empty and not visited in this path
+                # (nq, nr) not in path_so_far ensures no revisiting
+                if (nq, nr) in board and len(board[(nq, nr)]) > 0:
+                    continue
+
+                if (nq, nr) not in path_so_far:
+                    new_steps = steps_left - 1
+                    new_path = path_so_far + [(nq, nr)]
+                    state_key = (nq, nr, new_steps, tuple(new_path))
+                    if state_key not in visited:
+                        visited.add(state_key)
+                        queue.append((nq, nr, new_steps, new_path))
+
+        # Put the Spider back
+        board.setdefault((start_q, start_r), []).append(piece)
+
+        return results
+
 
     def _bfsExactSteps(self, board, start, steps=3):
         """
