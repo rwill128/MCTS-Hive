@@ -348,7 +348,15 @@ class HiveGame:
             # --- SPIDER ---
             elif insectType == "Spider":
                 # 1) Find all cells reachable in EXACTLY 3 steps of empty adjacency
+                spider = board[(q, r)].pop()
+                if not board[(q, r)]:
+                    del board[(q, r)]  # Now the cell is truly empty
+
+                # Now do BFS from (q, r) as if it's an empty cell
                 reachable_3 = self._bfsExactSteps(board, (q, r), steps=3)
+
+                # Restore the spider
+                board.setdefault((q, r), []).append(spider)
 
                 # 2) We typically exclude the original cell (q, r) from the results
                 #    (the BFS code adds it if dist==3 from itself, but that can't happen
@@ -433,25 +441,40 @@ class HiveGame:
         """
         Return all reachable cells in exactly `steps` steps,
         traveling on empty adjacent cells only.
+
+        Potential issues:
+          1) The starting cell is 'occupied' by the piece itself,
+             so BFS won't move off it unless you temporarily remove the piece.
+          2) LIFO vs. FIFO (the code is using .pop() from a list, which is DFS order)
+             but for 'all reachable cells in exactly X steps', it usually doesn't break the result,
+             as long as you track visited states properly.
+          3) You might want to allow revisiting the same cell at different 'dist' levels.
+             The code does handle that by storing (nq, nr, dist+1) in visited, which is good.
         """
-        visited = set()
+        visited = set()  # will store (q, r, dist)
         q0, r0 = start
         frontier = [(q0, r0, 0)]
         results = set()
 
         while frontier:
-            q, r, dist = frontier.pop()
+            q, r, dist = frontier.pop()  # LIFO => DFS order
             if dist == steps:
+                # Once we hit exactly 'steps' moves, record (q, r) and do NOT expand further
                 results.add((q, r))
                 continue
-            if dist > steps:
+            elif dist > steps:
+                # Shouldn't happen if we check dist before pushing,
+                # but we have a guard anyway
                 continue
 
             for (nq, nr) in self.getAdjacentCells(q, r):
+                # Must be empty to proceed
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
-                    if (nq, nr, dist+1) not in visited:
-                        visited.add((nq, nr, dist+1))
-                        frontier.append((nq, nr, dist+1))
+                    next_state = (nq, nr, dist+1)
+                    if next_state not in visited and dist+1 <= steps:
+                        visited.add(next_state)
+                        frontier.append(next_state)
+
         return results
 
     def _bfsUpToSteps(self, board, start, max_steps=8):
@@ -577,7 +600,7 @@ class HiveGame:
                 break
             action = random.choice(legal)
             temp_state = self.applyAction(temp_state, action)
-            drawStatePygame(temp_state)
+            # drawStatePygame(temp_state)
         return temp_state
 
     # ---------------------------------------------------------
