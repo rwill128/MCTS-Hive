@@ -113,8 +113,8 @@ class HiveGame:
         """
         Returns all legal actions for the current player: placements + moves
         """
-        # return self.placePieceActions(state) + self.movePieceActions(state)
-        return self.placePieceActions(state)
+        return self.placePieceActions(state) + self.movePieceActions(state)
+        # return self.placePieceActions(state)
 
     def placePieceActions(self, state):
         """
@@ -189,7 +189,6 @@ class HiveGame:
 
         return actions
 
-
     def movePieceActions(self, state):
         """
         MOVE actions of the form ("MOVE", (from_q, from_r), (to_q, to_r)).
@@ -206,35 +205,42 @@ class HiveGame:
                 insectType = stack[-1][1]
                 player_cells.append((q, r, insectType))
 
+        # for (q, r, insectType) in player_cells:
+        #     if insectType in ["Queen"]:
+        #         # Move to adjacent empty cell
+        #         for (nq, nr) in self.getAdjacentCells(q, r):
+        #             if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
+        #                 actions.append(("MOVE", (q, r), (nq, nr)))
+
         for (q, r, insectType) in player_cells:
-            if insectType in ["Queen", "Beetle"]:
+            if insectType in ["Beetle"]:
                 # Move to adjacent empty cell
                 for (nq, nr) in self.getAdjacentCells(q, r):
                     if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                         actions.append(("MOVE", (q, r), (nq, nr)))
 
-            elif insectType == "Spider":
-                # Exactly 3 steps along empty neighbors
-                reachable_3 = self._bfsExactSteps(board, (q, r), steps=3)
-                for (dest_q, dest_r) in reachable_3:
-                    if (dest_q, dest_r) != (q, r):
-                        actions.append(("MOVE", (q, r), (dest_q, dest_r)))
-
-            elif insectType == "Ant":
-                # Up to 8 steps along empty neighbors (demo limit)
-                reachable_8 = self._bfsUpToSteps(board, (q, r), max_steps=8)
-                for (dest_q, dest_r) in reachable_8:
-                    if (dest_q, dest_r) != (q, r):
-                        actions.append(("MOVE", (q, r), (dest_q, dest_r)))
-
-            elif insectType == "Grasshopper":
-                # Jump over exactly one occupied cell if next cell is empty
-                for (dq, dr) in self.DIRECTIONS:
-                    over_cell = (q + dq, r + dr)
-                    landing_cell = (q + 2*dq, r + 2*dr)
-                    if (over_cell in board and len(board[over_cell]) > 0
-                            and ((landing_cell not in board) or len(board[landing_cell]) == 0)):
-                        actions.append(("MOVE", (q, r), landing_cell))
+            # elif insectType == "Spider":
+            #     # Exactly 3 steps along empty neighbors
+            #     reachable_3 = self._bfsExactSteps(board, (q, r), steps=3)
+            #     for (dest_q, dest_r) in reachable_3:
+            #         if (dest_q, dest_r) != (q, r):
+            #             actions.append(("MOVE", (q, r), (dest_q, dest_r)))
+            #
+            # elif insectType == "Ant":
+            #     # Up to 8 steps along empty neighbors (demo limit)
+            #     reachable_8 = self._bfsUpToSteps(board, (q, r), max_steps=8)
+            #     for (dest_q, dest_r) in reachable_8:
+            #         if (dest_q, dest_r) != (q, r):
+            #             actions.append(("MOVE", (q, r), (dest_q, dest_r)))
+            #
+            # elif insectType == "Grasshopper":
+            #     # Jump over exactly one occupied cell if next cell is empty
+            #     for (dq, dr) in self.DIRECTIONS:
+            #         over_cell = (q + dq, r + dr)
+            #         landing_cell = (q + 2*dq, r + 2*dr)
+            #         if (over_cell in board and len(board[over_cell]) > 0
+            #                 and ((landing_cell not in board) or len(board[landing_cell]) == 0)):
+            #             actions.append(("MOVE", (q, r), landing_cell))
 
         return actions
 
