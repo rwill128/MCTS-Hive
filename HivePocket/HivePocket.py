@@ -377,11 +377,11 @@ class HiveGame:
                     # (Optional) Check “floating” if you want to ensure
                     # the new location is still adjacent to the hive
                     valid_new_spot = True
-                    # for (xq, xr) in self.getAdjacentCells(tq, tr):
-                    #     if (xq, xr) in board and board[(xq, xr)]:
-                    #         break
-                    # else:
-                    #     valid_new_spot = False
+                    for (xq, xr) in self.getAdjacentCells(tq, tr):
+                        if (xq, xr) in board and board[(xq, xr)]:
+                            break
+                    else:
+                        valid_new_spot = False
 
                     still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
 
@@ -392,14 +392,14 @@ class HiveGame:
                     board.setdefault((q, r), []).append(piece)
 
                     if still_connected_after_placement and valid_new_spot:
-                        print("Found a valid spider move")
-                        print("Drawing original state:")
-                        drawStatePygame(state)
-                        temp_state = self._makeTempState(state, board)
+                        # print("Found a valid spider move")
+                        # print("Drawing original state:")
+                        # drawStatePygame(state)
+                        # temp_state = self._makeTempState(state, board)
                         valid_spider_move = ("MOVE", (q, r), (tq, tr))
-                        new_state = self.applyAction(temp_state, valid_spider_move)
-                        print("Drawing spider move")
-                        drawStatePygame(new_state)
+                        # new_state = self.applyAction(temp_state, valid_spider_move)
+                        # print("Drawing spider move")
+                        # drawStatePygame(new_state)
                         actions.append(valid_spider_move)
 
         return actions
@@ -501,13 +501,13 @@ class HiveGame:
                 # 3) (Optional) If you want to ensure "hugging the hive":
                 #    check that (nextQ, nextR) has at least one occupied neighbor:
                 #
-                # neighbors_occupied = False
-                # for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR):
-                #     if (adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0:
-                #         neighbors_occupied = True
-                #         break
-                # if not neighbors_occupied:
-                #     return  # not hugging the hive => invalid
+                neighbors_occupied = False
+                for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR):
+                    if (adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0:
+                        neighbors_occupied = True
+                        break
+                if not neighbors_occupied:
+                    return  # not hugging the hive => invalid
 
                 path.append((nextQ, nextR))
                 curQ, curR = nextQ, nextR
