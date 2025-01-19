@@ -192,7 +192,9 @@ class HiveGame:
     def movePieceActions(self, state):
         """
         MOVE actions of the form ("MOVE", (from_q, from_r), (to_q, to_r)).
-        Simplified movement for demonstration.
+
+        This example only implements Beetle movement with connectivity checks.
+        Other pieces (Ant, Grasshopper, etc.) are commented out or omitted for brevity.
         """
         board = state["board"]
         player = state["current_player"]
@@ -205,42 +207,63 @@ class HiveGame:
                 insectType = stack[-1][1]
                 player_cells.append((q, r, insectType))
 
-        # for (q, r, insectType) in player_cells:
-        #     if insectType in ["Queen"]:
-        #         # Move to adjacent empty cell
-        #         for (nq, nr) in self.getAdjacentCells(q, r):
-        #             if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
-        #                 actions.append(("MOVE", (q, r), (nq, nr)))
-
         for (q, r, insectType) in player_cells:
-            if insectType in ["Beetle"]:
-                # Move to adjacent empty cell
+            if insectType == "Beetle":
+                # For each adjacent cell to (q,r)
                 for (nq, nr) in self.getAdjacentCells(q, r):
-                    if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
-                        actions.append(("MOVE", (q, r), (nq, nr)))
+                    # A Beetle can move onto an occupied cell (climb on top)
+                    # or onto an empty cell, provided we don't break the hive.
 
-            # elif insectType == "Spider":
-            #     # Exactly 3 steps along empty neighbors
-            #     reachable_3 = self._bfsExactSteps(board, (q, r), steps=3)
-            #     for (dest_q, dest_r) in reachable_3:
-            #         if (dest_q, dest_r) != (q, r):
-            #             actions.append(("MOVE", (q, r), (dest_q, dest_r)))
-            #
-            # elif insectType == "Ant":
-            #     # Up to 8 steps along empty neighbors (demo limit)
-            #     reachable_8 = self._bfsUpToSteps(board, (q, r), max_steps=8)
-            #     for (dest_q, dest_r) in reachable_8:
-            #         if (dest_q, dest_r) != (q, r):
-            #             actions.append(("MOVE", (q, r), (dest_q, dest_r)))
-            #
-            # elif insectType == "Grasshopper":
-            #     # Jump over exactly one occupied cell if next cell is empty
-            #     for (dq, dr) in self.DIRECTIONS:
-            #         over_cell = (q + dq, r + dr)
-            #         landing_cell = (q + 2*dq, r + 2*dr)
-            #         if (over_cell in board and len(board[over_cell]) > 0
-            #                 and ((landing_cell not in board) or len(board[landing_cell]) == 0)):
-            #             actions.append(("MOVE", (q, r), landing_cell))
+                    # -------------------------------
+                    # STEP 1: Remove the Beetle and check connectivity
+                    # -------------------------------
+                    piece = board[(q, r)].pop()  # remove top piece
+                    # If that cell is now empty, remove its entry from board for cleanliness
+                    if len(board[(q, r)]) == 0:
+                        del board[(q, r)]
+
+                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
+
+                    if not still_connected_after_removal:
+                        # Put the piece back and skip this neighbor
+                        board.setdefault((q, r), []).append(piece)
+                        continue
+
+                    # -------------------------------
+                    # STEP 2: Place the Beetle on (nq, nr) temporarily
+                    # -------------------------------
+                    board.setdefault((nq, nr), []).append(piece)
+
+                    # Optionally check that the new location is adjacent to at least one piece
+                    # (to avoid "jumping off" into empty space).
+                    # But if your Beetle can always climb, maybe you skip this.
+                    # We'll do a simplified check:
+                    #   - if (nq, nr) was empty, ensure it has at least one neighbor occupied
+                    #     so the Beetle isn't floating by itself.
+                    valid_new_spot = True
+                    if len(board[(nq, nr)]) == 1:  # means it was empty, now just 1 piece (the Beetle)
+                        neighbors_occupied = False
+                        for (xq, xr) in self.getAdjacentCells(nq, nr):
+                            if (xq, xr) in board and board[(xq, xr)]:
+                                neighbors_occupied = True
+                                break
+                        if not neighbors_occupied:
+                            valid_new_spot = False
+
+                    # Check connectivity after placing
+                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
+
+                    # Restore: remove Beetle from new location
+                    board[(nq, nr)].pop()
+                    if len(board[(nq, nr)]) == 0:
+                        del board[(nq, nr)]
+
+                    # Put the Beetle back in original location
+                    board.setdefault((q, r), []).append(piece)
+
+                    # If the new spot was valid and the board remains connected, we have a legal move
+                    if still_connected_after_placement and valid_new_spot:
+                        actions.append(("MOVE", (q, r), (nq, nr)))
 
         return actions
 
@@ -252,6 +275,32 @@ class HiveGame:
             return "Player2"
         elif currentPlayer == "Player2":
             return "Player1"
+
+    def isBoardConnected(self, board, getAdjacentCells):
+        """
+        Returns True if all occupied cells in 'board' form a single connected
+        component (ignoring empty cells).
+        """
+
+        # Collect all occupied cells
+        occupied_cells = [coord for coord, stack in board.items() if stack]
+        if not occupied_cells:
+            return True  # Empty board or no pieces => trivially "connected" in this simplified logic
+
+        # We'll do a BFS/DFS from the first occupied cell
+        visited = set()
+        to_visit = [occupied_cells[0]]
+        while to_visit:
+            current = to_visit.pop()
+            if current not in visited:
+                visited.add(current)
+                # For each neighbor that is occupied, visit it
+                for (nq, nr) in getAdjacentCells(*current):
+                    if (nq, nr) in board and board[(nq, nr)]:
+                        to_visit.append((nq, nr))
+
+        # If we've visited all occupied cells, the board is connected
+        return len(visited) == len(occupied_cells)
 
     def _bfsExactSteps(self, board, start, steps=3):
         """
