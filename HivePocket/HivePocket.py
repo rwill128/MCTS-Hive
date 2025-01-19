@@ -1,6 +1,7 @@
 import random
-import copy
 from asyncio import sleep
+
+from HivePocket.DrawGame import drawStatePygame
 
 
 class HiveGame:
@@ -369,6 +370,7 @@ class HiveGame:
                 break
             action = random.choice(legal)
             temp_state = self.applyAction(temp_state, action)
+            drawStatePygame(temp_state)
         return temp_state
 
     # ---------------------------------------------------------

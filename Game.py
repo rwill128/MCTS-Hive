@@ -37,8 +37,8 @@ def play_with_mcts():
 
         # Print the updated board
         print(f"Player {current_player} moves at cell {best_move}:")
-        game.printState(state)
-        # sleep(1) # optional: to slow down the output
+
+        sleep(1) # optional: to slow down the output
 
 # Run the match
 if __name__ == "__main__":
