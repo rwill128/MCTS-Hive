@@ -347,59 +347,59 @@ class HiveGame:
 
             # --- SPIDER ---
             elif insectType == "Spider":
-                # 1) Find all cells reachable in EXACTLY 3 steps of empty adjacency
-                # Now do BFS from (q, r) as if it's an empty cell
-                reachable_3 = self.getSpiderDestinations3StepPath(board, q, r)
+                # 1) Temporarily remove the Spider so (q, r) is considered empty
+                piece = board[(q, r)].pop()
+                if len(board[(q, r)]) == 0:
+                    del board[(q, r)]
 
+                # 2) Compute all possible 3-step edge destinations
+                possible_ends = self.getSpiderDestinationsEdge(board, q, r)
 
-                # 2) We typically exclude the original cell (q, r) from the results
-                #    (the BFS code adds it if dist==3 from itself, but that can't happen
-                #     unless there's an odd loop, so just to be safe we filter it out)
-                if (q, r) in reachable_3:
-                    reachable_3.remove((q, r))
+                # 3) Put the Spider back so we can do remove–check–place–check for each end cell
+                board.setdefault((q, r), []).append(piece)
 
-                # 3) For each candidate, do the remove–check–place–check
-                for (tq, tr) in reachable_3:
+                # 4) For each candidate end cell (tq, tr), check connectivity, floating, etc.
+                for (tq, tr) in possible_ends:
+                    # Remove the Spider again
                     piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
                         del board[(q, r)]
 
                     still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
                     if not still_connected_after_removal:
+                        # revert
                         board.setdefault((q, r), []).append(piece)
                         continue
 
-                    # Place Spider
+                    # Place Spider at (tq, tr)
                     board.setdefault((tq, tr), []).append(piece)
 
-                    # Optional adjacency/floating check
+                    # (Optional) Check “floating” if you want to ensure
+                    # the new location is still adjacent to the hive
                     valid_new_spot = True
-                    if len(board[(tq, tr)]) == 1:
-                        neighbors_occupied = False
-                        for (xq, xr) in self.getAdjacentCells(tq, tr):
-                            if (xq, xr) in board and board[(xq, xr)]:
-                                neighbors_occupied = True
-                                break
-                        if not neighbors_occupied:
-                            valid_new_spot = False
+                    # for (xq, xr) in self.getAdjacentCells(tq, tr):
+                    #     if (xq, xr) in board and board[(xq, xr)]:
+                    #         break
+                    # else:
+                    #     valid_new_spot = False
 
                     still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
 
-                    # Restore
+                    # revert
                     board[(tq, tr)].pop()
                     if len(board[(tq, tr)]) == 0:
                         del board[(tq, tr)]
                     board.setdefault((q, r), []).append(piece)
 
                     if still_connected_after_placement and valid_new_spot:
-                        # print("Found a valid spider move")
-                        # print("Drawing original state:")
-                        # drawStatePygame(state)
-                        # temp_state = self._makeTempState(state, board)
+                        print("Found a valid spider move")
+                        print("Drawing original state:")
+                        drawStatePygame(state)
+                        temp_state = self._makeTempState(state, board)
                         valid_spider_move = ("MOVE", (q, r), (tq, tr))
-                        # new_state = self.applyAction(temp_state, valid_spider_move)
-                        # print("Drawing spider move")
-                        # drawStatePygame(new_state)
+                        new_state = self.applyAction(temp_state, valid_spider_move)
+                        print("Drawing spider move")
+                        drawStatePygame(new_state)
                         actions.append(valid_spider_move)
 
         return actions
@@ -453,51 +453,74 @@ class HiveGame:
         # If we've visited all occupied cells, the board is connected
         return len(visited) == len(occupied_cells)
 
-    def getSpiderDestinations3StepPath(self, board, start_q, start_r):
+    def getSpiderDestinationsEdge(self, board, q, r):
         """
-        Return all cells the Spider can reach in exactly 3 steps
-        (turns are allowed) on empty cells, without revisiting cells.
-        Also commonly you'd do more checks for sliding rules, etc.
-        """
-        # Temporarily remove the Spider from (start_q, start_r)
-        # so BFS sees that cell as empty.
-        piece = board[(start_q, start_r)].pop()
-        if len(board[(start_q, start_r)]) == 0:
-            del board[(start_q, start_r)]
+        Spider moves exactly 3 steps around the edge of the hive,
+        in one rotational direction (clockwise or counterclockwise)
+        without revisiting tiles.
 
-        visited = set()  # We'll store (q, r, steps_remaining, path_so_far)
-        # We start from (start_q, start_r) but that is "empty" now
-        queue = [(start_q, start_r, 3, [])]
+        - We define 6 directions in a clockwise order.
+        - For each direction i, we try:
+            - turning consistently "clockwise" (directionIncrement=+1)
+            - turning consistently "counterclockwise" (directionIncrement=-1)
+        - We do exactly 3 steps, skipping any path that hits an occupied cell
+          or tries to revisit a cell on the same path.
+        """
+
+        # 6 directions in "clockwise" order
+        directions = [(1, 0), (1, -1), (0, -1),
+                      (-1, 0), (-1, 1), (0, 1)]
 
         results = set()
 
-        while queue:
-            q, r, steps_left, path_so_far = queue.pop(0)  # BFS => pop(0)
+        def tryPath(startQ, startR, startDirIndex, directionIncrement):
+            """
+            Attempt a 3-step crawl from (startQ, startR).
+            At each step we rotate the direction index by +1 or -1,
+            move there if it's empty, and stop if blocked.
+            """
+            path = [(startQ, startR)]
+            curQ, curR = startQ, startR
+            dirIndex = startDirIndex
 
-            if steps_left == 0:
-                # We used exactly 3 steps to arrive here
-                # Exclude the original position from final results if you don't want to “stand still”
-                if (q, r) != (start_q, start_r):
-                    results.add((q, r))
-                continue
+            for _ in range(3):
+                # Rotate direction index
+                dirIndex = (dirIndex + directionIncrement) % 6
+                dQ, dR = directions[dirIndex]
+                nextQ = curQ + dQ
+                nextR = curR + dR
 
-            # Explore adjacent empty cells
-            for (nq, nr) in self.getAdjacentCells(q, r):
-                # Must be empty and not visited in this path
-                # (nq, nr) not in path_so_far ensures no revisiting
-                if (nq, nr) in board and len(board[(nq, nr)]) > 0:
-                    continue
+                # 1) Must be empty
+                if (nextQ, nextR) in board and len(board[(nextQ, nextR)]) > 0:
+                    return  # blocked by occupied cell
 
-                if (nq, nr) not in path_so_far:
-                    new_steps = steps_left - 1
-                    new_path = path_so_far + [(nq, nr)]
-                    state_key = (nq, nr, new_steps, tuple(new_path))
-                    if state_key not in visited:
-                        visited.add(state_key)
-                        queue.append((nq, nr, new_steps, new_path))
+                # 2) Must not revisit the same cell in this path
+                if (nextQ, nextR) in path:
+                    return  # would revisit same tile => stop
 
-        # Put the Spider back
-        board.setdefault((start_q, start_r), []).append(piece)
+                # 3) (Optional) If you want to ensure "hugging the hive":
+                #    check that (nextQ, nextR) has at least one occupied neighbor:
+                #
+                # neighbors_occupied = False
+                # for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR):
+                #     if (adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0:
+                #         neighbors_occupied = True
+                #         break
+                # if not neighbors_occupied:
+                #     return  # not hugging the hive => invalid
+
+                path.append((nextQ, nextR))
+                curQ, curR = nextQ, nextR
+
+            # If we get here, we completed 3 steps
+            # The final cell (curQ, curR) is a valid end-position
+            results.add((curQ, curR))
+
+        # Try each of the 6 directions as a "starting orientation,"
+        # in both clockwise (+1) and counterclockwise (-1) modes:
+        for i in range(6):
+            tryPath(q, r, i, +1)  # clockwise
+            tryPath(q, r, i, -1)  # counterclockwise
 
         return results
 
