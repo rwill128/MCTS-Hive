@@ -137,7 +137,9 @@ def main():
                         lose_reward=l,
                         draw_reward=d,
                         c_param=c,
-                        num_iterations=5000  # Adjust as desired
+                        num_iterations=1000,
+                        do_forced_move_check=True,
+                        forced_check_depth=6# Adjust as desired
                     )
                     param_combos.append((c, w, l, d, agent))
 
