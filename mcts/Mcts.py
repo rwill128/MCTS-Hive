@@ -156,7 +156,7 @@ class MCTS:
             outcome = self.game.getGameOutcome(final_state)
             self._backpropagate(node, final_state, root_node, outcome)
 
-        print("Actions info: " + str(root_node.children))
+        # print("Actions info: " + str(root_node.children))
 
         best_action, best_child = self._best_action(root_node)
         return best_action

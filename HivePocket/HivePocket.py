@@ -149,8 +149,10 @@ class HiveGame:
         # (Though in real Hive rules, you'd also check adjacency to the opponent's piece.)
         if len(board) == 1:
             for insectType, count in pieces_in_hand.items():
-                if count > 0:
+                if count > 0 and (0, 1) not in board:
                     actions.append(("PLACE", insectType, (0, 1)))
+                elif count > 0 and (0, 0) not in board:
+                    actions.append(("PLACE", insectType, (0, 0)))
             return actions
 
         # --------------------------
