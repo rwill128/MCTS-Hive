@@ -113,7 +113,8 @@ class HiveGame:
         """
         Returns all legal actions for the current player: placements + moves
         """
-        return self.placePieceActions(state) + self.movePieceActions(state)
+        # return self.placePieceActions(state) + self.movePieceActions(state)
+        return self.placePieceActions(state)
 
     def placePieceActions(self, state):
         """

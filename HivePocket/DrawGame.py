@@ -2,9 +2,6 @@ import pygame
 import sys
 import math
 
-from HivePocket.HivePocket import HiveGame
-
-
 def axial_to_pixel(q, r, hex_size):
     """
     Convert axial coords (q,r) to pixel (x,y).
@@ -38,24 +35,25 @@ def hex_corners(x, y, size):
 
 def draw_hex(surface, x, y, size, color=(200, 200, 200), width=2):
     """
-    Draw a hex outline (or filled hex) on surface.
-    `width=0` => filled hex. Nonzero => just outline.
+    Draw a hex on the surface with center at (x,y).
+    - color: fill color if width=0, or line color if width>0.
+    - width=0 => filled hex. Nonzero => just outline.
     """
     corners = hex_corners(x, y, size)
     pygame.draw.polygon(surface, color, corners, width)
 
-def draw_piece_label(surface, x, y, piece, font):
+def draw_piece_label(surface, x, y, piece, font, text_color=(0,0,0)):
     """
-    Draw the piece label (e.g. "P1-Q" for Player1 Queen) at hex center.
+    Draw the piece label (e.g. "P1-Q" for Player1 Queen) at hex center in text_color.
     """
-    label_surf = font.render(piece, True, (0,0,0))
+    label_surf = font.render(piece, True, text_color)
     label_rect = label_surf.get_rect(center=(x, y))
     surface.blit(label_surf, label_rect)
 
 def get_board_bounds(board):
     """
-    Given board dict {(q,r): [(player, insectType), ...], ...},
-    return minQ, maxQ, minR, maxR to help us know how large the grid is.
+    Given a board dict {(q,r): [(player, insectType), ...], ...},
+    return minQ, maxQ, minR, maxR for bounding the displayed region.
     """
     if not board:
         return (0, 0, 0, 0)
@@ -66,7 +64,11 @@ def get_board_bounds(board):
 
 def drawStatePygame(state, hex_size=40, window_padding=50):
     """
-    Opens a pygame window and draws the board in 2D.
+    Opens a pygame window and draws the board in 2D, color-coded:
+      - Player1 => Yellow hex
+      - Player2 => Red hex
+      - Empty cell => White hex
+    Shows top piece label in the center (black text).
     Closes when you press the window's close button.
     """
     board = state["board"]
@@ -76,8 +78,8 @@ def drawStatePygame(state, hex_size=40, window_padding=50):
     width_range  = maxQ - minQ + 1
     height_range = maxR - minR + 1
 
-    # Estimate a window size
-    # Each hex ~ (sqrt(3)*hex_size) wide, (1.5*hex_size) tall in pointy-top layout
+    # Estimate window size:
+    # Each hex ~ (sqrt(3)*hex_size) wide and (1.5*hex_size) tall in pointy-top layout
     est_width  = int(width_range  * math.sqrt(3) * hex_size + 2 * window_padding)
     est_height = int(height_range * 1.5         * hex_size + 2 * window_padding)
 
@@ -85,62 +87,52 @@ def drawStatePygame(state, hex_size=40, window_padding=50):
     screen = pygame.display.set_mode((est_width, est_height))
     pygame.display.set_caption("Hive Board Visualization")
 
-    # For drawing text onto each hex
     font = pygame.font.SysFont(None, 20)
 
     # Fill background
     screen.fill((255, 255, 255))
 
-    # Draw all cells
+    # Draw each cell in board
     for (q, r), stack in board.items():
-        # Convert axial to pixel
+        # Convert (q, r) to pixel, offset by minQ/minR so we start at 0,0
         px, py = axial_to_pixel(q - minQ, r - minR, hex_size)
-        # Shift by window_padding so everything is visible
         px += window_padding
         py += window_padding
 
-        # Draw the hex (just an outline here)
-        draw_hex(screen, px, py, hex_size, color=(0, 0, 0), width=2)
-
         if stack:
-            # If there's a stack, draw top piece or show a stack indicator
-            # For simplicity, just label the top piece with "P1-Q", etc.
+            # Color for top piece
             top_piece = stack[-1]
             player, insectType = top_piece
-            piece_label = f"{player[-1]}-{insectType[0]}"  # e.g. "1-Q" or "2-S" (for Spider)
+
+            if player == "Player1":
+                fill_color = (255, 255, 0)   # Yellow
+            else:
+                fill_color = (255, 0, 0)     # Red
+
+            # First draw a filled hex in player's color
+            draw_hex(screen, px, py, hex_size, color=fill_color, width=0)
+            # Then draw an outline
+            draw_hex(screen, px, py, hex_size, color=(0, 0, 0), width=2)
+
+            # Build label, e.g. "1-Q(+2)" if there's a stack
+            piece_label = f"{player[-1]}-{insectType[0]}"
             if len(stack) > 1:
-                piece_label += f"(+{len(stack)-1})"  # e.g. "1-Q(+2)" if more pieces in stack
+                piece_label += f"(+{len(stack)-1})"
             draw_piece_label(screen, px, py, piece_label, font)
+
+        else:
+            # Empty cell => white fill
+            draw_hex(screen, px, py, hex_size, color=(255, 255, 255), width=0)
+            draw_hex(screen, px, py, hex_size, color=(0, 0, 0), width=2)
 
     # Flip the display to update
     pygame.display.flip()
 
-    # Main loop: wait until user closes
+    # Wait until user closes window
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-        # Could add more interactive features here if you like
 
     pygame.quit()
-
-
-# -------------- Example usage: --------------
-if __name__ == "__main__":
-    import random
-
-    game = HiveGame()
-    state = game.getInitialState()
-
-    # Make a few random placements so there's something to see
-    # (You can replace this logic with real game logic)
-    for _ in range(5):
-        actions = game.getLegalActions(state)
-        place_actions = [a for a in actions if a[0] == "PLACE"]
-        if not place_actions:
-            break
-        action = random.choice(place_actions)
-        state = game.applyAction(state, action)
-
-    drawStatePygame(state)
