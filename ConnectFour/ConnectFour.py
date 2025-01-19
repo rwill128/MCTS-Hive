@@ -107,6 +107,16 @@ class ConnectFourGame:
         """
         return state["current_player"]
 
+    def getOtherPlayer(self, currentPlayer):
+        """
+        Returns the current player to move ('Player1' or 'Player2').
+        """
+        if currentPlayer == "Player1":
+            return "Player2"
+        elif currentPlayer == "Player2":
+            return "Player1"
+
+
     def simulateRandomPlayout(self, state):
         """
         Simulates a random playout from the given state until the game ends.

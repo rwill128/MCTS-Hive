@@ -16,7 +16,7 @@ from mcts.Mcts import MCTS
 
 RATING_DROP_THRESHOLD = 1180     # Agents below this rating are removed
 CHECKPOINT_FREQUENCY = 5         # How often (in rounds) to log current leader
-WEIGHT_SCALE = 50.0             # Scaling factor for selecting a challenger
+WEIGHT_SCALE = 20             # Scaling factor for selecting a challenger
 # (higher rating => higher probability to be challenger)
 
 def initialize_elo(agent_count, initial_rating=1200):
@@ -137,7 +137,7 @@ def main():
                         lose_reward=l,
                         draw_reward=d,
                         c_param=c,
-                        num_iterations=1000  # Adjust as desired
+                        num_iterations=5000  # Adjust as desired
                     )
                     param_combos.append((c, w, l, d, agent))
 
