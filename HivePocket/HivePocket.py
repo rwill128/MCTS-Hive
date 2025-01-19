@@ -118,9 +118,15 @@ class HiveGame:
 
     def placePieceActions(self, state):
         """
-        PLACE actions of the form ("PLACE", insectType, (q, r))
+        PLACE actions of the form ("PLACE", insectType, (q, r)).
+
+        - If the board is empty, place anywhere (simplified => fix at (0,0)).
+        - If the board has exactly 1 cell, place at (0,1) (demo simplification).
+        - Otherwise, you must place adjacent to at least one friendly piece
+          AND you cannot place adjacent to any enemy piece.
         """
         player = state["current_player"]
+        opponent = self.getOpponent(player)
         board = state["board"]
         pieces_in_hand = state["pieces_in_hand"][player]
         actions = []
@@ -129,40 +135,60 @@ class HiveGame:
         if all(count == 0 for count in pieces_in_hand.values()):
             return actions
 
-        # If the board is empty, place anywhere — fix at (0,0) for simplicity.
+        # If the board is empty => place at (0,0).
         if len(board) == 0:
             for insectType, count in pieces_in_hand.items():
                 if count > 0:
                     actions.append(("PLACE", insectType, (0, 0)))
             return actions
 
+        # If the board has exactly 1 cell => place at (0,1) for demo's sake
+        # (Though in real Hive rules, you'd also check adjacency to the opponent's piece.)
         if len(board) == 1:
             for insectType, count in pieces_in_hand.items():
                 if count > 0:
                     actions.append(("PLACE", insectType, (0, 1)))
             return actions
 
-        # Otherwise, must place adjacent to at least one friendly piece
-        # (Simplified check: any stack that contains at least one piece of current_player.)
+        # --------------------------
+        # Otherwise, the normal rule:
+        # - Must place adjacent to at least one friendly piece.
+        # - Cannot be adjacent to any enemy piece.
+        # --------------------------
+
+        # 1. Identify all 'friendly_cells' that contain at least one piece of the current_player.
         friendly_cells = set()
         for (q, r), stack in board.items():
             if any(p[0] == player for p in stack):
                 friendly_cells.add((q, r))
 
+        # 2. Build a set of potential_spots by taking all empty cells adjacent to those friendly_cells.
         potential_spots = set()
         for (q, r) in friendly_cells:
             for (nq, nr) in self.getAdjacentCells(q, r):
-                # If that cell is empty, we can place there
+                # If that cell is empty, it is a candidate
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                     potential_spots.add((nq, nr))
 
-        # For each piece in hand, for each potential spot
+        # 3. Filter out any spot that is adjacent to an enemy piece.
+        valid_spots = []
+        for (tq, tr) in potential_spots:
+            adjacent_to_enemy = False
+            for (nq, nr) in self.getAdjacentCells(tq, tr):
+                if (nq, nr) in board and any(p[0] == opponent for p in board[(nq, nr)]):
+                    adjacent_to_enemy = True
+                    break
+            if not adjacent_to_enemy:
+                valid_spots.append((tq, tr))
+
+        # 4. For each piece in hand, add place-actions at these valid_spots.
         for insectType, count in pieces_in_hand.items():
             if count > 0:
-                for (tq, tr) in potential_spots:
+                for (tq, tr) in valid_spots:
                     actions.append(("PLACE", insectType, (tq, tr)))
 
         return actions
+
 
     def movePieceActions(self, state):
         """
