@@ -14,7 +14,7 @@ logging.basicConfig(
 from ConnectFour.ConnectFour import ConnectFourGame
 from mcts.Mcts import MCTS
 
-RATING_DROP_THRESHOLD = 1180     # Agents below this rating are removed
+RATING_DROP_THRESHOLD = 1190     # Agents below this rating are removed
 CHECKPOINT_FREQUENCY = 5         # How often (in rounds) to log current leader
 WEIGHT_SCALE = 20             # Scaling factor for selecting a challenger
 # (higher rating => higher probability to be challenger)
@@ -116,9 +116,9 @@ def describe_agent(agent_id, param_combos, elo_ratings):
     """
     Returns a string describing one agent: its ID, parameters, and Elo rating.
     """
-    c, w, l, d, _ = param_combos[agent_id]
+    c, w, l, d, p, i, _ = param_combos[agent_id]
     rating = elo_ratings[agent_id]
-    return f"Agent#{agent_id} [c={c}, w={w}, l={l}, d={d}, ELO={rating:.1f}]"
+    return f"Agent#{agent_id} [c={c}, w={w}, l={l}, d={d}, search_depth={p}, iterations={i} ELO={rating:.1f}]"
 
 def main():
     # Create the base game object
@@ -130,21 +130,22 @@ def main():
         for w in [1, 2, 5]:
             for l in [-1, -3, -10, -100]:
                 for d in [0, 0.1, 0.5]:
-                    # Build an MCTS agent
-                    agent = MCTS(
-                        game=game,
-                        win_reward=w,
-                        lose_reward=l,
-                        draw_reward=d,
-                        c_param=c,
-                        num_iterations=1000,
-                        do_forced_move_check=True,
-                        forced_check_depth=6# Adjust as desired
-                    )
-                    param_combos.append((c, w, l, d, agent))
+                    for p in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]:
+                        for i in [10, 50, 500, 5000]:
+                            # Build an MCTS agent
+                            agent = MCTS(
+                                game=game,
+                                win_reward=w,
+                                lose_reward=l,
+                                draw_reward=d,
+                                c_param=c,
+                                num_iterations=i,
+                                forced_check_depth=p
+                            )
+                            param_combos.append((c, w, l, d, p, i, agent))
 
     # 2) Extract just the agent objects in a list
-    agents = [combo[4] for combo in param_combos]
+    agents = [combo[6] for combo in param_combos]
     agent_count = len(agents)
     logging.info(f"Created {agent_count} agents with distinct parameter combos.")
 

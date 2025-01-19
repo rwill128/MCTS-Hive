@@ -17,7 +17,7 @@ def play_tictactoe_mcts():
                 lose_reward=-1,
                 num_iterations=2000,
                 c_param=1.0,
-                forced_check_depth=6)
+                forced_check_depth=9)
 
     # Start from the initial state
     state = game.getInitialState()
