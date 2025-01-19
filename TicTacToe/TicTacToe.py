@@ -61,6 +61,34 @@ class TicTacToeGame:
         else:
             return -1000
 
+    def getGameOutcome(self, state):
+        """
+        Returns a string describing the outcome of the game if terminal:
+          - "Player1" if Player1 has won
+          - "Player2" if Player2 has won
+          - "Draw" if the board is full and no one has won
+          - None if the game is not yet terminal
+        """
+        winner = self._checkWinner(state)
+        terminal = self.isTerminal(state)
+
+        if not terminal:
+            return None
+
+        if winner is None:
+            return "Draw"
+        else:
+            return winner
+
+    def getOtherPlayer(self, currentPlayer):
+        """
+        Returns the current player to move ('Player1' or 'Player2').
+        """
+        if currentPlayer == "O":
+            return "X"
+        elif currentPlayer == "X":
+            return "O"
+
     def getCurrentPlayer(self, state):
         """
         Returns the current player to move ('X' or 'O').
