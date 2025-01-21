@@ -3,6 +3,25 @@ from asyncio import sleep
 
 from HivePocket.DrawGame import drawStatePygame
 
+def hex_distance(q1, r1, q2, r2):
+    """
+    Compute the hex distance between two axial coordinates (q1, r1) and (q2, r2).
+    """
+    x1, z1 = q1, r1
+    y1 = -x1 - z1
+    x2, z2 = q2, r2
+    y2 = -x2 - z2
+    return (abs(x1 - x2) + abs(y1 - y2) + abs(z1 - z2)) // 2
+
+def find_queen_position(board, player):
+    """
+    Look for the given player's Queen on the board. Return (q, r) or None if not found.
+    """
+    for (q, r), stack in board.items():
+        for piece_owner, piece_type in stack:
+            if piece_owner == player and piece_type == "Queen":
+                return (q, r)
+    return None
 
 class HiveGame:
     """
@@ -193,6 +212,76 @@ class HiveGame:
                     actions.append(("PLACE", insectType, (tq, tr)))
 
         return actions
+
+    def getAntDestinationsEdge(self, board, q, r, max_steps=20):
+        """
+        Ant moves up to `max_steps` steps (default 20) around the edge of the hive,
+        in one rotational direction (clockwise or counterclockwise),
+        without revisiting tiles and 'hugging' the hive each step.
+
+        Similar to getSpiderDestinationsEdge, but we allow 1..max_steps steps.
+
+        We'll add every reachable *intermediate* cell to our results, so the
+        ant can stop after 1 step, 2 steps, etc., up to 20 steps.
+        """
+
+        # 6 directions in "clockwise" order
+        directions = [(1, 0), (1, -1), (0, -1),
+                      (-1, 0), (-1, 1), (0, 1)]
+
+        results = set()
+
+        def tryPath(startQ, startR, startDirIndex, directionIncrement):
+            """
+            Attempt a crawl from (startQ, startR), turning consistently left (+1)
+            or right (-1) at each step, for up to max_steps steps.
+
+            We'll record every new cell we land on as a valid "end" position.
+            """
+            path = [(startQ, startR)]
+            curQ, curR = startQ, startR
+            dirIndex = startDirIndex
+
+            for step in range(max_steps):
+                # Rotate direction index
+                dirIndex = (dirIndex + directionIncrement) % 6
+                dQ, dR = directions[dirIndex]
+                nextQ = curQ + dQ
+                nextR = curR + dR
+
+                # 1) Must be empty
+                if (nextQ, nextR) in board and len(board[(nextQ, nextR)]) > 0:
+                    return  # blocked by occupied cell => stop searching in this path
+
+                # 2) Must not revisit the same cell in this path
+                if (nextQ, nextR) in path:
+                    return  # we looped back or revisited => stop
+
+                # 3) "Hug the hive": ensure next cell is adjacent to at least one occupied cell
+                neighbors_occupied = False
+                for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR):
+                    if (adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0:
+                        neighbors_occupied = True
+                        break
+                if not neighbors_occupied:
+                    return  # not hugging the hive => invalid
+
+                # Accept this next cell as a valid "end position" for the Ant
+                # because it can stop anywhere along the way.
+                results.add((nextQ, nextR))
+
+                # Continue crawling
+                path.append((nextQ, nextR))
+                curQ, curR = nextQ, nextR
+
+        # Try each of the 6 directions as a "starting orientation,"
+        # in both clockwise (+1) and counterclockwise (-1) modes.
+        for i in range(6):
+            tryPath(q, r, i, +1)  # clockwise
+            tryPath(q, r, i, -1)  # counterclockwise
+
+        return results
+
 
     def getGrasshopperJumps(self, board, q, r):
         """
@@ -403,6 +492,53 @@ class HiveGame:
                         # print("Drawing spider move")
                         # drawStatePygame(new_state)
                         actions.append(valid_spider_move)
+            elif insectType == "Ant":
+                # 1) Temporarily remove the Ant so (q, r) is considered empty
+                piece = board[(q, r)].pop()
+                if len(board[(q, r)]) == 0:
+                    del board[(q, r)]
+
+                # 2) Compute all possible (up to 20-step) edge destinations
+                possible_ends = self.getAntDestinationsEdge(board, q, r, max_steps=20)
+
+                # 3) Put the Ant back so we can do remove–check–place–check for each end cell
+                board.setdefault((q, r), []).append(piece)
+
+                # 4) For each candidate end cell (tq, tr), check connectivity, floating, etc.
+                for (tq, tr) in possible_ends:
+                    # Remove the Ant again
+                    piece = board[(q, r)].pop()
+                    if len(board[(q, r)]) == 0:
+                        del board[(q, r)]
+
+                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
+                    if not still_connected_after_removal:
+                        # revert
+                        board.setdefault((q, r), []).append(piece)
+                        continue
+
+                    # Place Ant at (tq, tr)
+                    board.setdefault((tq, tr), []).append(piece)
+
+                    # (Optional) Check “floating” if you want to ensure
+                    # the new location is still adjacent to the hive
+                    valid_new_spot = True
+                    for (xq, xr) in self.getAdjacentCells(tq, tr):
+                        if (xq, xr) in board and board[(xq, xr)]:
+                            break
+                    else:
+                        valid_new_spot = False
+
+                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
+
+                    # revert
+                    board[(tq, tr)].pop()
+                    if len(board[(tq, tr)]) == 0:
+                        del board[(tq, tr)]
+                    board.setdefault((q, r), []).append(piece)
+
+                    if still_connected_after_placement and valid_new_spot:
+                        actions.append(("MOVE", (q, r), (tq, tr)))
 
         return actions
 
@@ -526,6 +662,69 @@ class HiveGame:
 
         return results
 
+    def weightedActionChoice(self, state, actions):
+        """
+        Among 'actions', pick one according to how close
+        it ends up to the enemy queen. Closer => higher weight.
+        """
+        board = state["board"]
+        current_player = state["current_player"]
+        enemy_player = self.getOpponent(current_player)
+
+        # Find the enemy queen position
+        enemy_queen_pos = find_queen_position(board, enemy_player)
+
+        # If we cannot find the enemy queen (not yet placed?), fall back to uniform random
+        if enemy_queen_pos is None:
+            return random.choice(actions)
+
+        (eq_q, eq_r) = enemy_queen_pos
+
+        # Build up (action, weight) pairs
+        weighted_moves = []
+        for action in actions:
+            # Determine the final location of the piece after this action
+            if action[0] == "PLACE":
+                # ("PLACE", insectType, (q, r))
+                _, insectType, (q, r) = action
+                final_q, final_r = q, r
+            elif action[0] == "MOVE":
+                # ("MOVE", (from_q, from_r), (to_q, to_r))
+                _, (fq, fr), (tq, tr) = action
+                final_q, final_r = tq, tr
+            else:
+                # Safety fallback
+                final_q, final_r = 0, 0
+
+            dist = hex_distance(final_q, final_r, eq_q, eq_r)
+            # Define a weighting scheme: closer to enemy queen => bigger weight
+            # For example, 1/(1+dist). If dist=0 is possible, it yields weight=1.
+            # You can tweak the formula to be more or less steep.
+            steepness = 2.0  # Increase this value for even steeper weighting
+            weight = 1.0 / (1.0 + steepness * dist**2)
+
+
+            weighted_moves.append((action, weight))
+
+        # Normalize weights into a probability distribution
+        total_weight = sum(w for (_, w) in weighted_moves)
+        if total_weight == 0.0:
+            # Edge case: if something breaks or all distances are infinite.
+            return random.choice(actions)
+
+        # "Roulette wheel" selection
+        # or you could use random.choices in Python 3.6+ with 'weights='
+        # e.g. random.choices(population=..., weights=..., k=1)
+        # We'll do a manual approach:
+        rnd = random.random() * total_weight
+        cumulative = 0.0
+        for (act, w) in weighted_moves:
+            cumulative += w
+            if rnd < cumulative:
+                return act
+
+        # Fallback (should rarely happen due to floating rounding)
+        return actions[-1]
 
     def _bfsExactSteps(self, board, start, steps=3):
         """
@@ -680,17 +879,24 @@ class HiveGame:
 
     def simulateRandomPlayout(self, state):
         """
-        Playout from 'state' by choosing random legal actions until terminal.
+        Playout from 'state' using weighted-random selection of moves
+        biased by closeness to enemy queen, until terminal.
         """
         temp_state = self.copyState(state)
+
         while not self.isTerminal(temp_state):
             legal = self.getLegalActions(temp_state)
             if not legal:
-                # No moves => break or treat as terminal
-                break
-            action = random.choice(legal)
+                break  # No moves => treat as terminal.
+
+            # Weighted random pick among moves
+            action = self.weightedActionChoice(temp_state, legal)
+
+            # Apply that move
             temp_state = self.applyAction(temp_state, action)
+
             # drawStatePygame(temp_state)
+
         return temp_state
 
     # ---------------------------------------------------------
