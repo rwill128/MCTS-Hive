@@ -165,7 +165,7 @@ def get_human_move(state, game, screen):
             if selected_origin is not None:
                 for dest in highlighted_destinations:
                     center = hex_to_pixel(*dest)
-                    pygame.draw.circle(screen, (255, 0, 0), center, HEX_SIZE // 2, 3)
+                    pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
                 pygame.display.flip()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -211,7 +211,7 @@ def get_human_move(state, game, screen):
                                 draw_hive_board(state, screen)
                                 for dest in highlighted_destinations:
                                     center = hex_to_pixel(*dest)
-                                    pygame.draw.circle(screen, (255, 0, 0), center, HEX_SIZE // 2, 3)
+                                    pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
                                 pygame.display.flip()
                     # If a piece is already selected, accept only clicks on a highlighted destination.
                     elif selected_origin is not None:
@@ -235,9 +235,9 @@ def play_with_mcts():
                 draw_reward=0.1,
                 win_reward=1,
                 lose_reward=-1,
-                num_iterations=3,
+                num_iterations=2,
                 c_param=1.4,
-                forced_check_depth=2)
+                forced_check_depth=0)
     state = game.getInitialState()
     print("Initial board:")
     game.printState(state)
