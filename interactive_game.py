@@ -246,38 +246,67 @@ def get_human_move(state, game, screen):
 
 def draw_heatmap(root_node, screen):
     """
-    Draws a heatmap overlay on the board based on the visit counts
-    of the moves from the root node.
-    Assumes that you already have a function draw_hive_board(state, screen)
-    that draws the base board.
+    Draws the board (using draw_hive_board) and then overlays, on each cell
+    corresponding to a move from the root node's children, a semi-transparent
+    color (from white to red based on visit count) and a text label showing:
+      - The move type,
+      - The visit count,
+      - The average value.
     """
-    # First, draw the base board.
+    # First, draw the base board using your existing drawing routine.
     draw_hive_board(root_node.state, screen)
 
+    # If there are no children, nothing more to do.
     if not root_node.children:
         pygame.display.flip()
         return
 
-    # Determine the maximum visit count among root node children.
+    # Determine the maximum visit count among the children for normalization.
     max_visits = max(child.visit_count for child in root_node.children.values())
     if max_visits == 0:
-        max_visits = 100
+        max_visits = 1
+
+    # Create a font for rendering text.
+    font = pygame.font.SysFont(None, 20)
 
     for action, child in root_node.children.items():
-        # Assume that for both PLACE and MOVE actions, action[2] is the destination cell.
+        # For both MOVE and PLACE actions, assume the destination is action[2].
         target = action[2]
         ratio = child.visit_count / max_visits  # 0 (least visited) to 1 (most visited)
-        # Interpolate color from white to red.
+        # Interpolate from white (low visits) to red (high visits)
         red = 255
         green = int(255 * (1 - ratio))
         blue = int(255 * (1 - ratio))
-        overlay_color = (red, green, blue, 100)  # RGBA with alpha=100 for transparency.
+        overlay_color = (red, green, blue, 100)  # with alpha=100 for transparency
+
+        # Compute the polygon for the target cell.
         center = hex_to_pixel(*target)
         corners = polygon_corners(center, HEX_SIZE)
         # Create an overlay surface with per-pixel alpha.
         overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         pygame.draw.polygon(overlay, overlay_color, corners, 0)
         screen.blit(overlay, (0, 0))
+
+        # Compute average value if available.
+        if child.visit_count > 0:
+            avg_value = child.total_value / child.visit_count
+        else:
+            avg_value = 0
+
+        # Construct a label string based on the action type.
+        if action[0] == "PLACE":
+            move_str = f"{action[0]} {action[1]}"
+        elif action[0] == "MOVE":
+            move_str = f"{action[0]} {action[1]} -> {action[2]}"
+        else:
+            move_str = ""
+
+        # Build the complete label string.
+        label = f"{move_str} | V:{child.visit_count} | Avg:{avg_value:.2f}"
+        text_surface = font.render(label, True, (0, 0, 0))
+        text_rect = text_surface.get_rect(center=center)
+        screen.blit(text_surface, text_rect)
+
     pygame.display.flip()
 
 
