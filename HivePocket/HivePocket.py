@@ -122,31 +122,18 @@ class HiveGame:
         return actions
 
     def placePieceActions(self, state):
-        """
-        PLACE actions of the form ("PLACE", insectType, (q, r)).
-        - If the board is empty, place anywhere (simplified => fix at (0,0)).
-        - If the board has exactly 1 cell, place at (0,1) (demo simplification).
-        - Otherwise, you must place adjacent to at least one friendly piece
-          AND you cannot place adjacent to any enemy piece.
-        """
         player = state["current_player"]
         opponent = self.getOpponent(player)
         board = state["board"]
         pieces_in_hand = state["pieces_in_hand"][player]
         actions = []
-
-        # If the player has no pieces left to place, skip.
         if all(count == 0 for count in pieces_in_hand.values()):
             return actions
-
-        # If the board is empty => place at (0,0).
         if len(board) == 0:
             for insectType, count in pieces_in_hand.items():
                 if count > 0:
                     actions.append(("PLACE", insectType, (0, 0)))
             return actions
-
-        # If the board has exactly 1 cell => place at (0,1) for demo's sake.
         if len(board) == 1:
             for insectType, count in pieces_in_hand.items():
                 if count > 0 and (0, 1) not in board:
@@ -154,19 +141,15 @@ class HiveGame:
                 elif count > 0 and (0, 0) not in board:
                     actions.append(("PLACE", insectType, (0, 0)))
             return actions
-
-        # Otherwise, normal placement rules.
         friendly_cells = set()
         for (q, r), stack in board.items():
             if any(p[0] == player for p in stack):
                 friendly_cells.add((q, r))
-
         potential_spots = set()
         for (q, r) in friendly_cells:
             for (nq, nr) in self.getAdjacentCells(q, r):
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                     potential_spots.add((nq, nr))
-
         valid_spots = []
         for (tq, tr) in potential_spots:
             adjacent_to_enemy = False
@@ -176,12 +159,10 @@ class HiveGame:
                     break
             if not adjacent_to_enemy:
                 valid_spots.append((tq, tr))
-
         for insectType, count in pieces_in_hand.items():
             if count > 0:
                 for (tq, tr) in valid_spots:
                     actions.append(("PLACE", insectType, (tq, tr)))
-
         return actions
 
     def getAntDestinationsEdge(self, board, q, r, max_steps=20):
@@ -246,33 +227,27 @@ class HiveGame:
 
     def movePieceActions(self, state):
         """
-        MOVE actions of the form ("MOVE", (from_q, from_r), (to_q, to_r)).
-        Implements movement for Beetle, Grasshopper, Spider, and Ant.
+        MOVE actions: ("MOVE", (from_q, from_r), (to_q, to_r)).
+        Implements movement for Queen, Beetle, Grasshopper, Spider, and Ant.
         """
         board = state["board"]
         player = state["current_player"]
         actions = []
-
         player_cells = []
         for (q, r), stack in board.items():
             if stack and stack[-1][0] == player:
                 insectType = stack[-1][1]
                 player_cells.append((q, r, insectType))
-
         for (q, r, insectType) in player_cells:
             if insectType == "Queen":
-            # NEW: Queen moves one step (if legal)
                 piece = board[(q, r)].pop()
                 if len(board[(q, r)]) == 0:
                     del board[(q, r)]
                 for (nq, nr) in self.getAdjacentCells(q, r):
-                    # Queen can only move into an empty cell.
                     if (nq, nr) in board and len(board[(nq, nr)]) > 0:
                         continue
-                    # Check sliding: must be able to slide into (nq, nr).
                     if not self.canSlide(q, r, nq, nr, board):
                         continue
-                    # Temporarily place queen.
                     board.setdefault((nq, nr), []).append(piece)
                     if self.isBoardConnected(board, self.getAdjacentCells):
                         actions.append(("MOVE", (q, r), (nq, nr)))
@@ -280,7 +255,7 @@ class HiveGame:
                     if len(board[(nq, nr)]) == 0:
                         del board[(nq, nr)]
                 board.setdefault((q, r), []).append(piece)
-            if insectType == "Beetle":
+            elif insectType == "Beetle":
                 for (nq, nr) in self.getAdjacentCells(q, r):
                     piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
@@ -305,7 +280,6 @@ class HiveGame:
                     board.setdefault((q, r), []).append(piece)
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (nq, nr)))
-
             elif insectType == "Grasshopper":
                 jumps = self.getGrasshopperJumps(board, q, r)
                 for (tq, tr) in jumps:
@@ -332,64 +306,100 @@ class HiveGame:
                     board.setdefault((q, r), []).append(piece)
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (tq, tr)))
-
             elif insectType == "Spider":
                 piece = board[(q, r)].pop()
                 if len(board[(q, r)]) == 0:
                     del board[(q, r)]
-                possible_ends = self.getSpiderDestinationsEdge(board, q, r)
+                possible_ends = self.getSpiderDestinations(board, (q, r))
                 board.setdefault((q, r), []).append(piece)
-                for (tq, tr) in possible_ends:
+                for dest in possible_ends:
                     piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
                         del board[(q, r)]
-                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
-                    if not still_connected_after_removal:
-                        board.setdefault((q, r), []).append(piece)
-                        continue
-                    board.setdefault((tq, tr), []).append(piece)
-                    valid_new_spot = True
-                    for (xq, xr) in self.getAdjacentCells(tq, tr):
-                        if (xq, xr) in board and board[(xq, xr)]:
-                            break
-                    else:
-                        valid_new_spot = False
-                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-                    board[(tq, tr)].pop()
-                    if len(board[(tq, tr)]) == 0:
-                        del board[(tq, tr)]
+                    board.setdefault(dest, []).append(piece)
+                    if self.isBoardConnected(board, self.getAdjacentCells):
+                        actions.append(("MOVE", (q, r), dest))
+                    board[dest].pop()
+                    if len(board[dest]) == 0:
+                        del board[dest]
                     board.setdefault((q, r), []).append(piece)
-                    if still_connected_after_placement and valid_new_spot:
-                        actions.append(("MOVE", (q, r), (tq, tr)))
             elif insectType == "Ant":
                 piece = board[(q, r)].pop()
                 if len(board[(q, r)]) == 0:
                     del board[(q, r)]
-                possible_ends = self.getAntDestinationsEdge(board, q, r, max_steps=20)
+                possible_ends = self.getAntDestinations(board, (q, r))
                 board.setdefault((q, r), []).append(piece)
-                for (tq, tr) in possible_ends:
+                for dest in possible_ends:
                     piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
                         del board[(q, r)]
-                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
-                    if not still_connected_after_removal:
-                        board.setdefault((q, r), []).append(piece)
-                        continue
-                    board.setdefault((tq, tr), []).append(piece)
-                    valid_new_spot = True
-                    for (xq, xr) in self.getAdjacentCells(tq, tr):
-                        if (xq, xr) in board and board[(xq, xr)]:
-                            break
-                    else:
-                        valid_new_spot = False
-                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-                    board[(tq, tr)].pop()
-                    if len(board[(tq, tr)]) == 0:
-                        del board[(tq, tr)]
+                    board.setdefault(dest, []).append(piece)
+                    if self.isBoardConnected(board, self.getAdjacentCells):
+                        actions.append(("MOVE", (q, r), dest))
+                    board[dest].pop()
+                    if len(board[dest]) == 0:
+                        del board[dest]
                     board.setdefault((q, r), []).append(piece)
-                    if still_connected_after_placement and valid_new_spot:
-                        actions.append(("MOVE", (q, r), (tq, tr)))
         return actions
+
+    def getSpiderDestinations(self, board, start):
+        """
+        Returns the set of cells that the spider can reach by moving exactly 3 steps,
+        following a path of empty cells where each step satisfies the sliding constraint.
+        The spider may not revisit cells on its path.
+        """
+        results = set()
+
+        def dfs(path, steps):
+            cur = path[-1]
+            if steps == 3:
+                results.add(cur)
+                return
+            for neighbor in self.getAdjacentCells(*cur):
+                if neighbor in path:
+                    continue
+                if neighbor in board and len(board[neighbor]) > 0:
+                    continue
+                # Check that the neighbor "hugs" the hive: at least one adjacent cell is occupied.
+                if not any(((adj in board) and (len(board[adj]) > 0))
+                           for adj in self.getAdjacentCells(*neighbor)):
+                    continue
+                # Check sliding from current cell to neighbor.
+                if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
+                    continue
+                dfs(path + [neighbor], steps + 1)
+
+        dfs([start], 0)  # Start with a list containing the starting tuple.
+        return results
+
+    # --- New: Revised Ant Move Generation ---
+    def getAntDestinations(self, board, start):
+        """
+        Returns all empty cells reachable by the ant from 'start'
+        via a sliding move. The ant is removed from the board
+        (the caller must do so) so that its original cell is empty.
+        A neighbor cell is accepted if:
+          - It is empty.
+          - It is adjacent to at least one occupied cell (i.e. "hugs" the hive).
+          - The ant can slide from the current cell into it (using canSlide).
+        """
+        results = set()
+        visited = set()
+        frontier = [start]
+        while frontier:
+            cur = frontier.pop(0)
+            for neighbor in self.getAdjacentCells(*cur):
+                if neighbor in board and len(board[neighbor]) > 0:
+                    continue
+                if not any(((adj in board) and (len(board[adj]) > 0)) for adj in self.getAdjacentCells(*neighbor)):
+                    continue
+                if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
+                    continue
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    results.add(neighbor)
+                    frontier.append(neighbor)
+        return results
 
     def canSlide(self, from_q, from_r, to_q, to_r, board):
         """
