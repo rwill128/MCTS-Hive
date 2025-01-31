@@ -2,9 +2,6 @@ import random
 
 
 def hex_distance(q1, r1, q2, r2):
-    """
-    Compute the hex distance between two axial coordinates (q1, r1) and (q2, r2).
-    """
     x1, z1 = q1, r1
     y1 = -x1 - z1
     x2, z2 = q2, r2
@@ -12,9 +9,6 @@ def hex_distance(q1, r1, q2, r2):
     return (abs(x1 - x2) + abs(y1 - y2) + abs(z1 - z2)) // 2
 
 def find_queen_position(board, player):
-    """
-    Look for the given player's Queen on the board. Return (q, r) or None if not found.
-    """
     for (q, r), stack in board.items():
         for piece_owner, piece_type in stack:
             if piece_owner == player and piece_type == "Queen":
@@ -43,15 +37,9 @@ class HiveGame:
             "Grasshopper": 3,
             "Ant": 3
         }
-
-        # Axial coordinate neighbors (q, r)
         self.DIRECTIONS = [
-            (1, 0),   # East
-            (-1, 0),  # West
-            (0, 1),   # Southeast
-            (0, -1),  # Northwest
-            (1, -1),  # Northeast
-            (-1, 1)   # Southwest
+            (1, 0), (-1, 0), (0, 1),
+            (0, -1), (1, -1), (-1, 1)
         ]
 
     # ---------------------------------------------------------
@@ -124,25 +112,13 @@ class HiveGame:
     # 3. Action generation
     # ---------------------------------------------------------
     def getLegalActions(self, state):
-        """
-        Returns all legal actions for the current player: placements + moves.
-        Additionally, if the current player has not placed their queen by their 3rd move,
-        only queen placement actions are allowed.
-        """
-        # Compute all legal actions normally.
         actions = self.placePieceActions(state) + self.movePieceActions(state)
         current_player = state["current_player"]
-
-        # Enforce queen placement rule: if queen not yet placed and this is the player's 3rd move or later,
-        # only allow actions that place the queen.
         if find_queen_position(state["board"], current_player) is None:
-            # Compute the number of moves made by the current player.
-            # Since moves alternate, the number of moves for the player is:
             move_count = state["move_number"] // 2 + 1
             if move_count >= 3:
                 queen_actions = [action for action in actions if action[0] == "PLACE" and action[1] == "Queen"]
                 return queen_actions
-
         return actions
 
     def placePieceActions(self, state):
@@ -284,6 +260,26 @@ class HiveGame:
                 player_cells.append((q, r, insectType))
 
         for (q, r, insectType) in player_cells:
+            if insectType == "Queen":
+            # NEW: Queen moves one step (if legal)
+                piece = board[(q, r)].pop()
+                if len(board[(q, r)]) == 0:
+                    del board[(q, r)]
+                for (nq, nr) in self.getAdjacentCells(q, r):
+                    # Queen can only move into an empty cell.
+                    if (nq, nr) in board and len(board[(nq, nr)]) > 0:
+                        continue
+                    # Check sliding: must be able to slide into (nq, nr).
+                    if not self.canSlide(q, r, nq, nr, board):
+                        continue
+                    # Temporarily place queen.
+                    board.setdefault((nq, nr), []).append(piece)
+                    if self.isBoardConnected(board, self.getAdjacentCells):
+                        actions.append(("MOVE", (q, r), (nq, nr)))
+                    board[(nq, nr)].pop()
+                    if len(board[(nq, nr)]) == 0:
+                        del board[(nq, nr)]
+                board.setdefault((q, r), []).append(piece)
             if insectType == "Beetle":
                 for (nq, nr) in self.getAdjacentCells(q, r):
                     piece = board[(q, r)].pop()
@@ -394,6 +390,35 @@ class HiveGame:
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (tq, tr)))
         return actions
+
+    def canSlide(self, from_q, from_r, to_q, to_r, board):
+        """
+        Determines whether a piece can slide from (from_q, from_r) to (to_q, to_r)
+        according to Hive sliding rules.
+        The piece must be able to “squeeze” between the two cells adjacent to the edge
+        between the from and to cells. We do this by checking the two adjacent directions.
+        """
+        dq = to_q - from_q
+        dr = to_r - from_r
+        move_dir = (dq, dr)
+        # For a pointy-topped hex grid using axial coordinates, we define:
+        adjacent_mapping = {
+            (1, 0): [(0, 1), (1, -1)],
+            (0, 1): [(-1, 1), (1, 0)],
+            (-1, 1): [(0, 1), (-1, 0)],
+            (-1, 0): [(-1, 1), (0, -1)],
+            (0, -1): [(1, -1), (-1, 0)],
+            (1, -1): [(1, 0), (0, -1)]
+        }
+        if move_dir not in adjacent_mapping:
+            return False
+        adj_dirs = adjacent_mapping[move_dir]
+        blocked = 0
+        for ad in adj_dirs:
+            cell = (from_q + ad[0], from_r + ad[1])
+            if cell in board and len(board[cell]) > 0:
+                blocked += 1
+        return blocked < 2
 
     def _makeTempState(self, original_state, temp_board):
         """
