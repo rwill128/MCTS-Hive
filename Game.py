@@ -18,7 +18,7 @@ def play_with_mcts():
                 lose_reward=-1,
                 num_iterations=200,
                 c_param=1.4,
-                forced_check_depth=4)
+                forced_check_depth=2)
 
     # Start from the initial state
     state = game.getInitialState()

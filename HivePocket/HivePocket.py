@@ -1,7 +1,5 @@
 import random
-from asyncio import sleep
 
-from HivePocket.DrawGame import drawStatePygame
 
 def hex_distance(q1, r1, q2, r2):
     """
@@ -25,7 +23,7 @@ def find_queen_position(board, player):
 
 class HiveGame:
     """
-    A *simplified* Hive implementation for demonstration with a generic MCTS framework.
+    A Hive implementation for demonstration with a generic MCTS framework.
 
     Major simplifications/assumptions:
       - Board is tracked using axial coordinates (q, r).
@@ -37,7 +35,7 @@ class HiveGame:
 
     def __init__(self):
         # Standard set for each player (no expansions):
-        # 1x Queen, 2x Spider, 2x Beetle, 3x Grasshopper, 3x Soldier Ant
+        # 1x Queen, 2x Spider, 2x Beetle, 3x Grasshopper, 3x Ant
         self.INITIAL_PIECES = {
             "Queen": 1,
             "Spider": 2,
@@ -116,14 +114,9 @@ class HiveGame:
             for piece in stack:
                 if piece == (player, "Queen"):
                     # Check neighbors for occupancy
-                    neighbors_occupied = 0
                     for (nq, nr) in self.getAdjacentCells(q, r):
-                        if (nq, nr) in board and len(board[(nq, nr)]) > 0:
-                            neighbors_occupied += 1
-                        else:
+                        if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                             return False
-                    # print("Found a surrounded queen")
-                    # drawStatePygame(state)
                     return True
         return False
 
@@ -132,16 +125,29 @@ class HiveGame:
     # ---------------------------------------------------------
     def getLegalActions(self, state):
         """
-        Returns all legal actions for the current player: placements + moves
+        Returns all legal actions for the current player: placements + moves.
+        Additionally, if the current player has not placed their queen by their 3rd move,
+        only queen placement actions are allowed.
         """
-        # drawStatePygame(state)
-        return self.placePieceActions(state) + self.movePieceActions(state)
-        # return self.placePieceActions(state)
+        # Compute all legal actions normally.
+        actions = self.placePieceActions(state) + self.movePieceActions(state)
+        current_player = state["current_player"]
+
+        # Enforce queen placement rule: if queen not yet placed and this is the player's 3rd move or later,
+        # only allow actions that place the queen.
+        if find_queen_position(state["board"], current_player) is None:
+            # Compute the number of moves made by the current player.
+            # Since moves alternate, the number of moves for the player is:
+            move_count = state["move_number"] // 2 + 1
+            if move_count >= 3:
+                queen_actions = [action for action in actions if action[0] == "PLACE" and action[1] == "Queen"]
+                return queen_actions
+
+        return actions
 
     def placePieceActions(self, state):
         """
         PLACE actions of the form ("PLACE", insectType, (q, r)).
-
         - If the board is empty, place anywhere (simplified => fix at (0,0)).
         - If the board has exactly 1 cell, place at (0,1) (demo simplification).
         - Otherwise, you must place adjacent to at least one friendly piece
@@ -164,8 +170,7 @@ class HiveGame:
                     actions.append(("PLACE", insectType, (0, 0)))
             return actions
 
-        # If the board has exactly 1 cell => place at (0,1) for demo's sake
-        # (Though in real Hive rules, you'd also check adjacency to the opponent's piece.)
+        # If the board has exactly 1 cell => place at (0,1) for demo's sake.
         if len(board) == 1:
             for insectType, count in pieces_in_hand.items():
                 if count > 0 and (0, 1) not in board:
@@ -174,27 +179,18 @@ class HiveGame:
                     actions.append(("PLACE", insectType, (0, 0)))
             return actions
 
-        # --------------------------
-        # Otherwise, the normal rule:
-        # - Must place adjacent to at least one friendly piece.
-        # - Cannot be adjacent to any enemy piece.
-        # --------------------------
-
-        # 1. Identify all 'friendly_cells' that contain at least one piece of the current_player.
+        # Otherwise, normal placement rules.
         friendly_cells = set()
         for (q, r), stack in board.items():
             if any(p[0] == player for p in stack):
                 friendly_cells.add((q, r))
 
-        # 2. Build a set of potential_spots by taking all empty cells adjacent to those friendly_cells.
         potential_spots = set()
         for (q, r) in friendly_cells:
             for (nq, nr) in self.getAdjacentCells(q, r):
-                # If that cell is empty, it is a candidate
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                     potential_spots.add((nq, nr))
 
-        # 3. Filter out any spot that is adjacent to an enemy piece.
         valid_spots = []
         for (tq, tr) in potential_spots:
             adjacent_to_enemy = False
@@ -205,7 +201,6 @@ class HiveGame:
             if not adjacent_to_enemy:
                 valid_spots.append((tq, tr))
 
-        # 4. For each piece in hand, add place-actions at these valid_spots.
         for insectType, count in pieces_in_hand.items():
             if count > 0:
                 for (tq, tr) in valid_spots:
@@ -215,120 +210,73 @@ class HiveGame:
 
     def getAntDestinationsEdge(self, board, q, r, max_steps=20):
         """
-        Ant moves up to `max_steps` steps (default 20) around the edge of the hive,
-        in one rotational direction (clockwise or counterclockwise),
-        without revisiting tiles and 'hugging' the hive each step.
-
-        Similar to getSpiderDestinationsEdge, but we allow 1..max_steps steps.
-
-        We'll add every reachable *intermediate* cell to our results, so the
-        ant can stop after 1 step, 2 steps, etc., up to 20 steps.
+        Ant moves up to `max_steps` steps around the edge of the hive,
+        adding every reachable intermediate cell as a valid destination.
         """
-
-        # 6 directions in "clockwise" order
         directions = [(1, 0), (1, -1), (0, -1),
                       (-1, 0), (-1, 1), (0, 1)]
-
         results = set()
 
         def tryPath(startQ, startR, startDirIndex, directionIncrement):
-            """
-            Attempt a crawl from (startQ, startR), turning consistently left (+1)
-            or right (-1) at each step, for up to max_steps steps.
-
-            We'll record every new cell we land on as a valid "end" position.
-            """
             path = [(startQ, startR)]
             curQ, curR = startQ, startR
             dirIndex = startDirIndex
 
             for step in range(max_steps):
-                # Rotate direction index
                 dirIndex = (dirIndex + directionIncrement) % 6
                 dQ, dR = directions[dirIndex]
                 nextQ = curQ + dQ
                 nextR = curR + dR
 
-                # 1) Must be empty
                 if (nextQ, nextR) in board and len(board[(nextQ, nextR)]) > 0:
-                    return  # blocked by occupied cell => stop searching in this path
+                    return
 
-                # 2) Must not revisit the same cell in this path
                 if (nextQ, nextR) in path:
-                    return  # we looped back or revisited => stop
+                    return
 
-                # 3) "Hug the hive": ensure next cell is adjacent to at least one occupied cell
-                neighbors_occupied = False
-                for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR):
-                    if (adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0:
-                        neighbors_occupied = True
-                        break
+                neighbors_occupied = any(
+                    ((adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0)
+                    for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR)
+                )
                 if not neighbors_occupied:
-                    return  # not hugging the hive => invalid
+                    return
 
-                # Accept this next cell as a valid "end position" for the Ant
-                # because it can stop anywhere along the way.
                 results.add((nextQ, nextR))
-
-                # Continue crawling
                 path.append((nextQ, nextR))
                 curQ, curR = nextQ, nextR
 
-        # Try each of the 6 directions as a "starting orientation,"
-        # in both clockwise (+1) and counterclockwise (-1) modes.
         for i in range(6):
-            tryPath(q, r, i, +1)  # clockwise
-            tryPath(q, r, i, -1)  # counterclockwise
+            tryPath(q, r, i, +1)
+            tryPath(q, r, i, -1)
 
         return results
 
-
     def getGrasshopperJumps(self, board, q, r):
         """
-        Grasshopper can jump in each of the 6 directions.
-        Starting from the cell immediately next to (q,r),
-        keep going while each cell is occupied,
-        stop at the first cell that is unoccupied => that's the landing spot.
-
-        If you never find an unoccupied cell before running out
-        of 'occupied cells', then there's no valid jump in that direction.
-
-        Returns a list of (tq, tr) possible destinations.
+        Grasshopper jumps in each direction by leaping over consecutive occupied cells.
         """
         possible_destinations = []
         for (dq, dr) in self.DIRECTIONS:
-            # Step at least once in that direction
             step_count = 1
             while True:
-                check_q = q + dq*step_count
-                check_r = r + dr*step_count
-
+                check_q = q + dq * step_count
+                check_r = r + dr * step_count
                 if (check_q, check_r) not in board or len(board[(check_q, check_r)]) == 0:
-                    # If it's unoccupied, then:
-                    # - We must have jumped over at least one occupied cell
-                    #   (meaning step_count > 1, otherwise there's no "jump")
                     if step_count > 1:
                         possible_destinations.append((check_q, check_r))
-                    break  # stop checking further in this direction
-
-                # if we found an occupied cell, keep going
+                    break
                 step_count += 1
-
         return possible_destinations
-
 
     def movePieceActions(self, state):
         """
         MOVE actions of the form ("MOVE", (from_q, from_r), (to_q, to_r)).
-
-        This example only implements Beetle movement with connectivity checks.
-        Other pieces (Ant, Grasshopper, etc.) are commented out or omitted for brevity.
+        Implements movement for Beetle, Grasshopper, Spider, and Ant.
         """
         board = state["board"]
         player = state["current_player"]
         actions = []
 
-        # Gather all top pieces belonging to the current player
         player_cells = []
         for (q, r), stack in board.items():
             if stack and stack[-1][0] == player:
@@ -337,450 +285,242 @@ class HiveGame:
 
         for (q, r, insectType) in player_cells:
             if insectType == "Beetle":
-                # For each adjacent cell to (q,r)
                 for (nq, nr) in self.getAdjacentCells(q, r):
-                    # A Beetle can move onto an occupied cell (climb on top)
-                    # or onto an empty cell, provided we don't break the hive.
-
-                    # -------------------------------
-                    # STEP 1: Remove the Beetle and check connectivity
-                    # -------------------------------
-                    piece = board[(q, r)].pop()  # remove top piece
-                    # If that cell is now empty, remove its entry from board for cleanliness
+                    piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
                         del board[(q, r)]
-
                     still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
-
                     if not still_connected_after_removal:
-                        # Put the piece back and skip this neighbor
                         board.setdefault((q, r), []).append(piece)
                         continue
-
-                    # -------------------------------
-                    # STEP 2: Place the Beetle on (nq, nr) temporarily
-                    # -------------------------------
                     board.setdefault((nq, nr), []).append(piece)
-
-                    # Optionally check that the new location is adjacent to at least one piece
-                    # (to avoid "jumping off" into empty space).
-                    # But if your Beetle can always climb, maybe you skip this.
-                    # We'll do a simplified check:
-                    #   - if (nq, nr) was empty, ensure it has at least one neighbor occupied
-                    #     so the Beetle isn't floating by itself.
                     valid_new_spot = True
-                    if len(board[(nq, nr)]) == 1:  # means it was empty, now just 1 piece (the Beetle)
-                        neighbors_occupied = False
-                        for (xq, xr) in self.getAdjacentCells(nq, nr):
-                            if (xq, xr) in board and board[(xq, xr)]:
-                                neighbors_occupied = True
-                                break
+                    if len(board[(nq, nr)]) == 1:
+                        neighbors_occupied = any(
+                            ((xq, xr) in board and board[(xq, xr)])
+                            for (xq, xr) in self.getAdjacentCells(nq, nr)
+                        )
                         if not neighbors_occupied:
                             valid_new_spot = False
-
-                    # Check connectivity after placing
                     still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-
-                    # Restore: remove Beetle from new location
                     board[(nq, nr)].pop()
                     if len(board[(nq, nr)]) == 0:
                         del board[(nq, nr)]
-
-                    # Put the Beetle back in original location
                     board.setdefault((q, r), []).append(piece)
-
-                    # If the new spot was valid and the board remains connected, we have a legal move
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (nq, nr)))
 
-            # --- GRASSHOPPER (new logic) ---
             elif insectType == "Grasshopper":
-                # Compute all possible destinations
                 jumps = self.getGrasshopperJumps(board, q, r)
-
                 for (tq, tr) in jumps:
-                    # Same pattern: remove the piece, check connectivity,
-                    # place the piece, check connectivity, restore state.
                     piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
                         del board[(q, r)]
-
                     still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
                     if not still_connected_after_removal:
                         board.setdefault((q, r), []).append(piece)
                         continue
-
-                    # Place Grasshopper at (tq, tr)
                     board.setdefault((tq, tr), []).append(piece)
-
-                    # Optionally, check adjacency to avoid "floating" if that matters to you:
                     valid_new_spot = True
-                    if len(board[(tq, tr)]) == 1:  # newly placed piece => was empty
-                        neighbors_occupied = False
-                        for (xq, xr) in self.getAdjacentCells(tq, tr):
-                            if (xq, xr) in board and board[(xq, xr)]:
-                                neighbors_occupied = True
-                                break
+                    if len(board[(tq, tr)]) == 1:
+                        neighbors_occupied = any(
+                            ((xq, xr) in board and board[(xq, xr)])
+                            for (xq, xr) in self.getAdjacentCells(tq, tr)
+                        )
                         if not neighbors_occupied:
                             valid_new_spot = False
-
                     still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-
-                    # Restore
                     board[(tq, tr)].pop()
                     if len(board[(tq, tr)]) == 0:
                         del board[(tq, tr)]
                     board.setdefault((q, r), []).append(piece)
-
-                    # If good, we add the move
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (tq, tr)))
 
-            # --- SPIDER ---
             elif insectType == "Spider":
-                # 1) Temporarily remove the Spider so (q, r) is considered empty
                 piece = board[(q, r)].pop()
                 if len(board[(q, r)]) == 0:
                     del board[(q, r)]
-
-                # 2) Compute all possible 3-step edge destinations
                 possible_ends = self.getSpiderDestinationsEdge(board, q, r)
-
-                # 3) Put the Spider back so we can do remove–check–place–check for each end cell
                 board.setdefault((q, r), []).append(piece)
-
-                # 4) For each candidate end cell (tq, tr), check connectivity, floating, etc.
                 for (tq, tr) in possible_ends:
-                    # Remove the Spider again
                     piece = board[(q, r)].pop()
                     if len(board[(q, r)]) == 0:
                         del board[(q, r)]
-
                     still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
                     if not still_connected_after_removal:
-                        # revert
                         board.setdefault((q, r), []).append(piece)
                         continue
-
-                    # Place Spider at (tq, tr)
                     board.setdefault((tq, tr), []).append(piece)
-
-                    # (Optional) Check “floating” if you want to ensure
-                    # the new location is still adjacent to the hive
                     valid_new_spot = True
                     for (xq, xr) in self.getAdjacentCells(tq, tr):
                         if (xq, xr) in board and board[(xq, xr)]:
                             break
                     else:
                         valid_new_spot = False
-
                     still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-
-                    # revert
                     board[(tq, tr)].pop()
                     if len(board[(tq, tr)]) == 0:
                         del board[(tq, tr)]
                     board.setdefault((q, r), []).append(piece)
-
-                    if still_connected_after_placement and valid_new_spot:
-                        # print("Found a valid spider move")
-                        # print("Drawing original state:")
-                        # drawStatePygame(state)
-                        # temp_state = self._makeTempState(state, board)
-                        valid_spider_move = ("MOVE", (q, r), (tq, tr))
-                        # new_state = self.applyAction(temp_state, valid_spider_move)
-                        # print("Drawing spider move")
-                        # drawStatePygame(new_state)
-                        actions.append(valid_spider_move)
-            elif insectType == "Ant":
-                # 1) Temporarily remove the Ant so (q, r) is considered empty
-                piece = board[(q, r)].pop()
-                if len(board[(q, r)]) == 0:
-                    del board[(q, r)]
-
-                # 2) Compute all possible (up to 20-step) edge destinations
-                possible_ends = self.getAntDestinationsEdge(board, q, r, max_steps=20)
-
-                # 3) Put the Ant back so we can do remove–check–place–check for each end cell
-                board.setdefault((q, r), []).append(piece)
-
-                # 4) For each candidate end cell (tq, tr), check connectivity, floating, etc.
-                for (tq, tr) in possible_ends:
-                    # Remove the Ant again
-                    piece = board[(q, r)].pop()
-                    if len(board[(q, r)]) == 0:
-                        del board[(q, r)]
-
-                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
-                    if not still_connected_after_removal:
-                        # revert
-                        board.setdefault((q, r), []).append(piece)
-                        continue
-
-                    # Place Ant at (tq, tr)
-                    board.setdefault((tq, tr), []).append(piece)
-
-                    # (Optional) Check “floating” if you want to ensure
-                    # the new location is still adjacent to the hive
-                    valid_new_spot = True
-                    for (xq, xr) in self.getAdjacentCells(tq, tr):
-                        if (xq, xr) in board and board[(xq, xr)]:
-                            break
-                    else:
-                        valid_new_spot = False
-
-                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-
-                    # revert
-                    board[(tq, tr)].pop()
-                    if len(board[(tq, tr)]) == 0:
-                        del board[(tq, tr)]
-                    board.setdefault((q, r), []).append(piece)
-
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (tq, tr)))
-
+            elif insectType == "Ant":
+                piece = board[(q, r)].pop()
+                if len(board[(q, r)]) == 0:
+                    del board[(q, r)]
+                possible_ends = self.getAntDestinationsEdge(board, q, r, max_steps=20)
+                board.setdefault((q, r), []).append(piece)
+                for (tq, tr) in possible_ends:
+                    piece = board[(q, r)].pop()
+                    if len(board[(q, r)]) == 0:
+                        del board[(q, r)]
+                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
+                    if not still_connected_after_removal:
+                        board.setdefault((q, r), []).append(piece)
+                        continue
+                    board.setdefault((tq, tr), []).append(piece)
+                    valid_new_spot = True
+                    for (xq, xr) in self.getAdjacentCells(tq, tr):
+                        if (xq, xr) in board and board[(xq, xr)]:
+                            break
+                    else:
+                        valid_new_spot = False
+                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
+                    board[(tq, tr)].pop()
+                    if len(board[(tq, tr)]) == 0:
+                        del board[(tq, tr)]
+                    board.setdefault((q, r), []).append(piece)
+                    if still_connected_after_placement and valid_new_spot:
+                        actions.append(("MOVE", (q, r), (tq, tr)))
         return actions
 
     def _makeTempState(self, original_state, temp_board):
         """
-        Helper to create a state object that references the *current* board in progress
-        so we can draw it without mutating the original state object forever.
+        Helper to create a temporary state referencing the current board progress.
         """
-        # We'll copy everything else but override 'board' with temp_board references.
         temp_state = self.copyState(original_state)
-        # Wipe out the board in the copy, then shallow-copy the temp_board contents.
         temp_state["board"] = {}
         for coord, stack in temp_board.items():
             temp_state["board"][coord] = stack[:]
         return temp_state
 
-
     def getOtherPlayer(self, currentPlayer):
-        """
-        Returns the current player to move ('Player1' or 'Player2').
-        """
         if currentPlayer == "Player1":
             return "Player2"
         elif currentPlayer == "Player2":
             return "Player1"
 
     def isBoardConnected(self, board, getAdjacentCells):
-        """
-        Returns True if all occupied cells in 'board' form a single connected
-        component (ignoring empty cells).
-        """
-
-        # Collect all occupied cells
         occupied_cells = [coord for coord, stack in board.items() if stack]
         if not occupied_cells:
-            return True  # Empty board or no pieces => trivially "connected" in this simplified logic
-
-        # We'll do a BFS/DFS from the first occupied cell
+            return True
         visited = set()
         to_visit = [occupied_cells[0]]
         while to_visit:
             current = to_visit.pop()
             if current not in visited:
                 visited.add(current)
-                # For each neighbor that is occupied, visit it
                 for (nq, nr) in getAdjacentCells(*current):
                     if (nq, nr) in board and board[(nq, nr)]:
                         to_visit.append((nq, nr))
-
-        # If we've visited all occupied cells, the board is connected
         return len(visited) == len(occupied_cells)
 
     def getSpiderDestinationsEdge(self, board, q, r):
-        """
-        Spider moves exactly 3 steps around the edge of the hive,
-        in one rotational direction (clockwise or counterclockwise)
-        without revisiting tiles.
-
-        - We define 6 directions in a clockwise order.
-        - For each direction i, we try:
-            - turning consistently "clockwise" (directionIncrement=+1)
-            - turning consistently "counterclockwise" (directionIncrement=-1)
-        - We do exactly 3 steps, skipping any path that hits an occupied cell
-          or tries to revisit a cell on the same path.
-        """
-
-        # 6 directions in "clockwise" order
         directions = [(1, 0), (1, -1), (0, -1),
                       (-1, 0), (-1, 1), (0, 1)]
-
         results = set()
 
         def tryPath(startQ, startR, startDirIndex, directionIncrement):
-            """
-            Attempt a 3-step crawl from (startQ, startR).
-            At each step we rotate the direction index by +1 or -1,
-            move there if it's empty, and stop if blocked.
-            """
             path = [(startQ, startR)]
             curQ, curR = startQ, startR
             dirIndex = startDirIndex
-
             for _ in range(3):
-                # Rotate direction index
                 dirIndex = (dirIndex + directionIncrement) % 6
                 dQ, dR = directions[dirIndex]
                 nextQ = curQ + dQ
                 nextR = curR + dR
-
-                # 1) Must be empty
                 if (nextQ, nextR) in board and len(board[(nextQ, nextR)]) > 0:
-                    return  # blocked by occupied cell
-
-                # 2) Must not revisit the same cell in this path
+                    return
                 if (nextQ, nextR) in path:
-                    return  # would revisit same tile => stop
-
-                # 3) (Optional) If you want to ensure "hugging the hive":
-                #    check that (nextQ, nextR) has at least one occupied neighbor:
-                #
-                neighbors_occupied = False
-                for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR):
-                    if (adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0:
-                        neighbors_occupied = True
-                        break
+                    return
+                neighbors_occupied = any(
+                    ((adjQ, adjR) in board and len(board[(adjQ, adjR)]) > 0)
+                    for (adjQ, adjR) in self.getAdjacentCells(nextQ, nextR)
+                )
                 if not neighbors_occupied:
-                    return  # not hugging the hive => invalid
-
+                    return
                 path.append((nextQ, nextR))
                 curQ, curR = nextQ, nextR
-
-            # If we get here, we completed 3 steps
-            # The final cell (curQ, curR) is a valid end-position
             results.add((curQ, curR))
 
-        # Try each of the 6 directions as a "starting orientation,"
-        # in both clockwise (+1) and counterclockwise (-1) modes:
         for i in range(6):
-            tryPath(q, r, i, +1)  # clockwise
-            tryPath(q, r, i, -1)  # counterclockwise
-
+            tryPath(q, r, i, +1)
+            tryPath(q, r, i, -1)
         return results
 
     def weightedActionChoice(self, state, actions):
-        """
-        Among 'actions', pick one according to how close
-        it ends up to the enemy queen. Closer => higher weight.
-        """
         board = state["board"]
         current_player = state["current_player"]
         enemy_player = self.getOpponent(current_player)
-
-        # Find the enemy queen position
         enemy_queen_pos = find_queen_position(board, enemy_player)
-
-        # If we cannot find the enemy queen (not yet placed?), fall back to uniform random
         if enemy_queen_pos is None:
             return random.choice(actions)
-
         (eq_q, eq_r) = enemy_queen_pos
-
-        # Build up (action, weight) pairs
         weighted_moves = []
         for action in actions:
-            # Determine the final location of the piece after this action
             if action[0] == "PLACE":
-                # ("PLACE", insectType, (q, r))
                 _, insectType, (q, r) = action
                 final_q, final_r = q, r
             elif action[0] == "MOVE":
-                # ("MOVE", (from_q, from_r), (to_q, to_r))
                 _, (fq, fr), (tq, tr) = action
                 final_q, final_r = tq, tr
             else:
-                # Safety fallback
                 final_q, final_r = 0, 0
-
             dist = hex_distance(final_q, final_r, eq_q, eq_r)
-            # Define a weighting scheme: closer to enemy queen => bigger weight
-            # For example, 1/(1+dist). If dist=0 is possible, it yields weight=1.
-            # You can tweak the formula to be more or less steep.
-            steepness = 2.0  # Increase this value for even steeper weighting
+            steepness = 2.0
             weight = 1.0 / (1.0 + steepness * dist**2)
-
-
             weighted_moves.append((action, weight))
-
-        # Normalize weights into a probability distribution
         total_weight = sum(w for (_, w) in weighted_moves)
         if total_weight == 0.0:
-            # Edge case: if something breaks or all distances are infinite.
             return random.choice(actions)
-
-        # "Roulette wheel" selection
-        # or you could use random.choices in Python 3.6+ with 'weights='
-        # e.g. random.choices(population=..., weights=..., k=1)
-        # We'll do a manual approach:
         rnd = random.random() * total_weight
         cumulative = 0.0
         for (act, w) in weighted_moves:
             cumulative += w
             if rnd < cumulative:
                 return act
-
-        # Fallback (should rarely happen due to floating rounding)
         return actions[-1]
 
     def _bfsExactSteps(self, board, start, steps=3):
-        """
-        Return all reachable cells in exactly `steps` steps,
-        traveling on empty adjacent cells only.
-
-        Potential issues:
-          1) The starting cell is 'occupied' by the piece itself,
-             so BFS won't move off it unless you temporarily remove the piece.
-          2) LIFO vs. FIFO (the code is using .pop() from a list, which is DFS order)
-             but for 'all reachable cells in exactly X steps', it usually doesn't break the result,
-             as long as you track visited states properly.
-          3) You might want to allow revisiting the same cell at different 'dist' levels.
-             The code does handle that by storing (nq, nr, dist+1) in visited, which is good.
-        """
-        visited = set()  # will store (q, r, dist)
+        visited = set()
         q0, r0 = start
         frontier = [(q0, r0, 0)]
         results = set()
-
         while frontier:
-            q, r, dist = frontier.pop()  # LIFO => DFS order
+            q, r, dist = frontier.pop()
             if dist == steps:
-                # Once we hit exactly 'steps' moves, record (q, r) and do NOT expand further
                 results.add((q, r))
                 continue
             elif dist > steps:
-                # Shouldn't happen if we check dist before pushing,
-                # but we have a guard anyway
                 continue
-
             for (nq, nr) in self.getAdjacentCells(q, r):
-                # Must be empty to proceed
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                     next_state = (nq, nr, dist+1)
                     if next_state not in visited and dist+1 <= steps:
                         visited.add(next_state)
                         frontier.append(next_state)
-
         return results
 
     def _bfsUpToSteps(self, board, start, max_steps=8):
-        """
-        Return all reachable cells in up to `max_steps` steps
-        traveling on empty adjacent cells only.
-        """
         visited = set()
         q0, r0 = start
         frontier = [(q0, r0, 0)]
         results = {(q0, r0)}
-
         while frontier:
             q, r, dist = frontier.pop()
             if dist >= max_steps:
                 continue
-
             for (nq, nr) in self.getAdjacentCells(q, r):
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                     if (nq, nr) not in results:
@@ -788,48 +528,31 @@ class HiveGame:
                     if (nq, nr, dist+1) not in visited:
                         visited.add((nq, nr, dist+1))
                         frontier.append((nq, nr, dist+1))
-
         return results
 
     # ---------------------------------------------------------
     # 4. MCTS-required interface
     # ---------------------------------------------------------
     def isTerminal(self, state):
-        """
-        We say the game ends if either queen is surrounded,
-        OR if the current player has no moves at all (treated as a loss).
-        """
         if self.isQueenSurrounded(state, "Player1"):
             return True
         if self.isQueenSurrounded(state, "Player2"):
             return True
-
-        # If no moves are possible, we treat it as terminal (loss for current player)
         if not self.getLegalActions(state):
             return True
-
         return False
 
     def applyAction(self, state, action):
-        """
-        Applies the given action ("PLACE", insectType, (q, r)) or
-        ("MOVE", (from_q, from_r), (to_q, to_r)).
-        Returns the next state.
-        """
         new_state = self.copyState(state)
         board = new_state["board"]
         player = new_state["current_player"]
-
         if action[0] == "PLACE":
-            # ("PLACE", insectType, (q, r))
             _, insectType, (q, r) = action
             new_state["pieces_in_hand"][player][insectType] -= 1
             if (q, r) not in board:
                 board[(q, r)] = []
             board[(q, r)].append((player, insectType))
-
         elif action[0] == "MOVE":
-            # ("MOVE", (from_q, from_r), (to_q, to_r))
             _, (fq, fr), (tq, tr) = action
             piece = board[(fq, fr)].pop()
             if len(board[(fq, fr)]) == 0:
@@ -837,79 +560,45 @@ class HiveGame:
             if (tq, tr) not in board:
                 board[(tq, tr)] = []
             board[(tq, tr)].append(piece)
-
-        # Switch to next player
         new_state["current_player"] = self.getOpponent(player)
         new_state["move_number"] += 1
         return new_state
 
     def getGameOutcome(self, state):
-        """
-        Returns:
-         - "Player1" if Player1 wins,
-         - "Player2" if Player2 wins,
-         - "Draw" if both queens are simultaneously surrounded (rare),
-         - or None if not terminal yet.
-
-        We also handle the "no moves" scenario by awarding victory to the other player.
-        """
         p1_surrounded = self.isQueenSurrounded(state, "Player1")
         p2_surrounded = self.isQueenSurrounded(state, "Player2")
-
         if p1_surrounded and p2_surrounded:
-            # both queens simultaneously surrounded => draw
             return "Draw"
         elif p1_surrounded:
             return "Player2"
         elif p2_surrounded:
             return "Player1"
-
-        # If not strictly queen-surrounded terminal, maybe we have no moves for the current player
         if not self.getLegalActions(state):
-            # current player loses, so the other player is the winner
             current = state["current_player"]
             opponent = self.getOpponent(current)
             return opponent
-
-        # Not terminal
         return None
 
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
     def simulateRandomPlayout(self, state):
-        """
-        Playout from 'state' using weighted-random selection of moves
-        biased by closeness to enemy queen, until terminal.
-        """
         temp_state = self.copyState(state)
-
         while not self.isTerminal(temp_state):
             legal = self.getLegalActions(temp_state)
             if not legal:
-                break  # No moves => treat as terminal.
-
-            # Weighted random pick among moves
+                break
             action = self.weightedActionChoice(temp_state, legal)
-
-            # Apply that move
             temp_state = self.applyAction(temp_state, action)
-
-            # drawStatePygame(temp_state)
-
         return temp_state
 
     # ---------------------------------------------------------
     # 5. Print / Debug
     # ---------------------------------------------------------
     def printState(self, state):
-        """
-        Quick debug print of the current board.
-        """
         board = state["board"]
         current_player = state["current_player"]
         move_number = state["move_number"]
-
         print(f"Move#: {move_number}, Current Player: {current_player}")
         if not board:
             print("Board is empty.")
