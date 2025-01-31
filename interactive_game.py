@@ -246,40 +246,43 @@ def get_human_move(state, game, screen):
 
 def draw_heatmap(root_node, screen):
     """
-    Draws the board (using draw_hive_board) and then overlays, on each cell
-    corresponding to a move from the root node's children, a semi-transparent
-    color (from white to red based on visit count) and a text label showing:
-      - The move type,
+    Draws the board (using draw_hive_board) and overlays, on each cell corresponding to a move
+    from the root node's children, a semi-transparent polygon and a text label showing:
+      - The move (e.g. "PLACE Queen" or "MOVE (0,0)->(0,1)"),
       - The visit count,
       - The average value.
+    This function clears the screen before drawing so that text does not accumulate.
     """
-    # First, draw the base board using your existing drawing routine.
+    # Clear the screen.
+    screen.fill((255, 255, 255))
+    # Draw the base board.
     draw_hive_board(root_node.state, screen)
 
-    # If there are no children, nothing more to do.
+    # If there are no children, nothing to overlay.
     if not root_node.children:
         pygame.display.flip()
         return
 
-    # Determine the maximum visit count among the children for normalization.
+    # Determine maximum visit count for normalization.
     max_visits = max(child.visit_count for child in root_node.children.values())
     if max_visits == 0:
         max_visits = 1
 
-    # Create a font for rendering text.
+    # Create a font for text.
     font = pygame.font.SysFont(None, 20)
 
+    # For each move from the root, overlay a semi-transparent polygon and text.
     for action, child in root_node.children.items():
-        # For both MOVE and PLACE actions, assume the destination is action[2].
+        # Assume that for both PLACE and MOVE actions, action[2] is the destination cell.
         target = action[2]
-        ratio = child.visit_count / max_visits  # 0 (least visited) to 1 (most visited)
-        # Interpolate from white (low visits) to red (high visits)
+        ratio = child.visit_count / max_visits  # from 0 to 1
+        # Interpolate from white (low visits) to red (high visits).
         red = 255
         green = int(255 * (1 - ratio))
         blue = int(255 * (1 - ratio))
-        overlay_color = (red, green, blue, 100)  # with alpha=100 for transparency
+        overlay_color = (red, green, blue, 150)  # alpha = 150 for moderate transparency
 
-        # Compute the polygon for the target cell.
+        # Get the polygon for the target cell.
         center = hex_to_pixel(*target)
         corners = polygon_corners(center, HEX_SIZE)
         # Create an overlay surface with per-pixel alpha.
@@ -287,26 +290,27 @@ def draw_heatmap(root_node, screen):
         pygame.draw.polygon(overlay, overlay_color, corners, 0)
         screen.blit(overlay, (0, 0))
 
-        # Compute average value if available.
+        # Compute average value for this move.
         if child.visit_count > 0:
             avg_value = child.total_value / child.visit_count
         else:
             avg_value = 0
 
-        # Construct a label string based on the action type.
+        # Build a label string.
         if action[0] == "PLACE":
             move_str = f"{action[0]} {action[1]}"
         elif action[0] == "MOVE":
             move_str = f"{action[0]} {action[1]} -> {action[2]}"
         else:
             move_str = ""
-
-        # Build the complete label string.
         label = f"{move_str} | V:{child.visit_count} | Avg:{avg_value:.2f}"
+
+        # Render the text.
         text_surface = font.render(label, True, (0, 0, 0))
         text_rect = text_surface.get_rect(center=center)
         screen.blit(text_surface, text_rect)
 
+    # Finally, update the display.
     pygame.display.flip()
 
 

@@ -92,6 +92,7 @@ class MCTS:
         self.lose_reward = lose_reward
         self.draw_reward = draw_reward
 
+    # Inside MCTS.search:
     def search(self, root_state, draw_callback=None):
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
         update_interval = max(1, self.num_iterations // 100)
@@ -102,7 +103,6 @@ class MCTS:
             final_state = self.game.simulateRandomPlayout(node.state)
             outcome = self.game.getGameOutcome(final_state)
             self._backpropagate(node, final_state, root_node, outcome)
-            # Call the drawing callback periodically (if provided)
             if draw_callback is not None and i % update_interval == 0:
                 draw_callback(root_node)
         best_action, best_child = self._best_action(root_node)
