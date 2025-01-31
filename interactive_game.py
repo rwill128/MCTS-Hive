@@ -261,7 +261,7 @@ def draw_heatmap(root_node, screen):
     # Determine the maximum visit count among root node children.
     max_visits = max(child.visit_count for child in root_node.children.values())
     if max_visits == 0:
-        max_visits = 1
+        max_visits = 100
 
     for action, child in root_node.children.items():
         # Assume that for both PLACE and MOVE actions, action[2] is the destination cell.
@@ -293,7 +293,7 @@ def play_with_mcts():
                 draw_reward=0.1,
                 win_reward=1,
                 lose_reward=-1,
-                num_iterations=2,  # Adjust as desired.
+                num_iterations=10,  # Adjust as desired.
                 c_param=1.4,
                 forced_check_depth=0)
     state = game.getInitialState()
