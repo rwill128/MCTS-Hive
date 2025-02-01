@@ -149,25 +149,25 @@ class AlgaeSimulation(mglw.WindowConfig):
             self.display_prog, self.vbo, 'in_vert', 'in_text'
         )
 
-        def on_render(self, time, frame_time):
-            # === Simulation Step ===
-            self.current_tex.use(location=0)
-            self.prog['state'] = 0  # our simulation shader uses texture unit 0
+    def on_render(self, time, frame_time):
+        # === Simulation Step ===
+        self.current_tex.use(location=0)
+        self.prog['state'] = 0  # our simulation shader uses texture unit 0
 
-            # Render to the framebuffer attached to next_tex.
-            self.fbo.use()
-            self.vao.render(moderngl.TRIANGLES)
+        # Render to the framebuffer attached to next_tex.
+        self.fbo.use()
+        self.vao.render(moderngl.TRIANGLES)
 
-            # Swap the textures (ping-pong).
-            self.current_tex, self.next_tex = self.next_tex, self.current_tex
-            # Reattach the new next_tex to the framebuffer.
-            self.fbo = self.ctx.framebuffer(color_attachments=[self.next_tex])
+        # Swap the textures (ping-pong).
+        self.current_tex, self.next_tex = self.next_tex, self.current_tex
+        # Reattach the new next_tex to the framebuffer.
+        self.fbo = self.ctx.framebuffer(color_attachments=[self.next_tex])
 
-            # === Display Step ===
-            self.ctx.screen.use()
-            self.current_tex.use(location=0)
-            self.display_prog['state'] = 0
-            self.display_vao.render(moderngl.TRIANGLES)
+        # === Display Step ===
+        self.ctx.screen.use()
+        self.current_tex.use(location=0)
+        self.display_prog['state'] = 0
+        self.display_vao.render(moderngl.TRIANGLES)
 
 
 if __name__ == '__main__':
