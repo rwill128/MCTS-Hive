@@ -271,117 +271,144 @@ class HiveGame:
         """
         MOVE actions: ("MOVE", (from_q, from_r), (to_q, to_r)).
         Implements movement for Queen, Beetle, Grasshopper, Spider, and Ant.
+        Instead of modifying the board in place (and then trying to restore it),
+        we simulate moves on a temporary copy of the board. This avoids leaving the board
+        in an inconsistent state that might cause KeyError when applying moves.
         """
         board = state["board"]
         player = state["current_player"]
         actions = []
+
+        # Gather candidate cells (from a copy of board keys) to avoid issues if board is modified.
         player_cells = []
-        for (q, r), stack in board.items():
+        for (q, r), stack in list(board.items()):
             if stack and stack[-1][0] == player:
                 insectType = stack[-1][1]
                 player_cells.append((q, r, insectType))
+
+        def board_copy(board):
+            """Make a shallow copy of board, copying each stack."""
+            return {coord: stack[:] for coord, stack in board.items()}
+
         for (q, r, insectType) in player_cells:
             if insectType == "Queen":
-                piece = board[(q, r)].pop()
-                if len(board[(q, r)]) == 0:
-                    del board[(q, r)]
+                temp_board = board_copy(board)
+                # Remove the queen from the current cell.
+                piece = temp_board[(q, r)].pop()
+                if not temp_board[(q, r)]:
+                    del temp_board[(q, r)]
                 for (nq, nr) in self.getAdjacentCells(q, r):
-                    if (nq, nr) in board and len(board[(nq, nr)]) > 0:
+                    # Queen can only move to an empty cell.
+                    if (nq, nr) in temp_board and len(temp_board[(nq, nr)]) > 0:
                         continue
-                    if not self.canSlide(q, r, nq, nr, board):
+                    if not self.canSlide(q, r, nq, nr, temp_board):
                         continue
-                    board.setdefault((nq, nr), []).append(piece)
-                    if self.isBoardConnected(board, self.getAdjacentCells):
+                    # Simulate moving the queen.
+                    temp_board.setdefault((nq, nr), []).append(piece)
+                    if self.isBoardConnected(temp_board, self.getAdjacentCells):
                         actions.append(("MOVE", (q, r), (nq, nr)))
-                    board[(nq, nr)].pop()
-                    if len(board[(nq, nr)]) == 0:
-                        del board[(nq, nr)]
-                board.setdefault((q, r), []).append(piece)
+                    temp_board[(nq, nr)].pop()
+                    if not temp_board[(nq, nr)]:
+                        del temp_board[(nq, nr)]
+                        # No need to restore temp_board; it is local.
+             # In movePieceActions, inside the loop over candidate cells:
             elif insectType == "Beetle":
+                # Make a copy of the board to simulate moves.
+                temp_board = board_copy(board)
+                # Determine the stack height at (q, r) in the current board.
+                stack_height = len(temp_board.get((q, r), []))
+                # Iterate over each neighbor.
                 for (nq, nr) in self.getAdjacentCells(q, r):
-                    piece = board[(q, r)].pop()
-                    if len(board[(q, r)]) == 0:
-                        del board[(q, r)]
-                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
-                    if not still_connected_after_removal:
-                        board.setdefault((q, r), []).append(piece)
-                        continue
-                    board.setdefault((nq, nr), []).append(piece)
-                    valid_new_spot = True
-                    if len(board[(nq, nr)]) == 1:
-                        neighbors_occupied = any(
-                            ((xq, xr) in board and board[(xq, xr)])
-                            for (xq, xr) in self.getAdjacentCells(nq, nr)
-                        )
-                        if not neighbors_occupied:
-                            valid_new_spot = False
-                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-                    board[(nq, nr)].pop()
-                    if len(board[(nq, nr)]) == 0:
-                        del board[(nq, nr)]
-                    board.setdefault((q, r), []).append(piece)
-                    if still_connected_after_placement and valid_new_spot:
-                        actions.append(("MOVE", (q, r), (nq, nr)))
+                    # Work on a fresh copy for each candidate move.
+                    sim_board = board_copy(temp_board)
+                    # Remove the beetle from (q, r).
+                    piece = sim_board[(q, r)].pop()
+                    if not sim_board[(q, r)]:
+                        del sim_board[(q, r)]
+                    # For beetles on top (stack_height > 1), allow movement into any adjacent cell.
+                    if stack_height > 1:
+                        # For a beetle on top, we do not enforce the sliding constraint.
+                        sim_board.setdefault((nq, nr), []).append(piece)
+                        if self.isBoardConnected(sim_board, self.getAdjacentCells):
+                            actions.append(("MOVE", (q, r), (nq, nr)))
+                        # No need to remove piece from sim_board here, since sim_board is local.
+                    else:
+                        # For a solitary beetle, enforce sliding rules as before.
+                        # Skip if the destination cell is occupied.
+                        if (nq, nr) in sim_board and len(sim_board[(nq, nr)]) > 0:
+                            # Even for a solitary beetle, sometimes climbing may be allowed—but if you want
+                            # to follow sliding constraints strictly, you can skip here.
+                            continue
+                        if not self.canSlide(q, r, nq, nr, sim_board):
+                            continue
+                        sim_board.setdefault((nq, nr), []).append(piece)
+                        if self.isBoardConnected(sim_board, self.getAdjacentCells):
+                            actions.append(("MOVE", (q, r), (nq, nr)))
+                            # (No need to restore sim_board; it is discarded after each candidate.)
             elif insectType == "Grasshopper":
-                jumps = self.getGrasshopperJumps(board, q, r)
+                temp_board = board_copy(board)
+                jumps = self.getGrasshopperJumps(temp_board, q, r)
                 for (tq, tr) in jumps:
-                    piece = board[(q, r)].pop()
-                    if len(board[(q, r)]) == 0:
-                        del board[(q, r)]
-                    still_connected_after_removal = self.isBoardConnected(board, self.getAdjacentCells)
+                    piece = temp_board[(q, r)].pop()
+                    if not temp_board[(q, r)]:
+                        del temp_board[(q, r)]
+                    still_connected_after_removal = self.isBoardConnected(temp_board, self.getAdjacentCells)
                     if not still_connected_after_removal:
-                        board.setdefault((q, r), []).append(piece)
+                        temp_board.setdefault((q, r), []).append(piece)
                         continue
-                    board.setdefault((tq, tr), []).append(piece)
+                    temp_board.setdefault((tq, tr), []).append(piece)
                     valid_new_spot = True
-                    if len(board[(tq, tr)]) == 1:
+                    if len(temp_board[(tq, tr)]) == 1:
                         neighbors_occupied = any(
-                            ((xq, xr) in board and board[(xq, xr)])
+                            ((xq, xr) in temp_board and temp_board[(xq, xr)])
                             for (xq, xr) in self.getAdjacentCells(tq, tr)
                         )
                         if not neighbors_occupied:
                             valid_new_spot = False
-                    still_connected_after_placement = self.isBoardConnected(board, self.getAdjacentCells)
-                    board[(tq, tr)].pop()
-                    if len(board[(tq, tr)]) == 0:
-                        del board[(tq, tr)]
-                    board.setdefault((q, r), []).append(piece)
+                    still_connected_after_placement = self.isBoardConnected(temp_board, self.getAdjacentCells)
+                    temp_board[(tq, tr)].pop()
+                    if not temp_board.get((tq, tr)):
+                        temp_board.pop((tq, tr), None)
+                    temp_board.setdefault((q, r), []).append(piece)
                     if still_connected_after_placement and valid_new_spot:
                         actions.append(("MOVE", (q, r), (tq, tr)))
             elif insectType == "Spider":
-                piece = board[(q, r)].pop()
-                if len(board[(q, r)]) == 0:
-                    del board[(q, r)]
-                possible_ends = self.getSpiderDestinations(board, (q, r))
-                board.setdefault((q, r), []).append(piece)
+                temp_board = board_copy(board)
+                piece = temp_board[(q, r)].pop()
+                if not temp_board[(q, r)]:
+                    del temp_board[(q, r)]
+                possible_ends = self.getSpiderDestinations(temp_board, (q, r))
+                temp_board.setdefault((q, r), []).append(piece)
                 for dest in possible_ends:
-                    piece = board[(q, r)].pop()
-                    if len(board[(q, r)]) == 0:
-                        del board[(q, r)]
-                    board.setdefault(dest, []).append(piece)
-                    if self.isBoardConnected(board, self.getAdjacentCells):
+                    piece = temp_board[(q, r)].pop()
+                    if not temp_board[(q, r)]:
+                        del temp_board[(q, r)]
+                    temp_board.setdefault(dest, []).append(piece)
+                    if self.isBoardConnected(temp_board, self.getAdjacentCells):
                         actions.append(("MOVE", (q, r), dest))
-                    board[dest].pop()
-                    if len(board[dest]) == 0:
-                        del board[dest]
-                    board.setdefault((q, r), []).append(piece)
+                    temp_board[dest].pop()
+                    if not temp_board.get(dest):
+                        temp_board.pop(dest, None)
+                    temp_board.setdefault((q, r), []).append(piece)
             elif insectType == "Ant":
-                piece = board[(q, r)].pop()
-                if len(board[(q, r)]) == 0:
-                    del board[(q, r)]
-                possible_ends = self.getAntDestinations(board, (q, r))
-                board.setdefault((q, r), []).append(piece)
+                temp_board = board_copy(board)
+                piece = temp_board[(q, r)].pop()
+                if not temp_board[(q, r)]:
+                    del temp_board[(q, r)]
+                possible_ends = self.getAntDestinations(temp_board, (q, r))
+                temp_board.setdefault((q, r), []).append(piece)
                 for dest in possible_ends:
-                    piece = board[(q, r)].pop()
-                    if len(board[(q, r)]) == 0:
-                        del board[(q, r)]
-                    board.setdefault(dest, []).append(piece)
-                    if self.isBoardConnected(board, self.getAdjacentCells):
+                    piece = temp_board[(q, r)].pop()
+                    if not temp_board[(q, r)]:
+                        del temp_board[(q, r)]
+                    temp_board.setdefault(dest, []).append(piece)
+                    if self.isBoardConnected(temp_board, self.getAdjacentCells):
                         actions.append(("MOVE", (q, r), dest))
-                    board[dest].pop()
-                    if len(board[dest]) == 0:
-                        del board[dest]
-                    board.setdefault((q, r), []).append(piece)
+                    temp_board[dest].pop()
+                    if not temp_board.get(dest):
+                        temp_board.pop(dest, None)
+                    temp_board.setdefault((q, r), []).append(piece)
+            # End for each piece.
         return actions
 
     def getSpiderDestinations(self, board, start):
