@@ -103,7 +103,7 @@ class MCTS:
             if not node.is_terminal(self.game) and not node.is_fully_expanded(self.game):
                 node = node.expand(self.game, self)
             # Use depth-limited playout; simulation returns a heuristic evaluation.
-            simulation_value = self.game.simulateRandomPlayout(node.state, max_depth=10)
+            simulation_value = self.game.simulateRandomPlayout(node.state, max_depth=20)
             self._backpropagate(node, simulation_value, root_node)
             if draw_callback is not None and i % update_interval == 0:
                 draw_callback(root_node, i)

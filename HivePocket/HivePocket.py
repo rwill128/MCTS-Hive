@@ -409,6 +409,10 @@ class HiveGame:
                         temp_board.pop(dest, None)
                     temp_board.setdefault((q, r), []).append(piece)
             # End for each piece.
+
+        # Filter out candidate moves whose from-cell is not present in the current board.
+        actions = [move for move in actions if move[1] in state["board"] and state["board"][move[1]]]
+
         return actions
 
     def getSpiderDestinations(self, board, start):
