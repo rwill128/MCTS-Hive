@@ -1,4 +1,5 @@
 import random
+from collections import deque
 
 
 def hex_distance(q1, r1, q2, r2):
@@ -26,10 +27,7 @@ class HiveGame:
       - We do check if each Queen is fully surrounded for a terminal state.
       - We treat "no legal moves" as an immediate loss for the current player to avoid MCTS contradictions.
     """
-
     def __init__(self):
-        # Standard set for each player (no expansions):
-        # 1x Queen, 2x Spider, 2x Beetle, 3x Grasshopper, 3x Ant
         self.INITIAL_PIECES = {
             "Queen": 1,
             "Spider": 2,
@@ -37,10 +35,21 @@ class HiveGame:
             "Grasshopper": 3,
             "Ant": 3
         }
-        self.DIRECTIONS = [
-            (1, 0), (-1, 0), (0, 1),
-            (0, -1), (1, -1), (-1, 1)
-        ]
+        self.DIRECTIONS = [(1, 0), (-1, 0), (0, 1),
+                           (0, -1), (1, -1), (-1, 1)]
+        # Cache for connectivity checks.
+        self._connectivity_cache = {}
+        self._legal_moves_cache = {}
+
+
+    def board_key(self, board):
+        """
+        Create an immutable, canonical representation of the board.
+        We assume board is a dict mapping coordinates to a list of pieces.
+        Each piece is a tuple (player, insect). Sorting ensures consistent ordering.
+        """
+        # For each cell, sort the stack (if needed) and then sort by coordinate.
+        return tuple(sorted((coord, tuple(stack)) for coord, stack in board.items()))
 
     # ---------------------------------------------------------
     # 1. Initialization & Game State
@@ -89,8 +98,12 @@ class HiveGame:
         return "Player2" if player == "Player1" else "Player1"
 
     def getAdjacentCells(self, q, r):
-        for dq, dr in self.DIRECTIONS:
-            yield (q + dq, r + dr)
+        """
+        Returns a generator of the six neighbors of cell (q, r) using the pre-stored directions.
+        (This is already very simple; if needed, you can inline its logic in other methods.)
+        """
+        # Using a generator expression avoids the overhead of constructing a list.
+        return ((q + dq, r + dr) for dq, dr in self.DIRECTIONS)
 
     def isQueenSurrounded(self, state, player):
         """
@@ -112,14 +125,21 @@ class HiveGame:
     # 3. Action generation
     # ---------------------------------------------------------
     def getLegalActions(self, state):
-        actions = self.placePieceActions(state) + self.movePieceActions(state)
+        board = state["board"]
+        key = self.board_key(board)
+        if key in self._legal_moves_cache:
+            cached_moves = self._legal_moves_cache[key]
+        else:
+            cached_moves = self.placePieceActions(state) + self.movePieceActions(state)
+            self._legal_moves_cache[key] = cached_moves
+
         current_player = state["current_player"]
-        if find_queen_position(state["board"], current_player) is None:
+        if find_queen_position(board, current_player) is None:
             move_count = state["move_number"] // 2 + 1
             if move_count >= 3:
-                queen_actions = [action for action in actions if action[0] == "PLACE" and action[1] == "Queen"]
+                queen_actions = [action for action in cached_moves if action[0] == "PLACE" and action[1] == "Queen"]
                 return queen_actions
-        return actions
+        return cached_moves
 
     def placePieceActions(self, state):
         player = state["current_player"]
@@ -446,20 +466,47 @@ class HiveGame:
         elif currentPlayer == "Player2":
             return "Player1"
 
-    def isBoardConnected(self, board, getAdjacentCells):
-        occupied_cells = [coord for coord, stack in board.items() if stack]
+    def isBoardConnected(self, board, getAdjacentCells=None):
+        """
+        Checks if all occupied cells in 'board' form one connected component.
+        Uses union–find, and caches the result keyed by the board state.
+        """
+        key = self.board_key(board)
+        if key in self._connectivity_cache:
+            return self._connectivity_cache[key]
+
+        # Use union-find to determine connectivity.
+        occupied_cells = [cell for cell, stack in board.items() if stack]
         if not occupied_cells:
+            self._connectivity_cache[key] = True
             return True
-        visited = set()
-        to_visit = [occupied_cells[0]]
-        while to_visit:
-            current = to_visit.pop()
-            if current not in visited:
-                visited.add(current)
-                for (nq, nr) in getAdjacentCells(*current):
-                    if (nq, nr) in board and board[(nq, nr)]:
-                        to_visit.append((nq, nr))
-        return len(visited) == len(occupied_cells)
+
+        parent = {cell: cell for cell in occupied_cells}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(x, y):
+            rx = find(x)
+            ry = find(y)
+            if rx != ry:
+                parent[ry] = rx
+
+        directions = self.DIRECTIONS
+        for cell in occupied_cells:
+            q, r = cell
+            for dq, dr in directions:
+                neighbor = (q + dq, r + dr)
+                if neighbor in board and board[neighbor]:
+                    union(cell, neighbor)
+
+        roots = {find(cell) for cell in occupied_cells}
+        result = (len(roots) == 1)
+        self._connectivity_cache[key] = result
+        return result
 
     def getSpiderDestinationsEdge(self, board, q, r):
         directions = [(1, 0), (1, -1), (0, -1),
