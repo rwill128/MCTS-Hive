@@ -109,7 +109,7 @@ class MCTS:
             outcome = self.game.getGameOutcome(final_state)
             self._backpropagate(node, final_state, root_node, outcome)
             if draw_callback is not None and i % update_interval == 0:
-                draw_callback(root_node)
+                draw_callback(root_node, i)
             # Sleep for a tiny bit to allow the OS to process messages.
             pygame.time.delay(1)
         best_action, best_child = self._best_action(root_node)

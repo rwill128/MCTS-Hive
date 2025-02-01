@@ -244,26 +244,24 @@ def get_human_move(state, game, screen):
                             print("Click not on a highlighted destination. Press Escape to cancel selection.")
             pygame.time.wait(100)
 
-def draw_heatmap(root_node, screen):
+def draw_heatmap(root_node, iteration, screen):
     """
-    Draws the board (using draw_hive_board) and overlays, on each cell corresponding to a move
-    from the root node's children, a semi-transparent polygon and a text label showing:
-      - The move (e.g. "PLACE Queen" or "MOVE (0,0)->(0,1)"),
-      - The visit count,
-      - The average value.
-    This function clears the screen before drawing so that text does not accumulate.
+    Draws the board (using draw_hive_board) and overlays a heatmap on the destination cells for moves
+    from the root node's children. Also draws the current iteration count on the top-left corner.
     """
-    # Clear the screen.
-    screen.fill((255, 255, 255))
     # Draw the base board.
     draw_hive_board(root_node.state, screen)
 
     # If there are no children, nothing to overlay.
     if not root_node.children:
+        # Draw iteration count
+        font = pygame.font.SysFont(None, 24)
+        iter_text = font.render(f"Iterations: {iteration}", True, (0, 0, 0))
+        screen.blit(iter_text, (10, 10))
         pygame.display.flip()
         return
 
-    # Determine maximum visit count for normalization.
+    # Determine maximum visit count among the children.
     max_visits = max(child.visit_count for child in root_node.children.values())
     if max_visits == 0:
         max_visits = 1
@@ -271,32 +269,26 @@ def draw_heatmap(root_node, screen):
     # Create a font for text.
     font = pygame.font.SysFont(None, 20)
 
-    # For each move from the root, overlay a semi-transparent polygon and text.
+    # For each child move, overlay a semi-transparent polygon and text.
     for action, child in root_node.children.items():
-        # Assume that for both PLACE and MOVE actions, action[2] is the destination cell.
+        # Assume action[2] is the destination cell.
         target = action[2]
-        ratio = child.visit_count / max_visits  # from 0 to 1
-        # Interpolate from white (low visits) to red (high visits).
+        ratio = child.visit_count / max_visits  # 0 (least visited) to 1 (most visited)
+        # Interpolate from white (low visits) to red (high visits)
         red = 255
         green = int(255 * (1 - ratio))
         blue = int(255 * (1 - ratio))
-        overlay_color = (red, green, blue, 150)  # alpha = 150 for moderate transparency
-
-        # Get the polygon for the target cell.
+        overlay_color = (red, green, blue, 150)  # Alpha 150 for transparency
         center = hex_to_pixel(*target)
         corners = polygon_corners(center, HEX_SIZE)
-        # Create an overlay surface with per-pixel alpha.
         overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         pygame.draw.polygon(overlay, overlay_color, corners, 0)
         screen.blit(overlay, (0, 0))
-
-        # Compute average value for this move.
+        # Compute average value.
         if child.visit_count > 0:
             avg_value = child.total_value / child.visit_count
         else:
             avg_value = 0
-
-        # Build a label string.
         if action[0] == "PLACE":
             move_str = f"{action[0]} {action[1]}"
         elif action[0] == "MOVE":
@@ -304,13 +296,15 @@ def draw_heatmap(root_node, screen):
         else:
             move_str = ""
         label = f"{move_str} | V:{child.visit_count} | Avg:{avg_value:.2f}"
-
-        # Render the text.
         # text_surface = font.render(label, True, (0, 0, 0))
         # text_rect = text_surface.get_rect(center=center)
         # screen.blit(text_surface, text_rect)
 
-    # Finally, update the display.
+    # Draw iteration count on the top-left.
+    font_big = pygame.font.SysFont(None, 24)
+    iter_text = font_big.render(f"Iterations: {iteration}", True, (0, 0, 0))
+    screen.blit(iter_text, (10, 10))
+
     pygame.display.flip()
 
 
@@ -351,8 +345,8 @@ def play_with_mcts():
             action = get_human_move(state, game, screen)
         else:
             print("\nBot turn. Thinking...")
-            # Pass the draw_heatmap callback to MCTS.search.
-            action = mcts.search(state, draw_callback=lambda root: draw_heatmap(root, screen))
+            # Pass the draw_heatmap callback to MCTS.search
+            action = mcts.search(state, draw_callback=lambda root, iter_count: draw_heatmap(root, iter_count, screen))
             pygame.time.wait(500)
         state = game.applyAction(state, action)
         print("Applied move:", action)
