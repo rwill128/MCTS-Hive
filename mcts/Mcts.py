@@ -94,26 +94,23 @@ class MCTS:
         self.lose_reward = lose_reward
         self.draw_reward = draw_reward
 
-    # Inside MCTS.search:
     def search(self, root_state, draw_callback=None):
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
-        update_interval = max(1, self.num_iterations // 100)
+        update_interval = max(1, self.num_iterations // 1000)
         for i in range(self.num_iterations):
-            # Process events so the window doesn't freeze.
             pygame.event.pump()
-
             node = self._select(root_node)
             if not node.is_terminal(self.game) and not node.is_fully_expanded(self.game):
                 node = node.expand(self.game, self)
-            final_state = self.game.simulateRandomPlayout(node.state)
-            outcome = self.game.getGameOutcome(final_state)
-            self._backpropagate(node, final_state, root_node, outcome)
+            # Use depth-limited playout; simulation returns a heuristic evaluation.
+            simulation_value = self.game.simulateRandomPlayout(node.state, max_depth=10)
+            self._backpropagate(node, simulation_value, root_node)
             if draw_callback is not None and i % update_interval == 0:
                 draw_callback(root_node, i)
-            # Sleep for a tiny bit to allow the OS to process messages.
             pygame.time.delay(1)
         best_action, best_child = self._best_action(root_node)
         return best_action
+
 
     def _select(self, node):
         while not node.is_terminal(self.game) and node.is_fully_expanded(self.game):
@@ -130,12 +127,12 @@ class MCTS:
                 best_visits = child.visit_count
         return best_action, best_child
 
-    def _backpropagate(self, node, final_state, root_node, outcome):
-        root_player = self.game.getCurrentPlayer(root_node.state)
-        reward = self._getRewardFromOutcome(outcome, root_player)
+    def _backpropagate(self, node, simulation_value, root_node):
+        # Here, simulation_value is the heuristic evaluation (a numeric score)
         while node is not None:
-            node.update(reward)
+            node.update(simulation_value)
             node = node.parent
+
 
     def _getRewardFromOutcome(self, outcome, root_player):
         if outcome is None:

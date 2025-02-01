@@ -247,65 +247,72 @@ def get_human_move(state, game, screen):
 def draw_heatmap(root_node, iteration, screen):
     """
     Draws the board (using draw_hive_board) and overlays a heatmap on the destination cells for moves
-    from the root node's children. Also draws the current iteration count on the top-left corner.
+    from the root node's children. It also draws the current iteration count in the top-left corner.
+    Additionally, it displays the move type, visit count, and average evaluation in each target hex.
     """
-    # Draw the base board.
+    # First, draw the base board.
     draw_hive_board(root_node.state, screen)
-
-    # If there are no children, nothing to overlay.
-    if not root_node.children:
-        # Draw iteration count
-        font = pygame.font.SysFont(None, 24)
-        iter_text = font.render(f"Iterations: {iteration}", True, (0, 0, 0))
-        screen.blit(iter_text, (10, 10))
-        pygame.display.flip()
-        return
-
-    # Determine maximum visit count among the children.
-    max_visits = max(child.visit_count for child in root_node.children.values())
-    if max_visits == 0:
-        max_visits = 1
-
-    # Create a font for text.
-    font = pygame.font.SysFont(None, 20)
-
-    # For each child move, overlay a semi-transparent polygon and text.
-    for action, child in root_node.children.items():
-        # Assume action[2] is the destination cell.
-        target = action[2]
-        ratio = child.visit_count / max_visits  # 0 (least visited) to 1 (most visited)
-        # Interpolate from white (low visits) to red (high visits)
-        red = 255
-        green = int(255 * (1 - ratio))
-        blue = int(255 * (1 - ratio))
-        overlay_color = (red, green, blue, 150)  # Alpha 150 for transparency
-        center = hex_to_pixel(*target)
-        corners = polygon_corners(center, HEX_SIZE)
-        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-        pygame.draw.polygon(overlay, overlay_color, corners, 0)
-        screen.blit(overlay, (0, 0))
-        # Compute average value.
-        if child.visit_count > 0:
-            avg_value = child.total_value / child.visit_count
-        else:
-            avg_value = 0
-        if action[0] == "PLACE":
-            move_str = f"{action[0]} {action[1]}"
-        elif action[0] == "MOVE":
-            move_str = f"{action[0]} {action[1]} -> {action[2]}"
-        else:
-            move_str = ""
-        label = f"{move_str} | V:{child.visit_count} | Avg:{avg_value:.2f}"
-        # text_surface = font.render(label, True, (0, 0, 0))
-        # text_rect = text_surface.get_rect(center=center)
-        # screen.blit(text_surface, text_rect)
 
     # Draw iteration count on the top-left.
     font_big = pygame.font.SysFont(None, 24)
     iter_text = font_big.render(f"Iterations: {iteration}", True, (0, 0, 0))
     screen.blit(iter_text, (10, 10))
 
+    # If there are no children, nothing more to overlay.
+    if not root_node.children:
+        pygame.display.flip()
+        return
+
+    # Assume our evaluation function normally returns values in the range [-500, 500].
+    eval_min, eval_max = -500, 500
+
+    # Create a font for the overlay text.
+    font = pygame.font.SysFont(None, 20)
+
+    for action, child in root_node.children.items():
+        # Assume action[2] is the destination cell.
+        target = action[2]
+
+        # Compute the average evaluation for this move.
+        if child.visit_count > 0:
+            avg_value = child.total_value / child.visit_count
+        else:
+            avg_value = 0
+
+        # Normalize the average evaluation to a value between 0 and 1.
+        norm_eval = (avg_value - eval_min) / (eval_max - eval_min)
+        norm_eval = max(0.0, min(1.0, norm_eval))  # Clamp between 0 and 1.
+
+        # Now, interpolate a color between blue (bad) and red (good).
+        # When norm_eval is 0 -> blue (0, 0, 255), when 1 -> red (255, 0, 0).
+        red = int(255 * norm_eval)
+        green = 0
+        blue = int(255 * (1 - norm_eval))
+        # Set an alpha value for transparency.
+        overlay_color = (red, green, blue, 150)
+
+        # Compute the polygon for the target cell.
+        center = hex_to_pixel(*target)
+        corners = polygon_corners(center, HEX_SIZE)
+        # Create an overlay surface with per-pixel alpha.
+        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        pygame.draw.polygon(overlay, overlay_color, corners, 0)
+        screen.blit(overlay, (0, 0))
+
+        # Build a label string.
+        if action[0] == "PLACE":
+            move_str = f"{action[0]} {action[1]}"
+        elif action[0] == "MOVE":
+            move_str = f"{action[0]} {action[1]} -> {action[2]}"
+        else:
+            move_str = ""
+        label = f"{move_str} | V:{child.visit_count} | Eval:{avg_value:.1f}"
+        # text_surface = font.render(label, True, (0, 0, 0))
+        # text_rect = text_surface.get_rect(center=center)
+        # screen.blit(text_surface, text_rect)
+
     pygame.display.flip()
+
 
 
 # ---------------------- Main Game Loop -------------------------
@@ -320,7 +327,7 @@ def play_with_mcts():
                 draw_reward=0.1,
                 win_reward=1,
                 lose_reward=-1,
-                num_iterations=100,  # Adjust as desired.
+                num_iterations=5000,  # Adjust as desired.
                 c_param=1.4,
                 forced_check_depth=0)
     state = game.getInitialState()

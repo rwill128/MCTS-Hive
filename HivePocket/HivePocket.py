@@ -51,6 +51,16 @@ class HiveGame:
         # For each cell, sort the stack (if needed) and then sort by coordinate.
         return tuple(sorted((coord, tuple(stack)) for coord, stack in board.items()))
 
+    def board_hash(self, board):
+        """
+        Creates an immutable, canonical representation of the board and returns its hash.
+        Each board is a dict mapping coordinates (tuples) to a list of pieces.
+        We convert each list into a tuple and sort by coordinate.
+        """
+        # For each cell, sort the stack (if needed) and then sort the items by coordinate.
+        items = tuple(sorted((coord, tuple(stack)) for coord, stack in board.items()))
+        return hash(items)
+
     # ---------------------------------------------------------
     # 1. Initialization & Game State
     # ---------------------------------------------------------
@@ -125,8 +135,12 @@ class HiveGame:
     # 3. Action generation
     # ---------------------------------------------------------
     def getLegalActions(self, state):
+        """
+        Returns all legal actions for the current player, using a cache to avoid
+        recomputation on board states we've seen before.
+        """
         board = state["board"]
-        key = self.board_key(board)
+        key = self.board_hash(board)
         if key in self._legal_moves_cache:
             cached_moves = self._legal_moves_cache[key]
         else:
@@ -140,6 +154,14 @@ class HiveGame:
                 queen_actions = [action for action in cached_moves if action[0] == "PLACE" and action[1] == "Queen"]
                 return queen_actions
         return cached_moves
+
+    def clearCaches(self):
+        """
+        Clears caches. Call this after applying an action to ensure that subsequent
+        move generation uses the updated board.
+        """
+        self._connectivity_cache.clear()
+        self._legal_moves_cache.clear()
 
     def placePieceActions(self, state):
         player = state["current_player"]
@@ -468,19 +490,20 @@ class HiveGame:
 
     def isBoardConnected(self, board, getAdjacentCells=None):
         """
-        Checks if all occupied cells in 'board' form one connected component.
-        Uses union–find, and caches the result keyed by the board state.
+        Returns True if all occupied cells in 'board' form one connected component.
+        Uses union-find and caches the result keyed by the board's hash.
         """
-        key = self.board_key(board)
+        key = self.board_hash(board)
         if key in self._connectivity_cache:
             return self._connectivity_cache[key]
 
-        # Use union-find to determine connectivity.
+        # Build a list of occupied cells.
         occupied_cells = [cell for cell, stack in board.items() if stack]
         if not occupied_cells:
             self._connectivity_cache[key] = True
             return True
 
+        # Union-Find initialization.
         parent = {cell: cell for cell in occupied_cells}
 
         def find(x):
@@ -495,6 +518,7 @@ class HiveGame:
             if rx != ry:
                 parent[ry] = rx
 
+        # Use the precomputed directions.
         directions = self.DIRECTIONS
         for cell in occupied_cells:
             q, r = cell
@@ -644,7 +668,69 @@ class HiveGame:
             board[(tq, tr)].append(piece)
         new_state["current_player"] = self.getOpponent(player)
         new_state["move_number"] += 1
+
+        # Clear caches so that subsequent calls use the new board state.
+        self.clearCaches()
         return new_state
+
+    def evaluateState(self, state):
+        """
+        Evaluates the board state heuristically from Player1's perspective.
+
+        Positive scores indicate an advantage for Player1; negative for Player2.
+
+        Factors included:
+          - Queen mobility: More liberties for our queen is good; fewer liberties for the enemy queen is good.
+          - Average distance of non-queen friendly pieces to the enemy queen: Closer is better.
+        """
+        outcome = self.getGameOutcome(state)
+        if outcome is not None:
+            # Use high scores for terminal positions.
+            if outcome == "Player1":
+                return 10000
+            elif outcome == "Player2":
+                return -10000
+            else:
+                return 0
+
+        board = state["board"]
+        # Find queen positions.
+        our_queen = find_queen_position(board, "Player1")
+        enemy_queen = find_queen_position(board, "Player2")
+
+        our_liberties = 0
+        enemy_liberties = 0
+
+        # Count adjacent empty cells (liberties) for each queen.
+        if our_queen is not None:
+            for neighbor in self.getAdjacentCells(*our_queen):
+                if neighbor not in board or len(board[neighbor]) == 0:
+                    our_liberties += 1
+        if enemy_queen is not None:
+            for neighbor in self.getAdjacentCells(*enemy_queen):
+                if neighbor not in board or len(board[neighbor]) == 0:
+                    enemy_liberties += 1
+
+        # A simple heuristic: score based on queen liberties.
+        # The more free spaces our queen has and the fewer the enemy queen has, the better.
+        score = (our_liberties - enemy_liberties) * 20
+
+        # Next, compute an average distance measure for non-queen friendly pieces to the enemy queen.
+        if enemy_queen is not None:
+            total_distance = 0
+            count = 0
+            for (q, r), stack in board.items():
+                if stack and stack[-1][0] == "Player1" and stack[-1][1] != "Queen":
+                    total_distance += hex_distance(q, r, enemy_queen[0], enemy_queen[1])
+                    count += 1
+            if count > 0:
+                avg_distance = total_distance / count
+                # If our pieces are closer to the enemy queen, that is an advantage.
+                # You can adjust the constant below to scale the effect.
+                score += (20 - avg_distance) * 5
+
+        return score
+
 
     def getGameOutcome(self, state):
         p1_surrounded = self.isQueenSurrounded(state, "Player1")
@@ -664,15 +750,18 @@ class HiveGame:
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state):
+    def simulateRandomPlayout(self, state, max_depth=10):
         temp_state = self.copyState(state)
-        while not self.isTerminal(temp_state):
+        depth = 0
+        while not self.isTerminal(temp_state) and depth < max_depth:
             legal = self.getLegalActions(temp_state)
             if not legal:
                 break
             action = self.weightedActionChoice(temp_state, legal)
             temp_state = self.applyAction(temp_state, action)
-        return temp_state
+            depth += 1
+        # Instead of returning the state, return the heuristic evaluation.
+        return self.evaluateState(temp_state)
 
     # ---------------------------------------------------------
     # 5. Print / Debug
