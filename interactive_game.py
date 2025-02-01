@@ -306,9 +306,9 @@ def draw_heatmap(root_node, screen):
         label = f"{move_str} | V:{child.visit_count} | Avg:{avg_value:.2f}"
 
         # Render the text.
-        text_surface = font.render(label, True, (0, 0, 0))
-        text_rect = text_surface.get_rect(center=center)
-        screen.blit(text_surface, text_rect)
+        # text_surface = font.render(label, True, (0, 0, 0))
+        # text_rect = text_surface.get_rect(center=center)
+        # screen.blit(text_surface, text_rect)
 
     # Finally, update the display.
     pygame.display.flip()
