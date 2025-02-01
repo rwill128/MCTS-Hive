@@ -1,6 +1,8 @@
 import math
 import random
 
+import pygame
+
 from HivePocket.DrawGame import drawStatePygame
 from HivePocket.HivePocket import hex_distance, find_queen_position
 
@@ -97,6 +99,9 @@ class MCTS:
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
         update_interval = max(1, self.num_iterations // 100)
         for i in range(self.num_iterations):
+            # Process events so the window doesn't freeze.
+            pygame.event.pump()
+
             node = self._select(root_node)
             if not node.is_terminal(self.game) and not node.is_fully_expanded(self.game):
                 node = node.expand(self.game, self)
@@ -105,6 +110,8 @@ class MCTS:
             self._backpropagate(node, final_state, root_node, outcome)
             if draw_callback is not None and i % update_interval == 0:
                 draw_callback(root_node)
+            # Sleep for a tiny bit to allow the OS to process messages.
+            pygame.time.delay(1)
         best_action, best_child = self._best_action(root_node)
         return best_action
 
