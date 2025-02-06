@@ -6,13 +6,15 @@ import moderngl_window as mglw
 class AlgaeSimulation(mglw.WindowConfig):
     gl_version = (3, 3)
     title = "Algae Simulation"
-    window_size = (512, 512)
-    aspect_ratio = 1.0
-    resizable = False
+    fullscreen = True         # Opens the window in fullscreen mode.
+    resizable = True          # Allow window resizes if needed.
+    window_size = (800, 600)  # Fallback size if fullscreen is not available.
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.simulation_size = (512, 512)
+        # Use the actual window size for the simulation.
+        self.simulation_size = self.wnd.size  # (width, height)
+        print("Simulation size:", self.simulation_size)
 
         # Initialize simulation state: black everywhere (0.0) with a few seeded algae pixels (value 1.0)
         initial_state = np.zeros(self.simulation_size, dtype=np.float32)
@@ -21,7 +23,7 @@ class AlgaeSimulation(mglw.WindowConfig):
         ys = np.random.randint(0, self.simulation_size[1], size=num_seeds)
         initial_state[xs, ys] = 1.0  # seed algae
 
-        # Using 32-bit float texture data
+        # Create textures with 32-bit float data.
         self.tex1 = self.ctx.texture(
             self.simulation_size, 1, initial_state.tobytes(),
             dtype='f4'
@@ -30,7 +32,6 @@ class AlgaeSimulation(mglw.WindowConfig):
             self.simulation_size, 1, None,
             dtype='f4'
         )
-
         # Use NEAREST filtering for a crisp cell-by-cell update.
         self.tex1.filter = (moderngl.NEAREST, moderngl.NEAREST)
         self.tex2.filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -46,7 +47,6 @@ class AlgaeSimulation(mglw.WindowConfig):
         self.fbo = self.ctx.framebuffer(color_attachments=[self.next_tex])
 
         # Shader program that updates the simulation state.
-        # It reads the current state texture and computes a new state for each pixel.
         self.prog = self.ctx.program(
             vertex_shader='''
                 #version 330
@@ -64,14 +64,11 @@ class AlgaeSimulation(mglw.WindowConfig):
                 in vec2 v_text;
                 out float fragColor;
 
-                // Simple parameters: adjust these to change growth behavior.
                 const float growth_threshold = 0.2;
 
                 void main(){
-                    // Read the current state for this pixel.
                     float current = texture(state, v_text).r;
 
-                    // Average the values of the 8 surrounding neighbors.
                     float sum = 0.0;
                     int count = 0;
                     ivec2 texSize = textureSize(state, 0);
@@ -86,14 +83,8 @@ class AlgaeSimulation(mglw.WindowConfig):
                     }
                     float neighbor_avg = sum / float(count);
 
-                    // Compute a simple “sun intensity” as a function of vertical position.
-                    // Here, the top (v_text.y close to 1.0) is brighter than the bottom.
                     float sun = mix(0.2, 1.0, v_text.y);
 
-                    // Basic rule:
-                    //  - If algae are already present, they persist.
-                    //  - If not, algae can grow if the average of the neighbors is high
-                    //    and the pixel is sufficiently sunlit.
                     if(current > 0.0){
                         fragColor = 1.0;
                     } else if(neighbor_avg > growth_threshold && sun > 0.5){
@@ -107,19 +98,18 @@ class AlgaeSimulation(mglw.WindowConfig):
 
         # Set up a fullscreen quad (two triangles) to cover the viewport.
         vertices = np.array([
-            # positions   # texture coordinates
-            -1.0, -1.0,  0.0, 0.0,
-            1.0, -1.0,  1.0, 0.0,
-            -1.0,  1.0,  0.0, 1.0,
-            -1.0,  1.0,  0.0, 1.0,
-            1.0, -1.0,  1.0, 0.0,
-            1.0,  1.0,  1.0, 1.0,
+            # positions    # texture coordinates
+            -1.0, -1.0,    0.0, 0.0,
+            1.0, -1.0,    1.0, 0.0,
+            -1.0,  1.0,    0.0, 1.0,
+            -1.0,  1.0,    0.0, 1.0,
+            1.0, -1.0,    1.0, 0.0,
+            1.0,  1.0,    1.0, 1.0,
         ], dtype='f4')
         self.vbo = self.ctx.buffer(vertices.tobytes())
         self.vao = self.ctx.simple_vertex_array(self.prog, self.vbo, 'in_vert', 'in_text')
 
-        # A second shader for displaying the simulation state.
-        # It maps a cell with algae (state=1) to green, and empty cells to black.
+        # Shader for displaying the simulation state with a yellowish background.
         self.display_prog = self.ctx.program(
             vertex_shader='''
                 #version 330
@@ -138,10 +128,16 @@ class AlgaeSimulation(mglw.WindowConfig):
                 out vec4 fragColor;
                 void main(){
                     float s = texture(state, v_text).r;
-                    // Mix from black (background) to green (algae)
-                    fragColor = mix(vec4(0.0, 0.0, 0.0, 1.0),
-                                    vec4(0.0, 1.0, 0.0, 1.0),
-                                    s);
+                    
+                    // Compute a background color that is subtly yellow
+                    // based on the vertical coordinate (to simulate sunlight).
+                    vec4 bgColor = vec4(0.1 + 0.3 * v_text.y,
+                                        0.1 + 0.3 * v_text.y,
+                                        0.0,
+                                        1.0);
+                    
+                    // Mix the background with bright green for algae.
+                    fragColor = mix(bgColor, vec4(0.0, 1.0, 0.0, 1.0), s);
                 }
             '''
         )
@@ -154,13 +150,11 @@ class AlgaeSimulation(mglw.WindowConfig):
         self.current_tex.use(location=0)
         self.prog['state'] = 0  # our simulation shader uses texture unit 0
 
-        # Render to the framebuffer attached to next_tex.
         self.fbo.use()
         self.vao.render(moderngl.TRIANGLES)
 
         # Swap the textures (ping-pong).
         self.current_tex, self.next_tex = self.next_tex, self.current_tex
-        # Reattach the new next_tex to the framebuffer.
         self.fbo = self.ctx.framebuffer(color_attachments=[self.next_tex])
 
         # === Display Step ===

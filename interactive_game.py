@@ -93,42 +93,6 @@ def draw_hive_board(state, screen):
                     screen.blit(text, text_rect)
     pygame.display.flip()
 
-# ---------------------- Heatmap Drawing (for MCTS) -------------------------
-def draw_board_with_heatmap(state, root_node, screen):
-    """
-    Draws the board as usual (using draw_hive_board), then overlays
-    a heatmap on the destination cells for moves from the root node.
-    The shading is based on the visit count for each child.
-    """
-    # First, draw the base board.
-    draw_hive_board(state, screen)
-
-    if not root_node.children:
-        return
-
-    # Find the maximum visit count among the children.
-    max_visits = max(child.visit_count for child in root_node.children.values())
-    if max_visits == 0:
-        max_visits = 1
-
-    # For each child, overlay a semi-transparent color.
-    for action, child in root_node.children.items():
-        # For both MOVE and PLACE actions, assume action[2] is the destination cell.
-        target = action[2]
-        ratio = child.visit_count / max_visits  # from 0 to 1
-        # For example, a gradient from white (low visits) to red (high visits).
-        red = 255
-        green = int(255 * (1 - ratio))
-        blue = int(255 * (1 - ratio))
-        # Create a color with alpha (using an overlay surface).
-        overlay_color = (red, green, blue, 100)
-        center = hex_to_pixel(*target)
-        corners = polygon_corners(center, HEX_SIZE)
-        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-        pygame.draw.polygon(overlay, overlay_color, corners, 0)
-        screen.blit(overlay, (0, 0))
-    pygame.display.flip()
-
 # ---------------------- Human Move Handling -------------------------
 def get_human_move(state, game, screen):
     """
@@ -246,73 +210,78 @@ def get_human_move(state, game, screen):
 
 def draw_heatmap(root_node, iteration, screen):
     """
-    Draws the board (using draw_hive_board) and overlays a heatmap on the destination cells for moves
-    from the root node's children. It also draws the current iteration count in the top-left corner.
-    Additionally, it displays the move type, visit count, and average evaluation in each target hex.
+    Draws the board and overlays a heatmap based on average heuristic value
+    (hue) and visit count (brightness).
     """
-    # First, draw the base board.
     draw_hive_board(root_node.state, screen)
 
-    # Draw iteration count on the top-left.
+    # Display iteration count
     font_big = pygame.font.SysFont(None, 24)
     iter_text = font_big.render(f"Iterations: {iteration}", True, (0, 0, 0))
     screen.blit(iter_text, (10, 10))
 
-    # If there are no children, nothing more to overlay.
     if not root_node.children:
         pygame.display.flip()
         return
 
-    # Assume our evaluation function normally returns values in the range [-500, 500].
-    eval_min, eval_max = -500, 500
+    # Find the maximum visit count for normalization
+    max_visits = max(child.visit_count for child in root_node.children.values())
 
-    # Create a font for the overlay text.
-    font = pygame.font.SysFont(None, 20)
+    # Define the range of your heuristic (adjust if needed)
+    heuristic_min = -500
+    heuristic_max = 500
+
+    font = pygame.font.SysFont(None, 20)  # For move info
 
     for action, child in root_node.children.items():
-        # Assume action[2] is the destination cell.
-        target = action[2]
+        target = action[2]  # Destination hex
 
-        # Compute the average evaluation for this move.
-        if child.visit_count > 0:
-            avg_value = child.total_value / child.visit_count
-        else:
-            avg_value = 0
+        # 1. Calculate Average Heuristic Value (and normalize)
+        avg_value = child.average_value()
+        normalized_value = (avg_value - heuristic_min) / (heuristic_max - heuristic_min)
+        normalized_value = max(0.0, min(1.0, normalized_value))  # Clamp
 
-        # Normalize the average evaluation to a value between 0 and 1.
-        norm_eval = (avg_value - eval_min) / (eval_max - eval_min)
-        norm_eval = max(0.0, min(1.0, norm_eval))  # Clamp between 0 and 1.
+        # 2. Normalize Visit Count (logarithmic scale)
+        normalized_visits = math.log(child.visit_count + 1) / math.log(max_visits + 1)
 
-        # Now, interpolate a color between blue (bad) and red (good).
-        # When norm_eval is 0 -> blue (0, 0, 255), when 1 -> red (255, 0, 0).
-        red = int(255 * norm_eval)
-        green = 0
-        blue = int(255 * (1 - norm_eval))
-        # Set an alpha value for transparency.
-        overlay_color = (red, green, blue, 150)
+        # 3. Map Average Value to Hue (Red-to-Green)
+        if normalized_value > 0.5:  # More green
+            red = int(255 * (1 - normalized_value) * 2)
+            green = 255
+            blue = 0
+        else:  # More red
+            red = 255
+            green = int(255 * normalized_value * 2)
+            blue = 0
 
-        # Compute the polygon for the target cell.
+        # 4. Adjust Brightness Based on Visit Count
+        final_color = (
+            int(red * normalized_visits),
+            int(green * normalized_visits),
+            int(blue * normalized_visits),
+            128, # Alpha for some transparency.
+        )
+
+        # Draw the colored hexagon
         center = hex_to_pixel(*target)
         corners = polygon_corners(center, HEX_SIZE)
-        # Create an overlay surface with per-pixel alpha.
         overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-        pygame.draw.polygon(overlay, overlay_color, corners, 0)
+        pygame.draw.polygon(overlay, final_color, corners, 0)
         screen.blit(overlay, (0, 0))
 
-        # Build a label string.
+        # Display move information (optional, but helpful)
         if action[0] == "PLACE":
             move_str = f"{action[0]} {action[1]}"
         elif action[0] == "MOVE":
-            move_str = f"{action[0]} {action[1]} -> {action[2]}"
-        else:
-            move_str = ""
-        label = f"{move_str} | V:{child.visit_count} | Eval:{avg_value:.1f}"
-        # text_surface = font.render(label, True, (0, 0, 0))
-        # text_rect = text_surface.get_rect(center=center)
-        # screen.blit(text_surface, text_rect)
+            move_str = f"{action[0]} {action[1]}->{action[2]}"
+        label = f"{move_str}\nV:{child.visit_count}\nE:{avg_value:.1f}"
+
+        #The labels can overlap so this code can be removed.
+        #text_surface = font.render(label, True, (0, 0, 0))  # Black text
+        #text_rect = text_surface.get_rect(center=center)
+        #screen.blit(text_surface, text_rect)
 
     pygame.display.flip()
-
 
 
 # ---------------------- Main Game Loop -------------------------

@@ -47,6 +47,11 @@ class MCTSNode:
                 del self.children[action]
         self._legal_actions_override = set(allowed_actions)
 
+    def average_value(self):
+        if self.visit_count == 0:
+            return 0  # Or some default value
+        return self.total_value / self.visit_count
+
     def is_fully_expanded(self, game):
         if self._legal_actions_override is not None:
             return len(self.children) == len(self._legal_actions_override)
@@ -184,7 +189,7 @@ class MCTS:
                 if self._forced_check_depth_limited(nxt_state, current_player, depth - 1):
                     return action, []
                 else:
-                    opp = self.game.getOtherPlayer(current_player)
+                    opp = self.game.getOpponent(current_player)
                     if self._forced_check_depth_limited(nxt_state, opp, depth - 1):
                         continue
                     else:
