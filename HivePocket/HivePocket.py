@@ -322,18 +322,31 @@ class HiveGame:
                 results.add(cur)
                 return
             for neighbor in self.getAdjacentCells(*cur):
-                if neighbor in path: # Already takes care of starting position
+                if neighbor in path:
                     continue
-                if neighbor in board and len(board[neighbor]) > 0:
+                if neighbor in board and board[neighbor]: # This was also incorrect, we must ensure that the board has a piece there.
                     continue
-                if not any(((adj in board) and (len(board[adj]) > 0))
-                           for adj in self.getAdjacentCells(*neighbor)):
+                # Check that the neighbor "hugs" the hive: at least one adjacent cell is occupied.
+                if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*neighbor)):
                     continue
+                # Check sliding from current cell to neighbor.
                 if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
                     continue
                 dfs(path + [neighbor], steps + 1)
 
-        dfs([start], 0)
+        # Check sliding for the *initial* move from 'start'.
+        valid_starts = []
+        for first_neighbor in self.getAdjacentCells(*start):
+            if first_neighbor in board and board[first_neighbor]:
+                continue
+            if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*first_neighbor)):
+                continue
+            if self.canSlide(start[0], start[1], first_neighbor[0], first_neighbor[1], board):
+                valid_starts.append(first_neighbor)
+
+        for first_step in valid_starts:
+            dfs([start, first_step], 1)
+
         return results
 
     # --- New: Revised Ant Move Generation ---
