@@ -27,16 +27,19 @@ class HiveGame:
       - We do check if each Queen is fully surrounded for a terminal state.
       - We treat "no legal moves" as an immediate loss for the current player to avoid MCTS contradictions.
     """
+    INITIAL_PIECES = {
+        "Queen": 1,
+        "Spider": 2,
+        "Beetle": 2,
+        "Grasshopper": 3,
+        "Ant": 3
+    }
+
+    DIRECTIONS = [(1, 0), (-1, 0), (0, 1),
+                       (0, -1), (1, -1), (-1, 1)]
+
     def __init__(self):
-        self.INITIAL_PIECES = {
-            "Queen": 1,
-            "Spider": 2,
-            "Beetle": 2,
-            "Grasshopper": 3,
-            "Ant": 3
-        }
-        self.DIRECTIONS = [(1, 0), (-1, 0), (0, 1),
-                           (0, -1), (1, -1), (-1, 1)]
+
         # Cache for connectivity checks.
         self._connectivity_cache = {}
         self._legal_moves_cache = {}
@@ -167,11 +170,11 @@ class HiveGame:
 
     def clearCaches(self):
         """
-        Clears caches. Call this after applying an action to ensure that subsequent
-        move generation uses the updated board.
+        Clears caches. Call this after applying an action.
         """
         self._connectivity_cache.clear()
         self._legal_moves_cache.clear()
+        self._can_slide_cache.clear()  # Add this line!
 
     def placePieceActions(self, state):
         player = state["current_player"]
@@ -188,20 +191,25 @@ class HiveGame:
             return actions
         if len(board) == 1:
             for insectType, count in pieces_in_hand.items():
-                if count > 0 and (0, 1) not in board:
-                    actions.append(("PLACE", insectType, (0, 1)))
-                elif count > 0 and (0, 0) not in board:
-                    actions.append(("PLACE", insectType, (0, 0)))
+                if count > 0:
+                    for coord, _ in board.items(): #Safe since len(board) == 1
+                        q, r = coord
+                    for neighbor in self.getAdjacentCells(q, r):
+                        actions.append(("PLACE", insectType, neighbor))
             return actions
+
+
         friendly_cells = set()
         for (q, r), stack in board.items():
             if any(p[0] == player for p in stack):
                 friendly_cells.add((q, r))
+
         potential_spots = set()
         for (q, r) in friendly_cells:
             for (nq, nr) in self.getAdjacentCells(q, r):
                 if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
                     potential_spots.add((nq, nr))
+
         valid_spots = []
         for (tq, tr) in potential_spots:
             adjacent_to_enemy = False
@@ -211,6 +219,7 @@ class HiveGame:
                     break
             if not adjacent_to_enemy:
                 valid_spots.append((tq, tr))
+
         for insectType, count in pieces_in_hand.items():
             if count > 0:
                 for (tq, tr) in valid_spots:
@@ -239,7 +248,7 @@ class HiveGame:
         player = state["current_player"]
         actions = []
 
-        # Use a set for faster lookups.
+        # CORRECTED: Only include cells where the *top* piece is the player's.
         player_cells = {(q, r, stack[-1][1]) for (q, r), stack in board.items() if stack and stack[-1][0] == player}
 
         def board_copy(board):
@@ -251,14 +260,13 @@ class HiveGame:
             if not temp_board[(q, r)]:
                 del temp_board[(q, r)]
 
-            # --- Incremental Connectivity Check (Before Move) ---
-            removal_disconnects = not self.is_locally_connected(temp_board, q, r)
-
+            if not self.isBoardConnected(temp_board):
+                continue
 
             if insectType == "Queen":
                 destinations = self.getAdjacentCells(q, r)
             elif insectType == "Beetle":
-                destinations = self.getAdjacentCells(q, r)  # Beetle can climb
+                destinations = self.getAdjacentCells(q, r)
             elif insectType == "Grasshopper":
                 destinations = self.getGrasshopperJumps(temp_board, q, r)
             elif insectType == "Spider":
@@ -269,25 +277,19 @@ class HiveGame:
                 destinations = []
 
             for to_q, to_r in destinations:
-                if insectType != "Beetle" and (to_q, to_r) in temp_board and len(temp_board[(to_q, to_r)]) > 0:
-                    continue
-                if insectType not in ["Beetle", "Grasshopper", "Ant", "Spider"] and not self.canSlide(q, r, to_q, to_r, temp_board): #canSlide also needed for ant
+                if (to_q, to_r) in temp_board and any(p[0] == player for p in temp_board[(to_q, to_r)]) and insectType != "Beetle":
                     continue
 
-                #Skip move if it does not maintain connectivity
-                if removal_disconnects:
+                if insectType not in ["Beetle", "Grasshopper", "Ant", "Spider"] and not self.canSlide(q, r, to_q, to_r, temp_board):
                     continue
 
-                # --- Incremental Connectivity Check (After Move) ---
                 temp_board.setdefault((to_q, to_r), []).append(piece)
-                if self.is_locally_connected(temp_board, to_q, to_r):
-                    actions.append(("MOVE", (q, r), (to_q, to_r)))
+                actions.append(("MOVE", (q, r), (to_q, to_r)))
                 temp_board[(to_q, to_r)].pop()
                 if not temp_board.get((to_q, to_r)):
                     temp_board.pop((to_q, to_r), None)
 
         return actions
-
 
     def is_locally_connected(self, board, q, r):
         """
@@ -518,6 +520,10 @@ class HiveGame:
             board[(q, r)].append((player, insectType))
         elif action[0] == "MOVE":
             _, (fq, fr), (tq, tr) = action
+            # --- ADDED VALIDATION: Ensure the move is legal ---
+            if (fq, fr) not in board or not any(p[0] == player for p in board[(fq, fr)]):
+                raise ValueError(f"Invalid move: {action} from state: {state}")  # Or handle more gracefully
+
             piece = board[(fq, fr)].pop()
             if len(board[(fq, fr)]) == 0:
                 del board[(fq, fr)]
@@ -574,27 +580,43 @@ class HiveGame:
                     p2_threats += 1
         score += (p2_threats - p1_threats) * 10
 
+
+        # --- Encourage Piece Placement (Early Game) ---
+        p1_placed = sum(1 for _, stack in board.items() for piece, _ in stack if piece == "Player1")
+        p2_placed = sum(1 for _, stack in board.items() for piece, _ in stack if piece == "Player2")
+
+        # Scale the placement bonus by the move number (early game emphasis)
+        move_number = state["move_number"]
+        placement_bonus = 0
+        if move_number < 10:  # First 5 turns for each player
+            placement_bonus = (p1_placed - p2_placed) * 30 * (10-move_number)/10 # More important in earlier turns.
+        score += placement_bonus
+
         return score
 
     def getGameOutcome(self, state):
         p1_surrounded = self.isQueenSurrounded(state, "Player1")
         p2_surrounded = self.isQueenSurrounded(state, "Player2")
         if p1_surrounded and p2_surrounded:
+            print("Ended by draw")
             return "Draw"
         elif p1_surrounded:
+            print("Ended because Player1 is surrounded")
             return "Player2"
         elif p2_surrounded:
+            print("Ended because Player2 is surrounded")
             return "Player1"
         if not self.getLegalActions(state):
             current = state["current_player"]
             opponent = self.getOpponent(current)
+            print("Ended because " + current + " has no legal moves.")
             return opponent
         return None
 
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state, max_depth=10):
+    def simulateRandomPlayout(self, state, max_depth):
         temp_state = self.copyState(state)
         depth = 0
         while not self.isTerminal(temp_state) and depth < max_depth:

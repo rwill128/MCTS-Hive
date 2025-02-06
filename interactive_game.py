@@ -296,7 +296,7 @@ def play_with_mcts():
                 draw_reward=0.1,
                 win_reward=1,
                 lose_reward=-1,
-                num_iterations=500,  # Adjust as desired.
+                num_iterations=1000,  # Adjust as desired.
                 c_param=1.4,
                 forced_check_depth=0)
     state = game.getInitialState()
