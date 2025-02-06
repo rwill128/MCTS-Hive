@@ -314,11 +314,6 @@ class HiveGame:
         return not self.isBoardConnected(temp_board)
 
     def getSpiderDestinations(self, board, start):
-        """
-        Returns the set of cells that the spider can reach by moving exactly 3 steps,
-        following a path of empty cells where each step satisfies the sliding constraint.
-        The spider may not revisit cells on its path.
-        """
         results = set()
 
         def dfs(path, steps):
@@ -327,20 +322,18 @@ class HiveGame:
                 results.add(cur)
                 return
             for neighbor in self.getAdjacentCells(*cur):
-                if neighbor in path:
+                if neighbor in path: # Already takes care of starting position
                     continue
                 if neighbor in board and len(board[neighbor]) > 0:
                     continue
-                # Check that the neighbor "hugs" the hive: at least one adjacent cell is occupied.
                 if not any(((adj in board) and (len(board[adj]) > 0))
                            for adj in self.getAdjacentCells(*neighbor)):
                     continue
-                # Check sliding from current cell to neighbor.
                 if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
                     continue
                 dfs(path + [neighbor], steps + 1)
 
-        dfs([start], 0)  # Start with a list containing the starting tuple.
+        dfs([start], 0)
         return results
 
     # --- New: Revised Ant Move Generation ---
@@ -355,7 +348,7 @@ class HiveGame:
           - The ant can slide from the current cell into it (using canSlide).
         """
         results = set()
-        visited = set()
+        visited = {start} # Add this! Start is already visited!
         frontier = [start]
         while frontier:
             cur = frontier.pop(0)
@@ -373,20 +366,14 @@ class HiveGame:
         return results
 
     def canSlide(self, from_q, from_r, to_q, to_r, board):
-        """
-        Determines whether a piece can slide from (from_q, from_r) to (to_q, to_r)
-        according to Hive sliding rules.
-        The piece must be able to “squeeze” between the two cells adjacent to the edge
-        between the from and to cells. We do this by checking the two adjacent directions.
-        """
         key = (from_q, from_r, to_q, to_r, self.board_hash(board))
         if key in self._can_slide_cache:
             return self._can_slide_cache[key]
 
+        # 1. Adjacency Check (already correct)
         dq = to_q - from_q
         dr = to_r - from_r
         move_dir = (dq, dr)
-        # For a pointy-topped hex grid using axial coordinates, we define:
         adjacent_mapping = {
             (1, 0): [(0, 1), (1, -1)],
             (0, 1): [(-1, 1), (1, 0)],
@@ -396,16 +383,23 @@ class HiveGame:
             (1, -1): [(1, 0), (0, -1)]
         }
         if move_dir not in adjacent_mapping:
+            self._can_slide_cache[key] = False # Cache negative
             return False
-        adj_dirs = adjacent_mapping[move_dir]
-        blocked = 0
-        for ad in adj_dirs:
-            cell = (from_q + ad[0], from_r + ad[1])
-            if cell in board and len(board[cell]) > 0:
-                blocked += 1
 
-        result = blocked < 2
-        self._can_slide_cache[key] = result  # Store the result
+        # 2. Destination must be empty (handled by movePieceActions now)
+
+        # 3. Correct "Squeezing" Check:
+        adj_dirs = adjacent_mapping[move_dir]
+        blocked_count = 0
+        for adj_q, adj_r in adj_dirs:
+            neighbor1 = (from_q + adj_q, from_r + adj_r)
+            neighbor2 = (to_q + adj_q, to_r + adj_r)
+            # Count as blocked if *both* neighbors are occupied
+            if (neighbor1 in board and board[neighbor1]) and (neighbor2 in board and board[neighbor2]):
+                blocked_count +=1
+
+        result = blocked_count == 0
+        self._can_slide_cache[key] = result
         return result
 
     def _makeTempState(self, original_state, temp_board):
@@ -522,7 +516,11 @@ class HiveGame:
             _, (fq, fr), (tq, tr) = action
             # --- ADDED VALIDATION: Ensure the move is legal ---
             if (fq, fr) not in board or not any(p[0] == player for p in board[(fq, fr)]):
-                raise ValueError(f"Invalid move: {action} from state: {state}")  # Or handle more gracefully
+                raise ValueError(
+                    f"Invalid move: {action} from state: {state}\n"
+                    f"  board: {board}\n"
+                    f"  current_player: {player}\n"
+                )
 
             piece = board[(fq, fr)].pop()
             if len(board[(fq, fr)]) == 0:
