@@ -19,13 +19,6 @@ def find_queen_position(board, player):
 class HiveGame:
     """
     A Hive implementation for demonstration with a generic MCTS framework.
-
-    Major simplifications/assumptions:
-      - Board is tracked using axial coordinates (q, r).
-      - Each coordinate can have a stack of pieces (top of stack is last in list).
-      - Movement rules are partial and simplified (no strict 'sliding' constraints, no climbing).
-      - We do check if each Queen is fully surrounded for a terminal state.
-      - We treat "no legal moves" as an immediate loss for the current player to avoid MCTS contradictions.
     """
     INITIAL_PIECES = {
         "Queen": 1,
@@ -36,7 +29,7 @@ class HiveGame:
     }
 
     DIRECTIONS = [(1, 0), (-1, 0), (0, 1),
-                       (0, -1), (1, -1), (-1, 1)]
+                  (0, -1), (1, -1), (-1, 1)]
 
     def __init__(self):
 
@@ -49,19 +42,13 @@ class HiveGame:
     def board_key(self, board):
         """
         Create an immutable, canonical representation of the board.
-        We assume board is a dict mapping coordinates to a list of pieces.
-        Each piece is a tuple (player, insect). Sorting ensures consistent ordering.
         """
-        # For each cell, sort the stack (if needed) and then sort by coordinate.
         return tuple(sorted((coord, tuple(stack)) for coord, stack in board.items()))
 
     def board_hash(self, board):
         """
         Creates an immutable, canonical representation of the board and returns its hash.
-        Each board is a dict mapping coordinates (tuples) to a list of pieces.
-        We convert each list into a tuple and sort by coordinate.
         """
-        # For each cell, sort the stack (if needed) and then sort the items by coordinate.
         items = tuple(sorted((coord, tuple(stack)) for coord, stack in board.items()))
         return hash(items)
 
@@ -83,13 +70,32 @@ class HiveGame:
         }
         return state
 
+    def getGameOutcome(self, state):
+        p1_surrounded = self.isQueenSurrounded(state, "Player1")
+        p2_surrounded = self.isQueenSurrounded(state, "Player2")
+        if p1_surrounded and p2_surrounded:
+            # print("Ended by draw")
+            return "Draw"
+        elif p1_surrounded:
+            # print("Ended because Player1 is surrounded")
+            return "Player2"
+        elif p2_surrounded:
+            # print("Ended because Player2 is surrounded")
+            return "Player1"
+        if not self.getLegalActions(state):
+            current = state["current_player"]
+            opponent = self.getOpponent(current)
+            print("Ended because " + current + " has no legal moves.")
+            print(f"  Board state at termination: {state['board']}") # CRITICAL: Print the board
+            print(f"  Pieces in hand: {state['pieces_in_hand']}")     # AND pieces in hand
+            return opponent
+        return None
     def copyState(self, state):
         """
         Returns a deep copy of the state dictionary.
         """
         new_board = {}
         for coord, stack in state["board"].items():
-            # Shallow copy of the stack list is enough for this simplified approach
             new_board[coord] = stack.copy()
 
         new_pieces_in_hand = {
@@ -113,82 +119,90 @@ class HiveGame:
 
     def getAdjacentCells(self, q, r):
         """
-        Returns a generator of the six neighbors of cell (q, r) using the pre-stored directions.
-        (This is already very simple; if needed, you can inline its logic in other methods.)
+        Returns a generator of the six neighbors of cell (q, r).
         """
-        # Using a generator expression avoids the overhead of constructing a list.
         return ((q + dq, r + dr) for dq, dr in self.DIRECTIONS)
 
     def isQueenSurrounded(self, state, player):
         """
-        Checks if player's Queen is on the board and fully surrounded by pieces.
+        Checks if player's Queen is on the board and fully surrounded.
         """
         board = state["board"]
-        # Find the queen
         for (q, r), stack in board.items():
             for piece in stack:
                 if piece == (player, "Queen"):
-                    # Check neighbors for occupancy
                     for (nq, nr) in self.getAdjacentCells(q, r):
-                        if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
+                        if (nq, nr) not in board or not board[(nq, nr)]:
                             return False
                     return True
         return False
+
+    def state_key(self, state):
+        board = state["board"]
+        current_player = state["current_player"]
+        # Sort pieces_in_hand so the order is canonical.
+        pieces_in_hand = tuple(sorted((player, tuple(sorted(pieces.items())))
+                                      for player, pieces in state["pieces_in_hand"].items()))
+        return (self.board_hash(board), current_player, pieces_in_hand)
 
     # ---------------------------------------------------------
     # 3. Action generation
     # ---------------------------------------------------------
     def getLegalActions(self, state):
         """
-        Returns all legal actions for the current player, using a cache.
+        Returns all legal actions for the current player (cached).
         Correctly enforces the Queen placement rule.
         """
-        board = state["board"]
-        key = self.board_hash(board)
+        board = state["board"]  # Correct: Access board using ["board"]
+
+        key = self.state_key(state)
         if key in self._legal_moves_cache:
             return self._legal_moves_cache[key]
 
-        cached_moves = self.placePieceActions(state) + self.movePieceActions(state)
-        self._legal_moves_cache[key] = cached_moves
+        # print(f"getLegalActions (CALCULATING): Player={state['current_player']}, Move={state['move_number']}")
+        # print(f"  Board: {board}")
 
-        current_player = state["current_player"]
+        cached_moves = self.placePieceActions(state) + self.movePieceActions(state)
+
+        current_player = state["current_player"]  # Correct
 
         # Correct Queen Placement Rule Check:
         if find_queen_position(board, current_player) is None:
-            # Count *pieces placed* by the current player, not the move number.
-            pieces_placed = 0
-            for _, stack in board.items():
-                for piece_owner, _ in stack:
-                    if piece_owner == current_player:
-                        pieces_placed += 1
+            pieces_placed = sum(1 for _, stack in board.items() for p_owner, _ in stack if p_owner == current_player)
+            # print(f"  Pieces placed by {current_player}: {pieces_placed}")
 
-            if pieces_placed >= 3:  # Must place Queen by the 4th piece placement
+            if pieces_placed >= 3:
                 queen_actions = [action for action in cached_moves if action[0] == "PLACE" and action[1] == "Queen"]
+                # print(f"  Queen required. Legal actions: {queen_actions}")
+                self._legal_moves_cache[key] = queen_actions
                 return queen_actions
 
+        # print(f"  Legal actions (before queen check): {cached_moves}")
+        self._legal_moves_cache[key] = cached_moves
         return cached_moves
-
     def clearCaches(self):
-        """
-        Clears caches. Call this after applying an action.
-        """
+        """Clears all caches."""
         self._connectivity_cache.clear()
         self._legal_moves_cache.clear()
-        self._can_slide_cache.clear()  # Add this line!
+        self._can_slide_cache.clear()
 
     def placePieceActions(self, state):
+        """Generates legal placement actions."""
         player = state["current_player"]
         opponent = self.getOpponent(player)
         board = state["board"]
         pieces_in_hand = state["pieces_in_hand"][player]
         actions = []
+
         if all(count == 0 for count in pieces_in_hand.values()):
             return actions
-        if len(board) == 0:
+
+        if len(board) == 0:  # First placement
             for insectType, count in pieces_in_hand.items():
                 if count > 0:
                     actions.append(("PLACE", insectType, (0, 0)))
             return actions
+        #Second placement.
         if len(board) == 1:
             for insectType, count in pieces_in_hand.items():
                 if count > 0:
@@ -207,7 +221,7 @@ class HiveGame:
         potential_spots = set()
         for (q, r) in friendly_cells:
             for (nq, nr) in self.getAdjacentCells(q, r):
-                if (nq, nr) not in board or len(board[(nq, nr)]) == 0:
+                if (nq, nr) not in board or not board[(nq, nr)]:
                     potential_spots.add((nq, nr))
 
         valid_spots = []
@@ -227,16 +241,14 @@ class HiveGame:
         return actions
 
     def getGrasshopperJumps(self, board, q, r):
-        """
-        Grasshopper jumps in each direction by leaping over consecutive occupied cells.
-        """
+        """Calculates Grasshopper jump destinations."""
         possible_destinations = []
         for (dq, dr) in self.DIRECTIONS:
             step_count = 1
             while True:
                 check_q = q + dq * step_count
                 check_r = r + dr * step_count
-                if (check_q, check_r) not in board or len(board[(check_q, check_r)]) == 0:
+                if (check_q, check_r) not in board or not board[(check_q, check_r)]:
                     if step_count > 1:
                         possible_destinations.append((check_q, check_r))
                     break
@@ -248,19 +260,24 @@ class HiveGame:
         player = state["current_player"]
         actions = []
 
-        # CORRECTED: Only include cells where the *top* piece is the player's.
         player_cells = {(q, r, stack[-1][1]) for (q, r), stack in board.items() if stack and stack[-1][0] == player}
 
         def board_copy(board):
             return {coord: stack[:] for coord, stack in board.items()}
 
+        # print(f"movePieceActions: Player = {player}")  # Log current player
+
         for (q, r, insectType) in player_cells:
             temp_board = board_copy(board)
+            # print(f"  Considering piece: ({q}, {r}), {insectType}")  # Log piece
+            # print(f"    temp_board before removal: {temp_board}")
+
             piece = temp_board[(q, r)].pop()
             if not temp_board[(q, r)]:
                 del temp_board[(q, r)]
 
             if not self.isBoardConnected(temp_board):
+                # print(f"    Removing ({q}, {r}) disconnects the hive. Skipping.")
                 continue
 
             if insectType == "Queen":
@@ -276,41 +293,41 @@ class HiveGame:
             else:
                 destinations = []
 
+            # print(f"    Destinations: {destinations}")
+
             for to_q, to_r in destinations:
-                if (to_q, to_r) in temp_board and any(p[0] == player for p in temp_board[(to_q, to_r)]) and insectType != "Beetle":
+                # --- CORRECTED OCCUPANCY CHECK ---
+                if insectType != "Beetle" and (to_q, to_r) in temp_board and any(p[0] == player for p in temp_board[(to_q, to_r)]):
+                    # print(f"    Destination ({to_q}, {to_r}) occupied by friendly piece. Skipping.")
                     continue
 
                 if insectType not in ["Beetle", "Grasshopper", "Ant", "Spider"] and not self.canSlide(q, r, to_q, to_r, temp_board):
+                    # print(f"    canSlide({q}, {r}, {to_q}, {to_r}) returned False. Skipping.")
                     continue
 
                 temp_board.setdefault((to_q, to_r), []).append(piece)
+                # print(f"    Adding move: ({q}, {r}) -> ({to_q}, {to_r})")
                 actions.append(("MOVE", (q, r), (to_q, to_r)))
                 temp_board[(to_q, to_r)].pop()
                 if not temp_board.get((to_q, to_r)):
                     temp_board.pop((to_q, to_r), None)
 
+        # print(f"movePieceActions returning: {actions}")  # Log returned actions
         return actions
 
     def is_locally_connected(self, board, q, r):
-        """
-        Checks if placing a piece at (q, r) would connect it to the hive.
-        Much faster than checking the entire board.
-        """
+        """Checks if placing a piece at (q, r) would connect it to the hive."""
         for nq, nr in self.getAdjacentCells(q, r):
             if (nq, nr) in board and board[(nq, nr)]:
                 return True
         return False
 
     def would_disconnect(self, board, q, r):
-        """
-        Checks if removing the piece at (q, r) would disconnect the hive.
-        """
-        if not board.get((q,r)):
-            return False
+        """Checks if removing the piece at (q, r) would disconnect the hive."""
+        if not board.get((q,r)): return False
         temp_board = {coord: stack[:] for coord, stack in board.items()}
         temp_board[(q, r)].pop()
-        if not temp_board[(q,r)]:
-            del temp_board[(q,r)]
+        if not temp_board[(q, r)]: del temp_board[(q, r)]
         return not self.isBoardConnected(temp_board)
 
     def getSpiderDestinations(self, board, start):
@@ -324,12 +341,10 @@ class HiveGame:
             for neighbor in self.getAdjacentCells(*cur):
                 if neighbor in path:
                     continue
-                if neighbor in board and board[neighbor]: # This was also incorrect, we must ensure that the board has a piece there.
+                if neighbor in board and board[neighbor]:  # Corrected occupancy check
                     continue
-                # Check that the neighbor "hugs" the hive: at least one adjacent cell is occupied.
                 if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*neighbor)):
                     continue
-                # Check sliding from current cell to neighbor.
                 if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
                     continue
                 dfs(path + [neighbor], steps + 1)
@@ -337,7 +352,7 @@ class HiveGame:
         # Check sliding for the *initial* move from 'start'.
         valid_starts = []
         for first_neighbor in self.getAdjacentCells(*start):
-            if first_neighbor in board and board[first_neighbor]:
+            if first_neighbor in board and board[first_neighbor]: #Corrected initial check
                 continue
             if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*first_neighbor)):
                 continue
@@ -345,30 +360,20 @@ class HiveGame:
                 valid_starts.append(first_neighbor)
 
         for first_step in valid_starts:
-            dfs([start, first_step], 1)
+            dfs([start, first_step], 1)  # Start DFS from each valid first step
 
         return results
-
     # --- New: Revised Ant Move Generation ---
     def getAntDestinations(self, board, start):
-        """
-        Returns all empty cells reachable by the ant from 'start'
-        via a sliding move. The ant is removed from the board
-        (the caller must do so) so that its original cell is empty.
-        A neighbor cell is accepted if:
-          - It is empty.
-          - It is adjacent to at least one occupied cell (i.e. "hugs" the hive).
-          - The ant can slide from the current cell into it (using canSlide).
-        """
         results = set()
-        visited = {start} # Add this! Start is already visited!
+        visited = {start}  # Add this! Start is already visited!
         frontier = [start]
         while frontier:
             cur = frontier.pop(0)
             for neighbor in self.getAdjacentCells(*cur):
-                if neighbor in board and len(board[neighbor]) > 0:
+                if neighbor in board and board[neighbor]:  # Corrected occupancy check
                     continue
-                if not any(((adj in board) and (len(board[adj]) > 0)) for adj in self.getAdjacentCells(*neighbor)):
+                if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*neighbor)):
                     continue
                 if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
                     continue
@@ -377,13 +382,12 @@ class HiveGame:
                     results.add(neighbor)
                     frontier.append(neighbor)
         return results
-
     def canSlide(self, from_q, from_r, to_q, to_r, board):
-        key = (from_q, from_r, to_q, to_r, self.board_hash(board))
+        """Checks if a piece can slide from (from_q, from_r) to (to_q, to_r)."""
+        key = self.board_hash(board)
         if key in self._can_slide_cache:
             return self._can_slide_cache[key]
 
-        # 1. Adjacency Check (already correct)
         dq = to_q - from_q
         dr = to_r - from_r
         move_dir = (dq, dr)
@@ -396,51 +400,32 @@ class HiveGame:
             (1, -1): [(1, 0), (0, -1)]
         }
         if move_dir not in adjacent_mapping:
-            self._can_slide_cache[key] = False # Cache negative
+            self._can_slide_cache[key] = False
             return False
 
-        # 2. Destination must be empty (handled by movePieceActions now)
-
-        # 3. Correct "Squeezing" Check:
         adj_dirs = adjacent_mapping[move_dir]
         blocked_count = 0
         for adj_q, adj_r in adj_dirs:
             neighbor1 = (from_q + adj_q, from_r + adj_r)
             neighbor2 = (to_q + adj_q, to_r + adj_r)
-            # Count as blocked if *both* neighbors are occupied
             if (neighbor1 in board and board[neighbor1]) and (neighbor2 in board and board[neighbor2]):
-                blocked_count +=1
+                blocked_count += 1
 
         result = blocked_count == 0
         self._can_slide_cache[key] = result
         return result
 
-    def _makeTempState(self, original_state, temp_board):
-        """
-        Helper to create a temporary state referencing the current board progress.
-        """
-        temp_state = self.copyState(original_state)
-        temp_state["board"] = {}
-        for coord, stack in temp_board.items():
-            temp_state["board"][coord] = stack[:]
-        return temp_state
-
     def isBoardConnected(self, board, getAdjacentCells=None):
-        """
-        Returns True if all occupied cells in 'board' form one connected component.
-        Uses union-find and caches the result keyed by the board's hash.
-        """
+        """Checks if the board is connected (using Union-Find)."""
         key = self.board_hash(board)
         if key in self._connectivity_cache:
             return self._connectivity_cache[key]
 
-        # Build a list of occupied cells.
         occupied_cells = [cell for cell, stack in board.items() if stack]
         if not occupied_cells:
             self._connectivity_cache[key] = True
             return True
 
-        # Union-Find initialization.
         parent = {cell: cell for cell in occupied_cells}
 
         def find(x):
@@ -455,7 +440,6 @@ class HiveGame:
             if rx != ry:
                 parent[ry] = rx
 
-        # Use the precomputed directions.
         directions = self.DIRECTIONS
         for cell in occupied_cells:
             q, r = cell
@@ -605,29 +589,10 @@ class HiveGame:
 
         return score
 
-    def getGameOutcome(self, state):
-        p1_surrounded = self.isQueenSurrounded(state, "Player1")
-        p2_surrounded = self.isQueenSurrounded(state, "Player2")
-        if p1_surrounded and p2_surrounded:
-            print("Ended by draw")
-            return "Draw"
-        elif p1_surrounded:
-            print("Ended because Player1 is surrounded")
-            return "Player2"
-        elif p2_surrounded:
-            print("Ended because Player2 is surrounded")
-            return "Player1"
-        if not self.getLegalActions(state):
-            current = state["current_player"]
-            opponent = self.getOpponent(current)
-            print("Ended because " + current + " has no legal moves.")
-            return opponent
-        return None
-
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state, max_depth):
+    def simulateRandomPlayout(self, state, max_depth=10):
         temp_state = self.copyState(state)
         depth = 0
         while not self.isTerminal(temp_state) and depth < max_depth:
