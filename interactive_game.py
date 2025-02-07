@@ -55,15 +55,12 @@ def pixel_to_hex(pos):
     return (rx, rz)
 
 # ---------------------- Board Drawing -------------------------
-def draw_hive_board(state, screen):
+def draw_hive_board(state, surface):
     """
-    Draws a visualization of the Hive board onto the provided Pygame surface.
-    - Computes a bounding region based on state["board"] (or uses a default region if empty).
-    - Draws each hex cell with a light-gray outline.
-    - If a cell is occupied, fills it with blue (Player1) or red (Player2) and renders the
-      first letter of the insect type in white.
+    Draws the Hive board onto the given surface.
+    This function only draws the static board (grid and pieces).
     """
-    screen.fill((255, 255, 255))
+    surface.fill((255, 255, 255))
 
     if state["board"]:
         qs = [q for (q, r) in state["board"].keys()]
@@ -79,40 +76,31 @@ def draw_hive_board(state, screen):
         for r in range(r_min, r_max + 1):
             center = hex_to_pixel(q, r)
             corners = polygon_corners(center, HEX_SIZE)
-            pygame.draw.polygon(screen, (200, 200, 200), corners, 1)
+            pygame.draw.polygon(surface, (200, 200, 200), corners, 1)
             if (q, r) in state["board"]:
                 stack = state["board"][(q, r)]
                 if stack:
                     top_piece = stack[-1]
                     owner, insect = top_piece
                     color = (0, 0, 255) if owner == "Player1" else (255, 0, 0)
-                    pygame.draw.polygon(screen, color, corners, 0)
+                    pygame.draw.polygon(surface, color, corners, 0)
                     font = pygame.font.SysFont(None, 24)
                     text = font.render(insect[0], True, (255, 255, 255))
                     text_rect = text.get_rect(center=center)
-                    screen.blit(text, text_rect)
-    pygame.display.flip()
+                    surface.blit(text, text_rect)
 
 # ---------------------- Human Move Handling -------------------------
-def get_human_move(state, game, screen):
+def get_human_move(state, game, screen, background):
     """
     Waits for a human (Player1) move.
-
-    Behavior:
-    - If the queen is not yet placed, only PLACE actions are allowed.
-      The user should press Q, A, S, B or G to select the insect,
-      and the piece will be placed at the hex cell under the mouse.
-    - Once the queen is placed, both PLACE and MOVE actions are allowed.
-      The user may:
-        • Press Q, A, S, B or G to attempt a placement move at the current mouse position.
-        • Or click on one of their pieces to select it for moving. When a piece is selected,
-          its legal destination cells are highlighted (in yellow). Then, a click on one of the highlighted
-          cells executes the move. Press Escape to cancel the move selection.
+    Uses the background surface (which has the board drawn) for display.
     """
     global OFFSET_X, OFFSET_Y
-
     legal_actions = game.getLegalActions(state)
-    draw_hive_board(state, screen)
+    draw_hive_board(state, background)
+    screen.blit(background, (0, 0))
+    pygame.display.flip()
+
     from HivePocket.HivePocket import find_queen_position
     queen_placed = (find_queen_position(state["board"], state["current_player"]) is not None)
     mapping = {"Q": "Queen", "A": "Ant", "S": "Spider", "B": "Beetle", "G": "Grasshopper"}
@@ -120,16 +108,20 @@ def get_human_move(state, game, screen):
     if not queen_placed:
         print("Queen not placed yet. Press Q, A, S, B or G for Queen, Ant, Spider, Beetle, or Grasshopper.")
         while True:
-            draw_hive_board(state, screen)
+            draw_hive_board(state, background)
+            screen.blit(background, (0, 0))
+            pygame.display.flip()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
                 elif event.type == pygame.VIDEORESIZE:
-                    screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                    screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
                     OFFSET_X = event.w // 2
                     OFFSET_Y = event.h // 2
-                    draw_hive_board(state, screen)
+                    draw_hive_board(state, background)
+                    screen.blit(background, (0, 0))
+                    pygame.display.flip()
                 elif event.type == pygame.KEYDOWN:
                     key = pygame.key.name(event.key).upper()
                     if key in mapping:
@@ -149,27 +141,32 @@ def get_human_move(state, game, screen):
         highlighted_destinations = []
         print("Queen placed. You may place a piece (press Q, A, S, B or G) or move a piece by clicking it.")
         while True:
-            draw_hive_board(state, screen)
+            draw_hive_board(state, background)
+            screen.blit(background, (0, 0))
             if selected_origin is not None:
                 for dest in highlighted_destinations:
                     center = hex_to_pixel(*dest)
                     pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
-                pygame.display.flip()
+            pygame.display.flip()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
                 elif event.type == pygame.VIDEORESIZE:
-                    screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                    screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
                     OFFSET_X = event.w // 2
                     OFFSET_Y = event.h // 2
-                    draw_hive_board(state, screen)
+                    draw_hive_board(state, background)
+                    screen.blit(background, (0, 0))
+                    pygame.display.flip()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         selected_origin = None
                         highlighted_destinations = []
                         print("Move selection canceled.")
-                        draw_hive_board(state, screen)
+                        draw_hive_board(state, background)
+                        screen.blit(background, (0, 0))
+                        pygame.display.flip()
                     else:
                         key = pygame.key.name(event.key).upper()
                         if key in mapping:
@@ -194,7 +191,8 @@ def get_human_move(state, game, screen):
                                 selected_origin = clicked_hex
                                 highlighted_destinations = [a[2] for a in move_actions]
                                 print("Selected piece for moving:", selected_origin, "destinations:", highlighted_destinations)
-                                draw_hive_board(state, screen)
+                                draw_hive_board(state, background)
+                                screen.blit(background, (0, 0))
                                 for dest in highlighted_destinations:
                                     center = hex_to_pixel(*dest)
                                     pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
@@ -208,101 +206,106 @@ def get_human_move(state, game, screen):
                             print("Click not on a highlighted destination. Press Escape to cancel selection.")
             pygame.time.wait(100)
 
-def draw_heatmap(root_node, iteration, screen):
+# ---------------------- Heatmap Drawing (Smooth Transition) -------------------------
+def blend_color(current, target, alpha=0.1):
+    """Blend each channel of the current color toward the target color."""
+    return tuple(int(c + alpha * (t - c)) for c, t in zip(current, target))
+
+def compute_target_color(child, heuristic_min=-500, heuristic_max=500):
+    """Compute the target color (red-green gradient) from the child's average value."""
+    avg_value = child.average_value()
+    normalized_value = (avg_value - heuristic_min) / (heuristic_max - heuristic_min)
+    normalized_value = max(0.0, min(1.0, normalized_value))
+    # Map normalized_value to a red-green gradient:
+    if normalized_value > 0.5:
+        red = int(255 * (1 - normalized_value) * 2)
+        green = 255
+    else:
+        red = 255
+        green = int(255 * normalized_value * 2)
+    blue = 0
+    # Return with fixed alpha (transparency)
+    return (red, green, blue, 128)
+
+def update_heatmap_overlay(root_node, heatmap_overlay, heatmap_colors, max_visits, alpha=0.1):
     """
-    Draws the board and overlays a heatmap based on average heuristic value
-    (hue) and visit count (brightness).
+    Update the heatmap overlay surface with smooth color transitions.
+    The color for each cell is blended from its previous value toward the new target value.
     """
-    draw_hive_board(root_node.state, screen)
-
-    # Display iteration count
-    font_big = pygame.font.SysFont(None, 24)
-    iter_text = font_big.render(f"Iterations: {iteration}", True, (0, 0, 0))
-    screen.blit(iter_text, (10, 10))
-
-    if not root_node.children:
-        pygame.display.flip()
-        return
-
-    # Find the maximum visit count for normalization
-    max_visits = max(child.visit_count for child in root_node.children.values())
-
-    # Define the range of your heuristic (adjust if needed)
+    # Clear the overlay (fully transparent)
+    heatmap_overlay.fill((0, 0, 0, 0))
     heuristic_min = -500
     heuristic_max = 500
 
-    font = pygame.font.SysFont(None, 20)  # For move info
-
     for action, child in root_node.children.items():
-        target = action[2]  # Destination hex
+        target_hex = action[2]  # Destination hex cell.
+        target_color = compute_target_color(child, heuristic_min, heuristic_max)
+        # Normalize visit count using a logarithmic scale
+        normalized_visits = (math.log(child.visit_count + 1) / math.log(max_visits + 1)) if max_visits > 0 else 0
+        # Adjust brightness based on visits
+        red = int(target_color[0] * normalized_visits)
+        green = int(target_color[1] * normalized_visits)
+        blue = int(target_color[2] * normalized_visits)
+        final_target_color = (red, green, blue, 128)
 
-        # 1. Calculate Average Heuristic Value (and normalize)
-        avg_value = child.average_value()
-        normalized_value = (avg_value - heuristic_min) / (heuristic_max - heuristic_min)
-        normalized_value = max(0.0, min(1.0, normalized_value))  # Clamp
+        # Get previous color; if none, start at the target color.
+        current_color = heatmap_colors.get(target_hex, final_target_color)
+        new_color = blend_color(current_color, final_target_color, alpha)
+        heatmap_colors[target_hex] = new_color
 
-        # 2. Normalize Visit Count (logarithmic scale)
-        normalized_visits = math.log(child.visit_count + 1) / math.log(max_visits + 1)
-
-        # 3. Map Average Value to Hue (Red-to-Green)
-        if normalized_value > 0.5:  # More green
-            red = int(255 * (1 - normalized_value) * 2)
-            green = 255
-            blue = 0
-        else:  # More red
-            red = 255
-            green = int(255 * normalized_value * 2)
-            blue = 0
-
-        # 4. Adjust Brightness Based on Visit Count
-        final_color = (
-            int(red * normalized_visits),
-            int(green * normalized_visits),
-            int(blue * normalized_visits),
-            128, # Alpha for some transparency.
-        )
-
-        # Draw the colored hexagon
-        center = hex_to_pixel(*target)
+        center = hex_to_pixel(*target_hex)
         corners = polygon_corners(center, HEX_SIZE)
-        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-        pygame.draw.polygon(overlay, final_color, corners, 0)
-        screen.blit(overlay, (0, 0))
+        pygame.draw.polygon(heatmap_overlay, new_color, corners, 0)
 
-        # Display move information (optional, but helpful)
-        if action[0] == "PLACE":
-            move_str = f"{action[0]} {action[1]}"
-        elif action[0] == "MOVE":
-            move_str = f"{action[0]} {action[1]}->{action[2]}"
-        label = f"{move_str}\nV:{child.visit_count}\nE:{avg_value:.1f}"
-
-        #The labels can overlap so this code can be removed.
-        #text_surface = font.render(label, True, (0, 0, 0))  # Black text
-        #text_rect = text_surface.get_rect(center=center)
-        #screen.blit(text_surface, text_rect)
-
+def draw_heatmap(root_node, iteration, screen, background, heatmap_overlay, heatmap_colors):
+    """
+    Composite the static board (from background) and the dynamic heatmap overlay,
+    and display the iteration count.
+    """
+    # Start with the board background.
+    screen.blit(background, (0, 0))
+    # Render iteration count.
+    font_big = pygame.font.SysFont(None, 24)
+    iter_text = font_big.render(f"Iterations: {iteration}", True, (0, 0, 0))
+    screen.blit(iter_text, (10, 10))
+    # Determine maximum visit count for normalization.
+    if root_node.children:
+        max_visits = max(child.visit_count for child in root_node.children.values())
+    else:
+        max_visits = 1
+    update_heatmap_overlay(root_node, heatmap_overlay, heatmap_colors, max_visits, alpha=0.1)
+    # Overlay the heatmap.
+    screen.blit(heatmap_overlay, (0, 0))
     pygame.display.flip()
-
 
 # ---------------------- Main Game Loop -------------------------
 def play_with_mcts():
     global OFFSET_X, OFFSET_Y
     pygame.init()
-    screen = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
+    screen = pygame.display.set_mode((800, 600), pygame.RESIZABLE | pygame.DOUBLEBUF)
     pygame.display.set_caption("Hive Game (Human vs. Bot)")
+
+    # Create a background surface for the board and a heatmap overlay surface.
+    background = pygame.Surface(screen.get_size())
+    heatmap_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    # Dictionary to store per-cell heatmap colors (for blending)
+    heatmap_colors = {}
 
     game = HiveGame()
     mcts = MCTS(game,
                 draw_reward=0.1,
                 win_reward=1,
                 lose_reward=-1,
-                num_iterations=1000,  # Adjust as desired.
+                num_iterations=100,
+                max_depth=100,
                 c_param=1.4,
                 forced_check_depth=0)
     state = game.getInitialState()
     print("Initial board:")
     game.printState(state)
-    draw_hive_board(state, screen)
+    draw_hive_board(state, background)
+    screen.blit(background, (0, 0))
+    pygame.display.flip()
 
     clock = pygame.time.Clock()
     running = True
@@ -313,21 +316,31 @@ def play_with_mcts():
                 running = False
                 break
             elif event.type == pygame.VIDEORESIZE:
-                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
                 OFFSET_X = event.w // 2
                 OFFSET_Y = event.h // 2
+                # Recreate the background and overlay surfaces to match new size.
+                background = pygame.Surface(screen.get_size())
+                heatmap_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+                draw_hive_board(state, background)
         if state["current_player"] == "Player1":
             print("\nHuman turn.")
-            action = get_human_move(state, game, screen)
+            action = get_human_move(state, game, screen, background)
         else:
             print("\nBot turn. Thinking...")
-            # Pass the draw_heatmap callback to MCTS.search
-            action = mcts.search(state, draw_callback=lambda root, iter_count: draw_heatmap(root, iter_count, screen))
+            # Use the MCTS search with the smooth heatmap draw callback.
+            action = mcts.search(
+                state,
+                draw_callback=lambda root, iter_count: draw_heatmap(root, iter_count, screen, background, heatmap_overlay, heatmap_colors)
+            )
             pygame.time.wait(500)
         state = game.applyAction(state, action)
         print("Applied move:", action)
         game.printState(state)
-        draw_hive_board(state, screen)
+        # Update the background board after the move.
+        draw_hive_board(state, background)
+        screen.blit(background, (0, 0))
+        pygame.display.flip()
         clock.tick(1)
     print("Game Over. Outcome:", game.getGameOutcome(state))
     pygame.quit()

@@ -102,7 +102,7 @@ class MCTS:
 
     def search(self, root_state, draw_callback=None):
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
-        update_interval = max(1, self.num_iterations // 1000)
+        update_interval = max(1, 0)
         for i in range(self.num_iterations):
             pygame.event.pump()
             node = self._select(root_node)
