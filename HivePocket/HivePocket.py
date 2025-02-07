@@ -292,20 +292,27 @@ class HiveGame:
 
             for to_q, to_r in destinations:
                 # --- CORRECTED OCCUPANCY CHECK ---
-                if insectType != "Beetle" and (to_q, to_r) in temp_board and any(p[0] == player for p in temp_board[(to_q, to_r)]):
-                    # print(f"    Destination ({to_q}, {to_r}) occupied by friendly piece. Skipping.")
+                if insectType != "Beetle" and (to_q, to_r) in temp_board and temp_board[(to_q, to_r)]:
                     continue
 
                 if insectType not in ["Beetle", "Grasshopper", "Ant", "Spider"] and not self.canSlide(q, r, to_q, to_r, temp_board):
                     # print(f"    canSlide({q}, {r}, {to_q}, {to_r}) returned False. Skipping.")
                     continue
 
+                # Inside your loop over possible destinations:
                 temp_board.setdefault((to_q, to_r), []).append(piece)
-                # print(f"    Adding move: ({q}, {r}) -> ({to_q}, {to_r})")
+                if not self.isBoardConnected(temp_board):
+                    # The move disconnects the hive, so undo and skip this move.
+                    temp_board[(to_q, to_r)].pop()
+                    if not temp_board.get((to_q, to_r)):
+                        temp_board.pop((to_q, to_r), None)
+                    continue  # Skip adding this move.
+                # If we get here, the move is valid.
                 actions.append(("MOVE", (q, r), (to_q, to_r)))
                 temp_board[(to_q, to_r)].pop()
                 if not temp_board.get((to_q, to_r)):
                     temp_board.pop((to_q, to_r), None)
+
 
         # print(f"movePieceActions returning: {actions}")  # Log returned actions
         return actions
@@ -545,9 +552,13 @@ class HiveGame:
     def evaluateState(self, state):
         outcome = self.getGameOutcome(state)
         if outcome is not None:
-            if outcome == "Player1": return 10000
-            elif outcome == "Player2": return -10000
-            else: return 0
+            current_player = state["current_player"]
+            if outcome == current_player:
+                return +10000
+            elif outcome == "Draw":
+                return 0
+            else:
+                return -10000
 
         board = state["board"]
         p1_queen = find_queen_position(board, "Player1")
