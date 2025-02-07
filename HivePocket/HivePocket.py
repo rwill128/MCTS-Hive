@@ -361,16 +361,19 @@ class HiveGame:
     # --- New: Revised Ant Move Generation ---
     def getAntDestinations(self, board, start):
         results = set()
-        visited = {start}  # Add this! Start is already visited!
+        visited = {start}
         frontier = [start]
         while frontier:
             cur = frontier.pop(0)
             for neighbor in self.getAdjacentCells(*cur):
-                if neighbor in board and board[neighbor]:  # Corrected occupancy check
+                # Skip if the neighbor is occupied.
+                if neighbor in board and board[neighbor]:
                     continue
+                # The destination must be adjacent to at least one piece.
                 if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*neighbor)):
                     continue
-                if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
+                # Only enforce the sliding condition for the first step out of the start.
+                if cur == start and not self.canSlide(start[0], start[1], neighbor[0], neighbor[1], board):
                     continue
                 if neighbor not in visited:
                     visited.add(neighbor)
