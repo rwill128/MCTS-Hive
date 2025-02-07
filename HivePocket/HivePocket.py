@@ -74,22 +74,14 @@ class HiveGame:
         p1_surrounded = self.isQueenSurrounded(state, "Player1")
         p2_surrounded = self.isQueenSurrounded(state, "Player2")
         if p1_surrounded and p2_surrounded:
-            # print("Ended by draw")
             return "Draw"
         elif p1_surrounded:
-            # print("Ended because Player1 is surrounded")
             return "Player2"
         elif p2_surrounded:
-            # print("Ended because Player2 is surrounded")
             return "Player1"
-        if not self.getLegalActions(state):
-            current = state["current_player"]
-            opponent = self.getOpponent(current)
-            print("Ended because " + current + " has no legal moves.")
-            print(f"  Board state at termination: {state['board']}") # CRITICAL: Print the board
-            print(f"  Pieces in hand: {state['pieces_in_hand']}")     # AND pieces in hand
-            return opponent
+        # No "no moves => end" check here anymore!
         return None
+
     def copyState(self, state):
         """
         Returns a deep copy of the state dictionary.
@@ -149,37 +141,40 @@ class HiveGame:
     # 3. Action generation
     # ---------------------------------------------------------
     def getLegalActions(self, state):
-        """
-        Returns all legal actions for the current player (cached).
-        Correctly enforces the Queen placement rule.
-        """
-        board = state["board"]  # Correct: Access board using ["board"]
-
+        board = state["board"]  # existing
         key = self.state_key(state)
         if key in self._legal_moves_cache:
             return self._legal_moves_cache[key]
 
-        # print(f"getLegalActions (CALCULATING): Player={state['current_player']}, Move={state['move_number']}")
-        # print(f"  Board: {board}")
+        # 1. Generate normal piece placements and movements
+        place_actions = self.placePieceActions(state)
+        move_actions = self.movePieceActions(state)
+        all_actions = place_actions + move_actions
 
-        cached_moves = self.placePieceActions(state) + self.movePieceActions(state)
+        # 2. If no actions are possible, allow a PASS
+        if not all_actions:
+            all_actions = [("PASS",)]
 
-        current_player = state["current_player"]  # Correct
-
-        # Correct Queen Placement Rule Check:
+        # 3. Handle the Queen-placement rule
+        current_player = state["current_player"]
         if find_queen_position(board, current_player) is None:
-            pieces_placed = sum(1 for _, stack in board.items() for p_owner, _ in stack if p_owner == current_player)
-            # print(f"  Pieces placed by {current_player}: {pieces_placed}")
-
+            pieces_placed = sum(
+                1 for _, stack in board.items()
+                for p_owner, _ in stack if p_owner == current_player
+            )
             if pieces_placed >= 3:
-                queen_actions = [action for action in cached_moves if action[0] == "PLACE" and action[1] == "Queen"]
-                # print(f"  Queen required. Legal actions: {queen_actions}")
-                self._legal_moves_cache[key] = queen_actions
-                return queen_actions
+                # Filter out everything that's not "PLACE Queen" or "PASS"
+                queen_or_pass = [
+                    action for action in all_actions
+                    if (action[0] == "PLACE" and action[1] == "Queen")
+                       or (action[0] == "PASS")
+                ]
+                self._legal_moves_cache[key] = queen_or_pass
+                return queen_or_pass
 
-        # print(f"  Legal actions (before queen check): {cached_moves}")
-        self._legal_moves_cache[key] = cached_moves
-        return cached_moves
+        self._legal_moves_cache[key] = all_actions
+        return all_actions
+
     def clearCaches(self):
         """Clears all caches."""
         self._connectivity_cache.clear()
@@ -382,9 +377,10 @@ class HiveGame:
                     results.add(neighbor)
                     frontier.append(neighbor)
         return results
+
     def canSlide(self, from_q, from_r, to_q, to_r, board):
-        """Checks if a piece can slide from (from_q, from_r) to (to_q, to_r)."""
-        key = self.board_hash(board)
+        # Include move parameters in the cache key.
+        key = (self.board_hash(board), from_q, from_r, to_q, to_r)
         if key in self._can_slide_cache:
             return self._can_slide_cache[key]
 
@@ -503,20 +499,29 @@ class HiveGame:
         new_state = self.copyState(state)
         board = new_state["board"]
         player = new_state["current_player"]
+
+        # PASS action
+        if action[0] == "PASS":
+            # Just switch the current player, update move_number, clear caches
+            new_state["current_player"] = self.getOpponent(player)
+            new_state["move_number"] += 1
+            self.clearCaches()
+            return new_state
+
+        # PLACE action
         if action[0] == "PLACE":
             _, insectType, (q, r) = action
             new_state["pieces_in_hand"][player][insectType] -= 1
             if (q, r) not in board:
                 board[(q, r)] = []
             board[(q, r)].append((player, insectType))
+
+        # MOVE action
         elif action[0] == "MOVE":
             _, (fq, fr), (tq, tr) = action
-            # --- ADDED VALIDATION: Ensure the move is legal ---
             if (fq, fr) not in board or not any(p[0] == player for p in board[(fq, fr)]):
                 raise ValueError(
                     f"Invalid move: {action} from state: {state}\n"
-                    f"  board: {board}\n"
-                    f"  current_player: {player}\n"
                 )
 
             piece = board[(fq, fr)].pop()
@@ -525,10 +530,12 @@ class HiveGame:
             if (tq, tr) not in board:
                 board[(tq, tr)] = []
             board[(tq, tr)].append(piece)
+
+        # Switch to the other player
         new_state["current_player"] = self.getOpponent(player)
         new_state["move_number"] += 1
 
-        # Clear caches so that subsequent calls use the new board state.
+        # Clear caches so subsequent calls see the updated board
         self.clearCaches()
         return new_state
 
