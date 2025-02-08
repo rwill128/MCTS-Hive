@@ -250,76 +250,96 @@ class HiveGame:
                 step_count += 1
         return possible_destinations
 
-    def movePieceActions(self, state):
+    def movePieceActions(self, state, debug=False):
         board = state["board"]
         player = state["current_player"]
         actions = []
 
-        player_cells = {(q, r, stack[-1][1]) for (q, r), stack in board.items() if stack and stack[-1][0] == player}
+        # We only consider the top piece in each stack if it belongs to the current player
+        player_cells = {
+            (q, r, stack[-1][1])
+            for (q, r), stack in board.items()
+            if stack and stack[-1][0] == player
+        }
 
-        def board_copy(board):
-            return {coord: stack[:] for coord, stack in board.items()}
+        def board_copy(bd):
+            return {coord: st[:] for coord, st in bd.items()}
+
+        if debug:
+            print(f"[DEBUG] movePieceActions called for {player}")
 
         for (q, r, insectType) in player_cells:
             temp_board = board_copy(board)
-            piece = temp_board[(q, r)].pop()
+
+            if debug:
+                print(f"  [DEBUG] Considering {insectType} at {(q, r)}")
+                print(f"         Stack before removal: {board[(q, r)]}")
+
+            piece = temp_board[(q, r)].pop()  # Remove the top piece
             if not temp_board[(q, r)]:
                 del temp_board[(q, r)]
 
+            # 1. Check if removing this piece splits the hive
             if not self.isBoardConnected(temp_board):
+                if debug:
+                    print("    [DEBUG] Skipping. Removing this piece breaks hive connectivity (pinned).")
                 continue
+            else:
+                if debug:
+                    print("    [DEBUG] Lifting piece does NOT break the hive.")
 
-            if insectType == "Queen":
-                destinations = self.getAdjacentCells(q, r)
-            elif insectType == "Beetle":
+            # 2. Get possible destinations based on insect type
+            if insectType == "Queen" or insectType == "Beetle":
                 destinations = self.getAdjacentCells(q, r)
             elif insectType == "Grasshopper":
                 destinations = self.getGrasshopperJumps(temp_board, q, r)
             elif insectType == "Spider":
-                spider_paths = self.getSpiderPaths(temp_board, (q, r))
-                print(f"Spider possible paths from {(q, r)} => {spider_paths}")
-                for path in spider_paths:
-                    simulated_board = board_copy(board)
-                    # Remove the spider from its starting cell.
-                    simulated_board[(q, r)].pop()
-                    if not simulated_board[(q, r)]:
-                        del simulated_board[(q, r)]
-                    valid = True
-                    # Replay each slide.
-                    for cell in path[1:]:
-                        simulated_board.setdefault(cell, []).append(piece)
-                        if not self.isBoardConnected(simulated_board):
-                            valid = False
-                            break
-                    if valid:
-                        # Record the move with its full path.
-                        actions.append(("MOVE", (q, r), path[-1], tuple(path)))
-                # Skip generic destination processing for spiders.
-                continue
+                destinations = self.getSpiderDestinations(temp_board, (q, r))
             elif insectType == "Ant":
                 destinations = self.getAntDestinations(temp_board, (q, r))
             else:
                 destinations = []
 
-            for to_q, to_r in destinations:
-                # --- CORRECTED OCCUPANCY CHECK ---
-                if insectType != "Beetle" and (to_q, to_r) in temp_board and temp_board[(to_q, to_r)]:
+            if debug:
+                print(f"    [DEBUG] Potential destinations = {list(destinations)}")
+
+            # 3. Validate each destination
+            for (tq, tr) in destinations:
+                # (a) Occupancy check (non-Beetles cannot land on occupied cells)
+                if insectType != "Beetle" and (tq, tr) in temp_board and temp_board[(tq, tr)]:
+                    if debug:
+                        print(f"      [DEBUG] Destination {(tq, tr)} is occupied, skipping (only Beetle can stack).")
                     continue
 
-                if insectType not in ["Beetle", "Grasshopper", "Ant", "Spider"] and not self.canSlide(q, r, to_q, to_r, temp_board):
-                    continue
+                # (b) Sliding check (for Queen, e.g.)
+                if insectType not in ["Beetle", "Grasshopper"]:
+                    can_slide = self.canSlide(q, r, tq, tr, temp_board, debug=debug)
+                    if not can_slide:
+                        if debug:
+                            print(f"      [DEBUG] Slide from {(q, r)} to {(tq, tr)} is blocked, skipping.")
+                        continue
 
-                temp_board.setdefault((to_q, to_r), []).append(piece)
+                # (c) Check final connectivity if we place the piece there
+                temp_board.setdefault((tq, tr), []).append(piece)
                 if not self.isBoardConnected(temp_board):
-                    temp_board[(to_q, to_r)].pop()
-                    if not temp_board.get((to_q, to_r)):
-                        temp_board.pop((to_q, to_r), None)
-                    continue  # Skip adding this move.
-                actions.append(("MOVE", (q, r), (to_q, to_r)))
-                temp_board[(to_q, to_r)].pop()
-                if not temp_board.get((to_q, to_r)):
-                    temp_board.pop((to_q, to_r), None)
+                    temp_board[(tq, tr)].pop()  # Undo
+                    if not temp_board[(tq, tr)]:
+                        del temp_board[(tq, tr)]
+                    if debug:
+                        print(f"      [DEBUG] Move to {(tq, tr)} breaks hive connectivity afterwards, skipping.")
+                    continue
 
+                # If we reach here, it’s a valid move
+                temp_board[(tq, tr)].pop()  # Undo before next iteration
+                if not temp_board[(tq, tr)]:
+                    del temp_board[(tq, tr)]
+                actions.append(("MOVE", (q, r), (tq, tr)))
+
+                if debug:
+                    print(f"      [DEBUG] Valid move => ({(q, r)} -> {(tq, tr)})")
+
+        if debug:
+            print(f"[DEBUG] Total legal moves for {player}: {actions}")
         return actions
 
     def is_locally_connected(self, board, q, r):
@@ -559,24 +579,32 @@ class HiveGame:
                     frontier.append(neighbor)
         return results
 
-    def canSlide(self, from_q, from_r, to_q, to_r, board):
-        # Include move parameters in the cache key.
+    def canSlide(self, from_q, from_r, to_q, to_r, board, debug=False):
         key = (self.board_hash(board), from_q, from_r, to_q, to_r)
         if key in self._can_slide_cache:
-            return self._can_slide_cache[key]
+            result = self._can_slide_cache[key]
+            if debug:
+                print(f"[DEBUG] canSlide({(from_q, from_r)} -> {(to_q, to_r)}) found in cache: {result}")
+            return result
+
+        if debug:
+            print(f"[DEBUG] canSlide checking from {(from_q, from_r)} to {(to_q, to_r)}")
 
         dq = to_q - from_q
         dr = to_r - from_r
         move_dir = (dq, dr)
+
         adjacent_mapping = {
-            (1, 0): [(0, 1), (1, -1)],
-            (0, 1): [(-1, 1), (1, 0)],
+            (1, 0):  [(0, 1), (1, -1)],
+            (0, 1):  [(-1, 1), (1, 0)],
             (-1, 1): [(0, 1), (-1, 0)],
             (-1, 0): [(-1, 1), (0, -1)],
             (0, -1): [(1, -1), (-1, 0)],
             (1, -1): [(1, 0), (0, -1)]
         }
         if move_dir not in adjacent_mapping:
+            if debug:
+                print(f"  [DEBUG] Invalid direction: {move_dir} not recognized.")
             self._can_slide_cache[key] = False
             return False
 
@@ -585,11 +613,21 @@ class HiveGame:
         for adj_q, adj_r in adj_dirs:
             neighbor1 = (from_q + adj_q, from_r + adj_r)
             neighbor2 = (to_q + adj_q, to_r + adj_r)
+
+            # If the piece is effectively "squeezed" by occupied neighbors on both sides,
+            # sliding is blocked
             if (neighbor1 in board and board[neighbor1]) and (neighbor2 in board and board[neighbor2]):
                 blocked_count += 1
 
-        result = blocked_count == 0
+        result = (blocked_count == 0)
         self._can_slide_cache[key] = result
+
+        if debug:
+            if result:
+                print("  [DEBUG] Slide is possible.")
+            else:
+                print(f"  [DEBUG] Slide blocked because blocked_count={blocked_count}")
+
         return result
 
     def isBoardConnected(self, board, getAdjacentCells=None):
