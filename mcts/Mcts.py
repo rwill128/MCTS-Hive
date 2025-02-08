@@ -88,27 +88,46 @@ class MCTSNode:
 
 
 class MCTS:
-    def __init__(self, game, forced_check_depth=1, num_iterations=1000, max_depth=20, c_param=1.4):
+    def __init__(self, game, forced_check_depth=1, num_iterations=1000,
+                 max_depth=20, c_param=1.4, eval_func=None):
         self.game = game
         self.forced_check_depth = forced_check_depth
         self.num_iterations = num_iterations
-        self.c_param = c_param
         self.max_depth = max_depth
+        self.c_param = c_param
+
+        # Store the custom evaluation function; if none given, fall back to game.evaluateState
+        self.eval_func = eval_func if eval_func is not None else self.game.evaluateState
 
     def search(self, root_state, draw_callback=None):
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
-        update_interval = max(1, 0)
+
         for i in range(self.num_iterations):
             pygame.event.pump()
+
+            # (1) SELECTION
             node = self._select(root_node)
+
+            # (2) EXPANSION
             if not node.is_terminal(self.game) and not node.is_fully_expanded(self.game):
                 node = node.expand(self.game, self)
-            # Use depth-limited playout; simulation returns a heuristic evaluation.
-            simulation_value = self.game.simulateRandomPlayout(node.state, self.max_depth)
+
+            # (3) SIMULATION
+            # Pass eval_func into simulateRandomPlayout
+            simulation_value = self.game.simulateRandomPlayout(
+                node.state,
+                max_depth=self.max_depth,
+                eval_func=self.eval_func
+            )
+
+            # (4) BACKPROPAGATION
             self._backpropagate(node, simulation_value, root_node)
-            if draw_callback is not None and i % update_interval == 0:
+
+            if draw_callback is not None and i % 1 == 0:
                 draw_callback(root_node, i)
+
             pygame.time.delay(1)
+
         best_action, best_child = self._best_action(root_node)
         return best_action
 

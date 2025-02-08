@@ -807,18 +807,27 @@ class HiveGame:
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state, max_depth=10):
+    def simulateRandomPlayout(self, state, max_depth=10, eval_func=None):
+        """
+        Plays a random (or weighted-random) sequence of moves up to max_depth,
+        then returns a numeric evaluation of the final position.
+        """
         temp_state = self.copyState(state)
         depth = 0
         while not self.isTerminal(temp_state) and depth < max_depth:
             legal = self.getLegalActions(temp_state)
             if not legal:
                 break
+            # Weighted random or any style of random move
             action = self.weightedActionChoice(temp_state, legal)
             temp_state = self.applyAction(temp_state, action)
             depth += 1
-        # Instead of returning the state, return the heuristic evaluation.
-        return self.evaluateState(temp_state)
+
+        # Use the custom evaluation if given, else default to the built-in:
+        if eval_func:
+            return eval_func(temp_state)
+        else:
+            return self.evaluateState(temp_state)
 
     # ---------------------------------------------------------
     # 5. Print / Debug
