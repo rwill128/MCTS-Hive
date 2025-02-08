@@ -161,13 +161,13 @@ def play_mcts_vs_mcts():
 
     # Create separate MCTS instances for each player.
     mcts_player1 = MCTS(game,
-                        num_iterations=10000,
+                        num_iterations=1000,
                         max_depth=20,
                         c_param=1.4,
                         forced_check_depth=0)
 
     mcts_player2 = MCTS(game,
-                        num_iterations=10000,
+                        num_iterations=1000,
                         max_depth=20,
                         c_param=1.4,
                         forced_check_depth=0)
