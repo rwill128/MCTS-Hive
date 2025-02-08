@@ -260,19 +260,13 @@ class HiveGame:
         def board_copy(board):
             return {coord: stack[:] for coord, stack in board.items()}
 
-        # print(f"movePieceActions: Player = {player}")  # Log current player
-
         for (q, r, insectType) in player_cells:
             temp_board = board_copy(board)
-            # print(f"  Considering piece: ({q}, {r}), {insectType}")  # Log piece
-            # print(f"    temp_board before removal: {temp_board}")
-
             piece = temp_board[(q, r)].pop()
             if not temp_board[(q, r)]:
                 del temp_board[(q, r)]
 
             if not self.isBoardConnected(temp_board):
-                # print(f"    Removing ({q}, {r}) disconnects the hive. Skipping.")
                 continue
 
             if insectType == "Queen":
@@ -282,13 +276,30 @@ class HiveGame:
             elif insectType == "Grasshopper":
                 destinations = self.getGrasshopperJumps(temp_board, q, r)
             elif insectType == "Spider":
-                destinations = self.getSpiderDestinations(temp_board, (q, r))
+                spider_paths = self.getSpiderPaths(temp_board, (q, r))
+                print(f"Spider possible paths from {(q, r)} => {spider_paths}")
+                for path in spider_paths:
+                    simulated_board = board_copy(board)
+                    # Remove the spider from its starting cell.
+                    simulated_board[(q, r)].pop()
+                    if not simulated_board[(q, r)]:
+                        del simulated_board[(q, r)]
+                    valid = True
+                    # Replay each slide.
+                    for cell in path[1:]:
+                        simulated_board.setdefault(cell, []).append(piece)
+                        if not self.isBoardConnected(simulated_board):
+                            valid = False
+                            break
+                    if valid:
+                        # Record the move with its full path.
+                        actions.append(("MOVE", (q, r), path[-1], tuple(path)))
+                # Skip generic destination processing for spiders.
+                continue
             elif insectType == "Ant":
                 destinations = self.getAntDestinations(temp_board, (q, r))
             else:
                 destinations = []
-
-            # print(f"    Destinations: {destinations}")
 
             for to_q, to_r in destinations:
                 # --- CORRECTED OCCUPANCY CHECK ---
@@ -296,25 +307,19 @@ class HiveGame:
                     continue
 
                 if insectType not in ["Beetle", "Grasshopper", "Ant", "Spider"] and not self.canSlide(q, r, to_q, to_r, temp_board):
-                    # print(f"    canSlide({q}, {r}, {to_q}, {to_r}) returned False. Skipping.")
                     continue
 
-                # Inside your loop over possible destinations:
                 temp_board.setdefault((to_q, to_r), []).append(piece)
                 if not self.isBoardConnected(temp_board):
-                    # The move disconnects the hive, so undo and skip this move.
                     temp_board[(to_q, to_r)].pop()
                     if not temp_board.get((to_q, to_r)):
                         temp_board.pop((to_q, to_r), None)
                     continue  # Skip adding this move.
-                # If we get here, the move is valid.
                 actions.append(("MOVE", (q, r), (to_q, to_r)))
                 temp_board[(to_q, to_r)].pop()
                 if not temp_board.get((to_q, to_r)):
                     temp_board.pop((to_q, to_r), None)
 
-
-        # print(f"movePieceActions returning: {actions}")  # Log returned actions
         return actions
 
     def is_locally_connected(self, board, q, r):
@@ -331,6 +336,148 @@ class HiveGame:
         temp_board[(q, r)].pop()
         if not temp_board[(q, r)]: del temp_board[(q, r)]
         return not self.isBoardConnected(temp_board)
+
+    def getSpiderPaths(self, board, start):
+        """
+        Returns a list of full paths (each a list of cells) representing a
+        legal three‐step spider move from the starting cell.
+        """
+        results = []
+        def dfs(path, steps):
+            cur = path[-1]
+            if steps == 3:
+                results.append(path)
+                return
+            for neighbor in self.getAdjacentCells(*cur):
+                if neighbor in path:
+                    continue
+                if neighbor in temp_board and temp_board[neighbor]:
+                    continue
+                # Place the spider temporarily.
+                temp_board.setdefault(neighbor, []).append(("SpiderDebug", "Spider"))
+                # Check connectivity and sliding from cur to neighbor.
+                if self.isBoardConnected(temp_board) and self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], temp_board):
+                    dfs(path + [neighbor], steps + 1)
+                # Backtrack.
+                temp_board[neighbor].pop()
+                if not temp_board[neighbor]:
+                    del temp_board[neighbor]
+        # Work on a copy so we don’t affect the original board.
+        temp_board = {c: st[:] for c, st in board.items()}
+        if start in temp_board and temp_board[start]:
+            temp_board[start].pop()
+            if not temp_board[start]:
+                del temp_board[start]
+        # Get valid first moves.
+        valid_first = []
+        for first in self.getAdjacentCells(*start):
+            if first in temp_board and temp_board[first]:
+                continue
+            temp_board.setdefault(first, []).append(("SpiderDebug", "Spider"))
+            if self.isBoardConnected(temp_board) and self.canSlide(start[0], start[1], first[0], first[1], temp_board):
+                valid_first.append(first)
+            temp_board[first].pop()
+            if not temp_board[first]:
+                del temp_board[first]
+        for first in valid_first:
+            dfs([start, first], 1)
+        return results
+
+
+    def getSpiderDestinations_debug(self, board, start):
+        """
+        Debug version of getSpiderDestinations with detailed logging.
+        It performs a DFS for exactly 3 moves (as per Hive rules) and logs
+        decisions about occupancy, connectivity, and sliding.
+        """
+        results = set()
+        debug_log = []
+
+        def dfs(path, steps):
+            cur = path[-1]
+            debug_log.append(f"DFS at {cur} with path {path} (steps taken: {steps})")
+            if steps == 3:
+                debug_log.append(f"Reached 3 steps; adding destination {cur}")
+                results.add(cur)
+                return
+
+            for neighbor in self.getAdjacentCells(*cur):
+                if neighbor in path:
+                    debug_log.append(f"Skipping neighbor {neighbor} (already in path).")
+                    continue
+                if neighbor in temp_board and temp_board[neighbor]:
+                    debug_log.append(f"Skipping neighbor {neighbor} (occupied: {temp_board[neighbor]}).")
+                    continue
+
+                # Temporarily place the spider here.
+                temp_board.setdefault(neighbor, []).append(("SpiderDebug", "Spider"))
+                # Check connectivity first.
+                if not self.isBoardConnected(temp_board):
+                    debug_log.append(f"Placing spider at {neighbor} disconnects the hive; backtracking.")
+                    temp_board[neighbor].pop()
+                    if not temp_board[neighbor]:
+                        del temp_board[neighbor]
+                    continue
+                # Check if the spider can slide from the current cell to this neighbor.
+                if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], temp_board):
+                    debug_log.append(f"Cannot slide from {cur} to {neighbor}; backtracking.")
+                    temp_board[neighbor].pop()
+                    if not temp_board[neighbor]:
+                        del temp_board[neighbor]
+                    continue
+
+                debug_log.append(f"Valid slide from {cur} to {neighbor}; recursing DFS.")
+                dfs(path + [neighbor], steps + 1)
+
+                # Backtrack: remove the temporarily placed spider.
+                debug_log.append(f"Backtracking from {neighbor} to {cur}.")
+                temp_board[neighbor].pop()
+                if not temp_board[neighbor]:
+                    del temp_board[neighbor]
+
+        # Make a copy of the board so we can simulate moves without affecting the original.
+        temp_board = {c: st[:] for c, st in board.items()}
+
+        # Remove the spider from its starting cell.
+        if start in temp_board and temp_board[start]:
+            temp_board[start].pop()
+            if not temp_board[start]:
+                del temp_board[start]
+
+        debug_log.append(f"Starting DFS for spider at {start}")
+
+        # For the first step, gather valid neighbors.
+        valid_starts = []
+        for first_neighbor in self.getAdjacentCells(*start):
+            if first_neighbor in temp_board and temp_board[first_neighbor]:
+                debug_log.append(f"First neighbor {first_neighbor} is occupied; skipping.")
+                continue
+            # Simulate moving the spider to this neighbor.
+            temp_board.setdefault(first_neighbor, []).append(("SpiderDebug", "Spider"))
+            if self.isBoardConnected(temp_board) and self.canSlide(start[0], start[1], first_neighbor[0], first_neighbor[1], temp_board):
+                debug_log.append(f"First neighbor {first_neighbor} is a valid starting move.")
+                valid_starts.append(first_neighbor)
+            else:
+                debug_log.append(f"First neighbor {first_neighbor} failed connectivity or sliding; not valid.")
+            # Undo the temporary move.
+            temp_board[first_neighbor].pop()
+            if not temp_board[first_neighbor]:
+                del temp_board[first_neighbor]
+
+        debug_log.append(f"Valid first moves: {valid_starts}")
+
+        # Run DFS from each valid first neighbor.
+        for fn in valid_starts:
+            debug_log.append(f"Starting DFS branch from first neighbor {fn}")
+            dfs([start, fn], 1)
+
+        # Print the entire debug log.
+        for log in debug_log:
+            print(log)
+        print(f"Spider destinations found: {results}")
+
+        return results
+
 
     def getSpiderDestinations(self, board, start):
         results = set()
@@ -498,7 +645,11 @@ class HiveGame:
                 _, insectType, (q, r) = action
                 final_q, final_r = q, r
             elif action[0] == "MOVE":
-                _, (fq, fr), (tq, tr) = action
+                # Handle both 3-element and 4-element move tuples.
+                if len(action) == 3:
+                    _, (fq, fr), (tq, tr) = action
+                elif len(action) == 4:
+                    _, (fq, fr), (tq, tr), path = action
                 final_q, final_r = tq, tr
             else:
                 final_q, final_r = 0, 0
@@ -536,7 +687,6 @@ class HiveGame:
 
         # PASS action
         if action[0] == "PASS":
-            # Just switch the current player, update move_number, clear caches
             new_state["current_player"] = self.getOpponent(player)
             new_state["move_number"] += 1
             self.clearCaches()
@@ -552,11 +702,17 @@ class HiveGame:
 
         # MOVE action
         elif action[0] == "MOVE":
-            _, (fq, fr), (tq, tr) = action
+            # Check if action contains a full path (i.e. 4 elements)
+            if len(action) == 3:
+                _, (fq, fr), (tq, tr) = action
+            elif len(action) == 4:
+                # Unpack the full spider move, ignoring the intermediate path.
+                _, (fq, fr), (tq, tr), path = action
+            else:
+                raise ValueError(f"Unexpected MOVE action format: {action}")
+
             if (fq, fr) not in board or not any(p[0] == player for p in board[(fq, fr)]):
-                raise ValueError(
-                    f"Invalid move: {action} from state: {state}\n"
-                )
+                raise ValueError(f"Invalid move: {action} from state: {state}\n")
 
             piece = board[(fq, fr)].pop()
             if len(board[(fq, fr)]) == 0:
@@ -569,7 +725,6 @@ class HiveGame:
         new_state["current_player"] = self.getOpponent(player)
         new_state["move_number"] += 1
 
-        # Clear caches so subsequent calls see the updated board
         self.clearCaches()
         return new_state
 

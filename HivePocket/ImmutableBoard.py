@@ -1,6 +1,9 @@
 import functools
 from collections import defaultdict
 
+from HivePocket import CONNECTIVITY_CACHE, CAN_SLIDE_CACHE
+
+
 class ImmutableBoard:
     """
     Immutable representation of a Hive board:
@@ -81,3 +84,81 @@ class ImmutableBoard:
     def occupiedCells(self):
         """Return a list/tuple of coords that have a non-empty stack."""
         return [coord for coord, stack in self.board_map.items() if stack]
+
+def isBoardConnected(board: ImmutableBoard):
+    """
+    Return True if the entire hive is in one connected component.
+    We key the result by board's hash.
+    """
+    board_key = hash(board)
+    if board_key in CONNECTIVITY_CACHE:
+        return CONNECTIVITY_CACHE[board_key]
+
+    occupied = board.occupiedCells()
+    if not occupied:
+        CONNECTIVITY_CACHE[board_key] = True
+        return True
+
+    # We'll do a union-find or DFS approach
+    visited = set()
+
+    def neighbors(q, r):
+        DIRECTIONS = [(1,0),(-1,0),(0,1),(0,-1),(1,-1),(-1,1)]
+        for dq, dr in DIRECTIONS:
+            yield (q + dq, r + dr)
+
+    def dfs(start):
+        stack = [start]
+        visited.add(start)
+        while stack:
+            cell = stack.pop()
+            q, r = cell
+            for ncell in neighbors(q, r):
+                if board.getStack(*ncell):
+                    if ncell not in visited:
+                        visited.add(ncell)
+                        stack.append(ncell)
+
+    first = occupied[0]
+    dfs(first)
+    result = (len(visited) == len(occupied))
+
+    CONNECTIVITY_CACHE[board_key] = result
+    return result
+
+def canSlide(from_q, from_r, to_q, to_r, board: ImmutableBoard):
+    """
+    Check if a single-step slide from (from_q, from_r) to (to_q, to_r) is blocked or not.
+    We'll cache by (hash(board), from_q, from_r, to_q, to_r).
+    """
+    key = (hash(board), from_q, from_r, to_q, to_r)
+    if key in CAN_SLIDE_CACHE:
+        return CAN_SLIDE_CACHE[key]
+
+    # Same logic you had before:
+    dq = to_q - from_q
+    dr = to_r - from_r
+    move_dir = (dq, dr)
+    adjacent_mapping = {
+        (1, 0):  [(0,1), (1,-1)],
+        (0, 1):  [(-1,1), (1,0)],
+        (-1, 1): [(0,1), (-1,0)],
+        (-1, 0): [(-1,1),(0,-1)],
+        (0, -1): [(1,-1),(-1,0)],
+        (1, -1): [(1,0),(0,-1)],
+    }
+    if move_dir not in adjacent_mapping:
+        CAN_SLIDE_CACHE[key] = False
+        return False
+
+    adj_dirs = adjacent_mapping[move_dir]
+    blocked_count = 0
+    for (adj_dq, adj_dr) in adj_dirs:
+        neighbor1 = (from_q+adj_dq, from_r+adj_dr)
+        neighbor2 = (to_q+adj_dq,   to_r+adj_dr)
+        if board.getStack(*neighbor1) and board.getStack(*neighbor2):
+            blocked_count += 1
+
+    result = (blocked_count == 0)
+    CAN_SLIDE_CACHE[key] = result
+    return result

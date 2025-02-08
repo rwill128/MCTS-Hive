@@ -293,7 +293,7 @@ def play_with_mcts():
 
     game = HiveGame()
     mcts = MCTS(game,
-                num_iterations=2000,
+                num_iterations=100,
                 max_depth=10,
                 c_param=1.4,
                 forced_check_depth=0)
