@@ -628,7 +628,14 @@ class HiveGame:
 
     def evaluateState(self, state):
         """
-        A more nuanced Hive heuristic.
+
+        The heuristic is broken into 4 parts:
+        1. Queen Surrounding & Liberties
+        2. Mobility & Pinning
+        3. Early-Game Placement Bonus or Penalty
+        4. Combine the scores
+
+        The final score is returned from the perspective of the current player.
         """
         outcome = self.getGameOutcome(state)
         if outcome is not None:
@@ -641,7 +648,6 @@ class HiveGame:
                 # Then the current_player must be the winner
                 # because your outcome-check says the other side lost
                 return -10000
-
 
         board = state["board"]
         p1_queen_pos = find_queen_position(board, "Player1")

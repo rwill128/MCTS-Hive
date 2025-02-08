@@ -1,13 +1,9 @@
-from ConnectFour.ConnectFour import ConnectFourGame
-from HivePocket.DrawGame import drawStatePygame
+from HivePocketGlobalCache.DrawGame import drawStatePygame
 from HivePocket.HivePocket import HiveGame
-from TicTacToe.TicTacToe import TicTacToeGame
 from mcts.Mcts import MCTS
 
 
 def play_with_mcts():
-    from time import sleep
-
     # Create the TicTacToe game
     game = HiveGame()
 

@@ -1,3 +1,7 @@
+from HivePocketGlobalCache.GameState import GameState
+from HivePocketGlobalCache.HiveRules import HiveRules
+
+
 class HiveGame:
     INITIAL_PIECES = {
         "Queen": 1,

@@ -3,7 +3,6 @@ import random
 
 import pygame
 
-from HivePocket.DrawGame import drawStatePygame
 from HivePocket.HivePocket import hex_distance, find_queen_position
 
 

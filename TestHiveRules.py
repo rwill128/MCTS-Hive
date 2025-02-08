@@ -1,7 +1,7 @@
 import unittest
 
-from HivePocket import HiveRules
-from HivePocket.GameState import GameState
+from HivePocketGlobalCache import HiveRules
+from HivePocketGlobalCache.GameState import GameState
 
 
 class TestHiveRules(unittest.TestCase):
@@ -125,7 +125,7 @@ class TestHiveRules(unittest.TestCase):
             (0, 0): [('Player1', 'Spider')],
             (1, 0): [('Player2', 'Queen')]
         }
-        destinations = HiveRules.HiveRules.get_spider_destinations(board, (0,0))
+        destinations = HiveRules.HiveRules.get_spider_destinations(board, (0, 0))
         self.assertIn((2, -1), destinations)
 
     def test_get_grasshopper_jumps(self):
@@ -134,7 +134,7 @@ class TestHiveRules(unittest.TestCase):
             (1, 0): [('Player2', 'Queen')],
             (2, 0): [('Player1', 'Ant')]
         }
-        destinations = HiveRules.HiveRules.get_grasshopper_jumps(board, (0,0))
+        destinations = HiveRules.HiveRules.get_grasshopper_jumps(board, (0, 0))
         self.assertIn((3, 0), destinations)
 
     def test_place_piece_actions_initial(self):
