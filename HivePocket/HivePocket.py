@@ -550,6 +550,9 @@ class HiveGame:
         return new_state
 
     def evaluateState(self, state):
+        """
+        A more nuanced Hive heuristic.
+        """
         outcome = self.getGameOutcome(state)
         if outcome is not None:
             current_player = state["current_player"]
@@ -561,54 +564,159 @@ class HiveGame:
                 return -10000
 
         board = state["board"]
-        p1_queen = find_queen_position(board, "Player1")
-        p2_queen = find_queen_position(board, "Player2")
+        p1_queen_pos = find_queen_position(board, "Player1")
+        p2_queen_pos = find_queen_position(board, "Player2")
 
-        p1_liberties = sum(1 for neighbor in self.getAdjacentCells(*p1_queen) if neighbor not in board or not board[neighbor]) if p1_queen else 0
-        p2_liberties = sum(1 for neighbor in self.getAdjacentCells(*p2_queen) if neighbor not in board or not board[neighbor]) if p2_queen else 0
+        # 1. Queen Surrounding & Liberties
+        p1_liberties = p2_liberties = 0
+        p1_surround_count = 0
+        p2_surround_count = 0
 
-        score = (p1_liberties - p2_liberties) * 20
+        if p1_queen_pos:
+            p1_liberties = sum(
+                1 for nq, nr in self.getAdjacentCells(*p1_queen_pos)
+                if (nq, nr) not in board or not board[(nq, nr)]
+            )
+            p1_surround_count = sum(
+                1 for nq, nr in self.getAdjacentCells(*p1_queen_pos)
+                if (nq, nr) in board and board[(nq, nr)]
+            )
 
-        # --- Piece Mobility (Simplified Example) ---
-        p1_mobility = 0
-        p2_mobility = 0
-        for (q, r), stack in board.items():
-            if stack:
-                top_piece = stack[-1]
-                if top_piece[0] == "Player1" and top_piece[1] != "Queen":
-                    # Very basic mobility count: number of empty neighbors.
-                    p1_mobility += sum(1 for nq, nr in self.getAdjacentCells(q, r) if (nq, nr) not in board or not board[(nq, nr)])
-                elif top_piece[0] == "Player2" and top_piece[1] != "Queen":
-                    p2_mobility += sum(1 for nq, nr in self.getAdjacentCells(q, r) if (nq, nr) not in board or not board[(nq, nr)])
+        if p2_queen_pos:
+            p2_liberties = sum(
+                1 for nq, nr in self.getAdjacentCells(*p2_queen_pos)
+                if (nq, nr) not in board or not board[(nq, nr)]
+            )
+            p2_surround_count = sum(
+                1 for nq, nr in self.getAdjacentCells(*p2_queen_pos)
+                if (nq, nr) in board and board[(nq, nr)]
+            )
 
-        score += (p1_mobility - p2_mobility) * 5
+        # Freedoms vs. being surrounded
+        # Weighted so that being near fully surrounded is severe.
+        # e.g.  Each queen has 6 adjacent cells in a typical hex setting.
+        # We can scale the difference in "how close each queen is to being fully surrounded."
+        queen_factor = 50
+        queen_score = queen_factor * ((p1_surround_count - p2_surround_count))
 
-        # --- Threats to Queen (Simplified) ---
-        p1_threats = 0
-        p2_threats = 0
-        if p1_queen:
-            for nq, nr in self.getAdjacentCells(*p1_queen):
-                if (nq, nr) in board and board[(nq, nr)] and board[(nq, nr)][-1][0] == "Player2":
-                    p1_threats += 1
-        if p2_queen:
-            for nq, nr in self.getAdjacentCells(*p2_queen):
-                if (nq, nr) in board and board[(nq, nr)] and board[(nq, nr)][-1][0] == "Player1":
-                    p2_threats += 1
-        score += (p2_threats - p1_threats) * 10
+        # Add in the difference in liberties as well.
+        # If your queen has more free neighbors than theirs, that is good for you.
+        # We'll scale by 10 for example.
+        liberties_factor = 10
+        queen_score += liberties_factor * (p1_liberties - p2_liberties)
 
+        # 2. Mobility & Pinning
+        p1_movable_pieces = self.countMovablePieces(board, "Player1")
+        p2_movable_pieces = self.countMovablePieces(board, "Player2")
+        mobility_factor = 3
+        mobility_score = mobility_factor * (p1_movable_pieces - p2_movable_pieces)
 
-        # --- Encourage Piece Placement (Early Game) ---
-        p1_placed = sum(1 for _, stack in board.items() for piece, _ in stack if piece == "Player1")
-        p2_placed = sum(1 for _, stack in board.items() for piece, _ in stack if piece == "Player2")
-
-        # Scale the placement bonus by the move number (early game emphasis)
+        # 3. Early-Game Placement Bonus or Penalty
+        # This is still a decent approach, but let's keep it simpler:
+        p1_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == "Player1")
+        p2_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == "Player2")
         move_number = state["move_number"]
-        placement_bonus = 0
-        if move_number < 10:  # First 5 turns for each player
-            placement_bonus = (p1_placed - p2_placed) * 30 * (10-move_number)/10 # More important in earlier turns.
-        score += placement_bonus
 
-        return score
+        # We'll do a small bonus for placing more pieces in the early game
+        # so as to avoid pass-happy or do-nothing strategies.
+        early_factor = 2
+        early_game_bonus = 0
+        if move_number < 10:
+            early_game_bonus = early_factor * (p1_placed - p2_placed)
+
+        # 4. Combine
+        score = queen_score + mobility_score + early_game_bonus
+
+        # Return from perspective of the current player
+        if state["current_player"] == "Player2":
+            return -score
+        else:
+            return score
+
+
+    def countMovablePieces(self, board, player):
+        """
+        Count how many pieces the player can actually move without breaking
+        connectivity. (This is different than just summing empty neighbors.)
+        """
+        movable_count = 0
+        for (q, r), stack in board.items():
+            if stack and stack[-1][0] == player:
+                # Temporarily remove piece
+                temp_board = {coord: st[:] for coord, st in board.items()}
+                piece = temp_board[(q, r)].pop()
+                if not temp_board[(q, r)]:
+                    del temp_board[(q, r)]
+                # Check connectivity
+                if not self.isBoardConnected(temp_board):
+                    # This piece is pinned - cannot move at all
+                    continue
+                # If still connected, see if there's at least one valid move
+                # that is possible for that piece.
+                moves = self.getSinglePieceMoves(temp_board, (q, r), piece)
+                if moves:
+                    movable_count += 1
+
+        return movable_count
+
+
+    def getSinglePieceMoves(self, board, from_coord, piece):
+        """
+        Return a list of valid (from_coord, to_coord) for the single piece
+        ignoring the entire player's set, just focusing on this piece's move logic.
+        """
+        # Re-insert piece so movement logic uses an accurate board.
+        if from_coord not in board:
+            board[from_coord] = []
+        board[from_coord].append(piece)
+        # Then reuse your normal move logic but restrict it to just that single piece:
+        # We'll do something like a special version of "movePieceActions" that
+        # only returns moves for that piece.
+        # For brevity, re-use the code from `movePieceActions` but filter by from_coord.
+        # ...
+        # Remove piece again at the end or just copy board in the beginning.
+        #
+        # (You can adapt your `movePieceActions` routine.)
+
+        # For a short example:
+        insectType = piece[1]
+        (q, r) = from_coord
+        board_copy = {coord: st[:] for coord, st in board.items()}
+        board_copy[(q, r)].pop()  # remove the piece
+        if not board_copy[(q, r)]:
+            del board_copy[(q, r)]
+
+        if insectType == "Queen" or insectType == "Beetle":
+            destinations = self.getAdjacentCells(q, r)
+        elif insectType == "Grasshopper":
+            destinations = self.getGrasshopperJumps(board_copy, q, r)
+        elif insectType == "Spider":
+            destinations = self.getSpiderDestinations(board_copy, (q, r))
+        elif insectType == "Ant":
+            destinations = self.getAntDestinations(board_copy, (q, r))
+        else:
+            destinations = []
+
+        valid_moves = []
+        for to_coord in destinations:
+            # Check occupancy, connectivity, etc.
+            to_q, to_r = to_coord
+            # If it's a beetle, you can land on top of an occupied cell.
+            # Otherwise you cannot land on a cell that is occupied.
+            if insectType != "Beetle" and to_coord in board_copy and board_copy[to_coord]:
+                continue
+
+            # Possibly check sliding if needed.
+            # Then "simulate" placing the piece there.
+            board_copy.setdefault(to_coord, []).append(piece)
+            if self.isBoardConnected(board_copy):
+                valid_moves.append((from_coord, to_coord))
+            # Undo
+            board_copy[to_coord].pop()
+            if not board_copy[to_coord]:
+                del board_copy[to_coord]
+
+        return valid_moves
 
     def getCurrentPlayer(self, state):
         return state["current_player"]
