@@ -89,7 +89,7 @@ class MCTSNode:
 
 class MCTS:
     def __init__(self, game, forced_check_depth=1, num_iterations=1000,
-                 max_depth=20, c_param=1.4, eval_func=None):
+                 max_depth=20, c_param=1.4, eval_func=None, weights=None):
         self.game = game
         self.forced_check_depth = forced_check_depth
         self.num_iterations = num_iterations
@@ -98,6 +98,8 @@ class MCTS:
 
         # Store the custom evaluation function; if none given, fall back to game.evaluateState
         self.eval_func = eval_func if eval_func is not None else self.game.evaluateState
+
+        self.weights = weights
 
     def search(self, root_state, draw_callback=None):
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
@@ -117,7 +119,8 @@ class MCTS:
             simulation_value = self.game.simulateRandomPlayout(
                 node.state,
                 max_depth=self.max_depth,
-                eval_func=self.eval_func
+                eval_func=self.eval_func,
+                weights=self.weights
             )
 
             # (4) BACKPROPAGATION
@@ -241,13 +244,3 @@ class MCTS:
             if rnd < cumulative:
                 return act
         return actions[-1]
-
-    def simulateRandomPlayout(self, state):
-        temp_state = self.game.copyState(state)
-        while not self.game.isTerminal(temp_state):
-            legal = self.game.getLegalActions(temp_state)
-            if not legal:
-                break
-            action = self.weightedActionChoice(temp_state, legal)
-            temp_state = self.game.applyAction(temp_state, action)
-        return temp_state

@@ -626,17 +626,41 @@ class HiveGame:
         self.clearCaches()
         return new_state
 
-    def evaluateState(self, state):
+    def evaluateState(self, state, weights=None):
         """
+        Evaluate the board state from the perspective of the current player.
 
         The heuristic is broken into 4 parts:
-        1. Queen Surrounding & Liberties
-        2. Mobility & Pinning
-        3. Early-Game Placement Bonus or Penalty
-        4. Combine the scores
+          1. Queen Surrounding & Liberties
+          2. Mobility & Pinning
+          3. Early-Game Placement Bonus or Penalty
+          4. Combine the scores
 
         The final score is returned from the perspective of the current player.
+
+        You can pass in a dictionary 'weights' to adjust the relative importance of each factor.
+        Expected keys (with default values) are:
+          - queen_factor: default 50
+          - liberties_factor: default 10
+          - mobility_factor: default 3
+          - early_factor: default 2
         """
+        # Set default weights if none are provided
+        default_weights = {
+            "queen_factor": 50,
+            "liberties_factor": 10,
+            "mobility_factor": 3,
+            "early_factor": 2,
+        }
+
+        if weights is None:
+            weights = default_weights
+        else:
+            # Merge provided weights with defaults
+            for key, value in default_weights.items():
+                weights.setdefault(key, value)
+
+        # Check for a terminal outcome
         outcome = self.getGameOutcome(state)
         if outcome is not None:
             if outcome == self.getOpponent(state["current_player"]):
@@ -646,7 +670,6 @@ class HiveGame:
                 return 0
             else:
                 # Then the current_player must be the winner
-                # because your outcome-check says the other side lost
                 return -10000
 
         board = state["board"]
@@ -678,42 +701,29 @@ class HiveGame:
                 if (nq, nr) in board and board[(nq, nr)]
             )
 
-        # Freedoms vs. being surrounded
-        # Weighted so that being near fully surrounded is severe.
-        # e.g.  Each queen has 6 adjacent cells in a typical hex setting.
-        # We can scale the difference in "how close each queen is to being fully surrounded."
-        queen_factor = 50
-        queen_score = queen_factor * ((p1_surround_count - p2_surround_count))
-
-        # Add in the difference in liberties as well.
-        # If your queen has more free neighbors than theirs, that is good for you.
-        # We'll scale by 10 for example.
-        liberties_factor = 10
-        queen_score += liberties_factor * (p1_liberties - p2_liberties)
+        # Calculate queen score
+        queen_score = weights["queen_factor"] * (p1_surround_count - p2_surround_count)
+        queen_score += weights["liberties_factor"] * (p1_liberties - p2_liberties)
 
         # 2. Mobility & Pinning
         p1_movable_pieces = self.countMovablePieces(board, "Player1")
         p2_movable_pieces = self.countMovablePieces(board, "Player2")
-        mobility_factor = 3
-        mobility_score = mobility_factor * (p1_movable_pieces - p2_movable_pieces)
+        mobility_score = weights["mobility_factor"] * (p1_movable_pieces - p2_movable_pieces)
 
         # 3. Early-Game Placement Bonus or Penalty
-        # This is still a decent approach, but let's keep it simpler:
         p1_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == "Player1")
         p2_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == "Player2")
         move_number = state["move_number"]
 
-        # We'll do a small bonus for placing more pieces in the early game
-        # so as to avoid pass-happy or do-nothing strategies.
-        early_factor = 2
         early_game_bonus = 0
         if move_number < 10:
-            early_game_bonus = early_factor * (p1_placed - p2_placed)
+            early_game_bonus = weights["early_factor"] * (p1_placed - p2_placed)
 
-        # 4. Combine
+        # 4. Combine the factors into the final score
         score = queen_score + mobility_score + early_game_bonus
 
-        # Return from perspective of the current player
+        # Return score from the perspective of the current player
+        # If current_player is "Player2", flip the sign of the score
         if state["current_player"] == "Player2":
             return -score
         else:
@@ -807,7 +817,7 @@ class HiveGame:
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state, max_depth=10, eval_func=None):
+    def simulateRandomPlayout(self, state, max_depth=10, eval_func=None, weights=None):
         """
         Plays a random (or weighted-random) sequence of moves up to max_depth,
         then returns a numeric evaluation of the final position.
@@ -827,7 +837,7 @@ class HiveGame:
         if eval_func:
             return eval_func(temp_state)
         else:
-            return self.evaluateState(temp_state)
+            return self.evaluateState(temp_state, weights=weights)
 
     # ---------------------------------------------------------
     # 5. Print / Debug
