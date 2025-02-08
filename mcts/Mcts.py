@@ -89,15 +89,11 @@ class MCTSNode:
 
 
 class MCTS:
-    def __init__(self, game, forced_check_depth=1, num_iterations=1000, max_depth=20, c_param=1.4,
-                 win_reward=1.0, lose_reward=-1.0, draw_reward=0.0):
+    def __init__(self, game, forced_check_depth=1, num_iterations=1000, max_depth=20, c_param=1.4):
         self.game = game
         self.forced_check_depth = forced_check_depth
         self.num_iterations = num_iterations
         self.c_param = c_param
-        self.win_reward = win_reward
-        self.lose_reward = lose_reward
-        self.draw_reward = draw_reward
         self.max_depth = max_depth
 
     def search(self, root_state, draw_callback=None):
@@ -138,17 +134,6 @@ class MCTS:
         while node is not None:
             node.update(simulation_value)
             node = node.parent
-
-
-    def _getRewardFromOutcome(self, outcome, root_player):
-        if outcome is None:
-            return 0.0
-        elif outcome == root_player:
-            return self.win_reward
-        elif outcome == "Draw":
-            return self.draw_reward
-        else:
-            return self.lose_reward
 
     def _forced_check_depth_limited(self, state, player, depth):
         outcome = self.game.getGameOutcome(state)

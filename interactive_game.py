@@ -293,13 +293,10 @@ def play_with_mcts():
 
     game = HiveGame()
     mcts = MCTS(game,
-                draw_reward=0.1,
-                win_reward=1,
-                lose_reward=-1,
-                num_iterations=1000,
-                max_depth=50,
+                num_iterations=10000,
+                max_depth=10,
                 c_param=1.4,
-                forced_check_depth=1)
+                forced_check_depth=0)
     state = game.getInitialState()
     print("Initial board:")
     game.printState(state)
