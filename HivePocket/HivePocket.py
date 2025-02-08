@@ -341,30 +341,52 @@ class HiveGame:
                 results.add(cur)
                 return
             for neighbor in self.getAdjacentCells(*cur):
+                # Skip if we’ve already visited or if it’s occupied.
                 if neighbor in path:
                     continue
-                if neighbor in board and board[neighbor]:  # Corrected occupancy check
+                if neighbor in board and board[neighbor]:
                     continue
-                if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*neighbor)):
-                    continue
-                if not self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], board):
-                    continue
-                dfs(path + [neighbor], steps + 1)
 
-        # Check sliding for the *initial* move from 'start'.
+                # Remove the adjacency check that forced neighbor to have
+                # an adjacent piece. Instead just do a connectivity test:
+                temp_board = {c: st[:] for c, st in board.items()}
+                # Place the spider temporarily.
+                temp_board.setdefault(neighbor, []).append(("SpiderOwner","Spider"))
+                # If the hive is connected with the spider at 'neighbor',
+                # and we can “slide” there, it’s valid.
+                if self.isBoardConnected(temp_board) and self.canSlide(cur[0],cur[1], neighbor[0],neighbor[1], temp_board):
+                    dfs(path + [neighbor], steps + 1)
+
+        # "Lift" the spider from its start so that cell is empty:
+        temp_board = {c: st[:] for c, st in board.items()}
+        if start in temp_board and temp_board[start]:
+            temp_board[start].pop()
+            if not temp_board[start]:
+                del temp_board[start]
+
+        # For the first step away from 'start', check which adjacent cells
+        # are empty and pass connectivity + sliding:
         valid_starts = []
         for first_neighbor in self.getAdjacentCells(*start):
-            if first_neighbor in board and board[first_neighbor]: #Corrected initial check
+            if first_neighbor in temp_board and temp_board[first_neighbor]:
                 continue
-            if not any(adj in board and board[adj] for adj in self.getAdjacentCells(*first_neighbor)):
-                continue
-            if self.canSlide(start[0], start[1], first_neighbor[0], first_neighbor[1], board):
+            # Test connectivity with spider at 'first_neighbor':
+            temp_board.setdefault(first_neighbor, []).append(("SpiderOwner","Spider"))
+            if self.isBoardConnected(temp_board) and self.canSlide(start[0], start[1],
+                                                                   first_neighbor[0], first_neighbor[1],
+                                                                   temp_board):
                 valid_starts.append(first_neighbor)
+            # Undo so we can try the next neighbor
+            temp_board[first_neighbor].pop()
+            if not temp_board[first_neighbor]:
+                del temp_board[first_neighbor]
 
-        for first_step in valid_starts:
-            dfs([start, first_step], 1)  # Start DFS from each valid first step
+        # Now run 3-step DFS from each valid first step
+        for fn in valid_starts:
+            dfs([start, fn], 1)
 
         return results
+
     # --- New: Revised Ant Move Generation ---
     def getAntDestinations(self, board, start):
         results = set()
@@ -555,13 +577,16 @@ class HiveGame:
         """
         outcome = self.getGameOutcome(state)
         if outcome is not None:
-            current_player = state["current_player"]
-            if outcome == current_player:
+            if outcome == self.getOpponent(state["current_player"]):
+                # The player who just moved (the opponent of current) is the winner
                 return +10000
             elif outcome == "Draw":
                 return 0
             else:
+                # Then the current_player must be the winner
+                # because your outcome-check says the other side lost
                 return -10000
+
 
         board = state["board"]
         p1_queen_pos = find_queen_position(board, "Player1")
