@@ -340,22 +340,24 @@ class HiveGame:
             if steps == 3:
                 results.add(cur)
                 return
+
             for neighbor in self.getAdjacentCells(*cur):
-                # Skip if we’ve already visited or if it’s occupied.
                 if neighbor in path:
                     continue
-                if neighbor in board and board[neighbor]:
+                if neighbor in temp_board and temp_board[neighbor]:
                     continue
 
-                # Remove the adjacency check that forced neighbor to have
-                # an adjacent piece. Instead just do a connectivity test:
-                temp_board = {c: st[:] for c, st in board.items()}
-                # Place the spider temporarily.
+                # Place spider
                 temp_board.setdefault(neighbor, []).append(("SpiderOwner","Spider"))
-                # If the hive is connected with the spider at 'neighbor',
-                # and we can “slide” there, it’s valid.
-                if self.isBoardConnected(temp_board) and self.canSlide(cur[0],cur[1], neighbor[0],neighbor[1], temp_board):
+
+                # Check connectivity and canSlide
+                if self.isBoardConnected(temp_board) and self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], temp_board):
                     dfs(path + [neighbor], steps + 1)
+
+                # **Backtrack**: remove the spider you just placed
+                temp_board[neighbor].pop()
+                if not temp_board[neighbor]:
+                    del temp_board[neighbor]
 
         # "Lift" the spider from its start so that cell is empty:
         temp_board = {c: st[:] for c, st in board.items()}
