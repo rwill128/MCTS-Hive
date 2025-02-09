@@ -152,9 +152,14 @@ class MCTS:
 
     def _backpropagate(self, node, simulation_value, root_node):
         # Here, simulation_value is the heuristic evaluation (a numeric score)
+
+        if node.parent is not None:
+            assert node.state["current_player"] != node.parent.state["current_player"], \
+                "Backprop assumption failed: parent and child have same current_player."
+
         while node is not None:
-            node.update(simulation_value)
-            node = node.parent
+                node.update(simulation_value)
+                node = node.parent
 
     def _forced_check_depth_limited(self, state, player, depth):
         outcome = self.game.getGameOutcome(state)

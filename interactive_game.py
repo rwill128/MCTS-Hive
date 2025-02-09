@@ -91,120 +91,126 @@ def draw_hive_board(state, surface):
 
 # ---------------------- Human Move Handling -------------------------
 def get_human_move(state, game, screen, background):
-    """
-    Waits for a human (Player1) move.
-    Uses the background surface (which has the board drawn) for display.
-    """
     global OFFSET_X, OFFSET_Y
+    # We'll always re-fetch legal actions inside the main loop
+    # so it stays up-to-date if your code re-checks them.
     legal_actions = game.getLegalActions(state)
-    draw_hive_board(state, background)
-    screen.blit(background, (0, 0))
-    pygame.display.flip()
 
+    # We'll still check if the queen is placed for user feedback,
+    # but we won’t forcibly lock out movement actions.
     from HivePocket.HivePocket import find_queen_position
     queen_placed = (find_queen_position(state["board"], state["current_player"]) is not None)
+
+    # For user feedback only:
+    if not queen_placed:
+        print("Your queen is not on the board yet. You have until your 4th move to place it.")
+
+    # This dict is still used to map key presses to piece names
     mapping = {"Q": "Queen", "A": "Ant", "S": "Spider", "B": "Beetle", "G": "Grasshopper"}
 
-    if not queen_placed:
-        print("Queen not placed yet. Press Q, A, S, B or G for Queen, Ant, Spider, Beetle, or Grasshopper.")
-        while True:
-            draw_hive_board(state, background)
-            screen.blit(background, (0, 0))
-            pygame.display.flip()
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-                elif event.type == pygame.VIDEORESIZE:
-                    screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
-                    OFFSET_X = event.w // 2
-                    OFFSET_Y = event.h // 2
-                    draw_hive_board(state, background)
-                    screen.blit(background, (0, 0))
-                    pygame.display.flip()
-                elif event.type == pygame.KEYDOWN:
-                    key = pygame.key.name(event.key).upper()
-                    if key in mapping:
-                        insect = mapping[key]
-                        pos = pygame.mouse.get_pos()
-                        hex_coords = pixel_to_hex(pos)
-                        legal_actions = game.getLegalActions(state)
-                        candidate = [a for a in legal_actions if a[0] == "PLACE" and a[1] == insect and a[2] == hex_coords]
-                        if candidate:
-                            print("Selected placement:", candidate[0])
-                            return candidate[0]
-                        else:
-                            print(f"Illegal placement attempt: {insect} at {hex_coords}.")
-            pygame.time.wait(100)
-    else:
-        selected_origin = None
-        highlighted_destinations = []
-        print("Queen placed. You may place a piece (press Q, A, S, B or G) or move a piece by clicking it.")
-        while True:
-            draw_hive_board(state, background)
-            screen.blit(background, (0, 0))
-            if selected_origin is not None:
-                for dest in highlighted_destinations:
-                    center = hex_to_pixel(*dest)
-                    pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
-            pygame.display.flip()
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-                elif event.type == pygame.VIDEORESIZE:
-                    screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
-                    OFFSET_X = event.w // 2
-                    OFFSET_Y = event.h // 2
-                    draw_hive_board(state, background)
-                    screen.blit(background, (0, 0))
-                    pygame.display.flip()
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        selected_origin = None
-                        highlighted_destinations = []
-                        print("Move selection canceled.")
-                        draw_hive_board(state, background)
-                        screen.blit(background, (0, 0))
-                        pygame.display.flip()
+    # We'll track whether the player is in the “middle of moving a piece”
+    selected_origin = None
+    highlighted_destinations = []
+
+    while True:
+        draw_hive_board(state, background)
+        screen.blit(background, (0, 0))
+
+        # If a piece is selected, highlight possible destinations
+        if selected_origin is not None:
+            for dest in highlighted_destinations:
+                center = hex_to_pixel(*dest)
+                pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
+                OFFSET_X = event.w // 2
+                OFFSET_Y = event.h // 2
+                # Redraw after resizing
+                draw_hive_board(state, background)
+                screen.blit(background, (0, 0))
+                pygame.display.flip()
+
+            elif event.type == pygame.KEYDOWN:
+                # ESC to cancel a partial move
+                if event.key == pygame.K_ESCAPE:
+                    selected_origin = None
+                    highlighted_destinations = []
+                    print("Move selection canceled.")
+                    continue
+
+                # Check if user pressed Q/A/S/B/G for placement
+                key = pygame.key.name(event.key).upper()
+                if key in mapping:
+                    insect = mapping[key]
+                    # We interpret the mouse position as the hex to place on
+                    pos = pygame.mouse.get_pos()
+                    hex_coords = pixel_to_hex(pos)
+
+                    # Re-fetch legal actions each time
+                    legal_actions = game.getLegalActions(state)
+
+                    # Look for a matching legal "PLACE" action
+                    candidates = [
+                        a for a in legal_actions
+                        if a[0] == "PLACE" and a[1] == insect and a[2] == hex_coords
+                    ]
+                    if candidates:
+                        print("Selected placement:", candidates[0])
+                        return candidates[0]
                     else:
-                        key = pygame.key.name(event.key).upper()
-                        if key in mapping:
-                            insect = mapping[key]
-                            pos = pygame.mouse.get_pos()
-                            hex_coords = pixel_to_hex(pos)
-                            legal_actions = game.getLegalActions(state)
-                            candidate = [a for a in legal_actions if a[0] == "PLACE" and a[1] == insect and a[2] == hex_coords]
-                            if candidate:
-                                print("Selected placement:", candidate[0])
-                                return candidate[0]
-                            else:
-                                print(f"Illegal placement attempt: {insect} at {hex_coords}.")
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    pos = event.pos
-                    clicked_hex = pixel_to_hex(pos)
-                    if selected_origin is None and clicked_hex in state["board"]:
+                        print(f"Illegal placement attempt: {insect} at {hex_coords}.")
+
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Check if user is selecting a piece or a destination
+                pos = event.pos
+                clicked_hex = pixel_to_hex(pos)
+
+                if selected_origin is None:
+                    # Attempt to select a piece to move
+                    if clicked_hex in state["board"]:
                         top_piece = state["board"][clicked_hex][-1]
                         if top_piece[0] == state["current_player"]:
-                            move_actions = [a for a in legal_actions if a[0] == "MOVE" and a[1] == clicked_hex]
+                            # Show possible destinations for that piece
+                            legal_actions = game.getLegalActions(state)
+                            move_actions = [
+                                a for a in legal_actions
+                                if a[0] == "MOVE" and a[1] == clicked_hex
+                            ]
                             if move_actions:
                                 selected_origin = clicked_hex
                                 highlighted_destinations = [a[2] for a in move_actions]
-                                print("Selected piece for moving:", selected_origin, "destinations:", highlighted_destinations)
-                                draw_hive_board(state, background)
-                                screen.blit(background, (0, 0))
-                                for dest in highlighted_destinations:
-                                    center = hex_to_pixel(*dest)
-                                    pygame.draw.circle(screen, (255, 255, 0), center, HEX_SIZE // 2, 3)
-                                pygame.display.flip()
-                    elif selected_origin is not None:
-                        if clicked_hex in highlighted_destinations:
-                            candidate = [a for a in legal_actions if a[0] == "MOVE" and a[1] == selected_origin and a[2] == clicked_hex]
-                            if candidate:
-                                return candidate[0]
+                                print("Selected piece for moving:", selected_origin,
+                                      "destinations:", highlighted_destinations)
+                            else:
+                                print("No moves available for that piece.")
+                else:
+                    # We have selected a piece, so attempt a move to the new hex
+                    if clicked_hex in highlighted_destinations:
+                        legal_actions = game.getLegalActions(state)
+                        candidates = [
+                            a for a in legal_actions
+                            if a[0] == "MOVE"
+                               and a[1] == selected_origin
+                               and a[2] == clicked_hex
+                        ]
+                        if candidates:
+                            print("Selected move:", candidates[0])
+                            return candidates[0]
                         else:
-                            print("Click not on a highlighted destination. Press Escape to cancel selection.")
-            pygame.time.wait(100)
+                            print("No matching move action found (shouldn't happen).")
+                    else:
+                        print("That hex is not one of the highlighted destinations.")
+                        print("Press ESC to cancel move selection if you want to pick another piece.")
+
+        # Slight delay so we’re not spinning at 100% CPU
+        pygame.time.wait(100)
 
 # ---------------------- Heatmap Drawing (Smooth Transition) -------------------------
 def blend_color(current, target, alpha=0.1):
@@ -292,11 +298,21 @@ def play_with_mcts():
     heatmap_colors = {}
 
     game = HiveGame()
+
+    weights = {
+        "winning_score": 10000,
+        "queen_factor": -5000,       # factor for queen's adjacency/surrounding
+        "liberties_factor": 10,   # factor for queen's liberties
+        "mobility_factor": 3,     # factor for movable pieces
+        "early_factor": 2         # factor for early-game placement bonus
+    }
+
     mcts = MCTS(game,
                 num_iterations=100,
                 max_depth=10,
                 c_param=1.4,
-                forced_check_depth=0)
+                forced_check_depth=0,
+                weights=weights)
     state = game.getInitialState()
     print("Initial board:")
     game.printState(state)

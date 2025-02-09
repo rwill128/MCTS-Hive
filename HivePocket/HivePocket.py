@@ -250,7 +250,7 @@ class HiveGame:
                 step_count += 1
         return possible_destinations
 
-    def movePieceActions(self, state, debug=True):
+    def movePieceActions(self, state, debug=False):
         board = state["board"]
         player = state["current_player"]
         actions = []
@@ -439,7 +439,7 @@ class HiveGame:
                     frontier.append(neighbor)
         return results
 
-    def canSlide(self, from_q, from_r, to_q, to_r, board, debug=True):
+    def canSlide(self, from_q, from_r, to_q, to_r, board, debug=False):
         key = (self.board_hash(board), from_q, from_r, to_q, to_r)
         if key in self._can_slide_cache:
             result = self._can_slide_cache[key]
