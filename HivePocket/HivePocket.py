@@ -566,6 +566,13 @@ class HiveGame:
                 return act
         return actions[-1]
 
+    def randomActionChoice(self, state, actions):
+        """
+        Simply selects a random action from the provided actions list.
+        """
+        return random.choice(actions)
+
+
     # ---------------------------------------------------------
     # 4. MCTS-required interface
     # ---------------------------------------------------------
@@ -619,9 +626,11 @@ class HiveGame:
                 board[(tq, tr)] = []
             board[(tq, tr)].append(piece)
 
-        # Switch to the other player
-        new_state["current_player"] = self.getOpponent(player)
         new_state["move_number"] += 1
+
+
+        if not self.isTerminal(new_state):
+            new_state["current_player"] = self.getOpponent(player)
 
         self.clearCaches()
         return new_state
@@ -663,7 +672,7 @@ class HiveGame:
         # Check for a terminal outcome
         outcome = self.getGameOutcome(state)
         if outcome is not None:
-            if outcome == self.getOpponent(state["current_player"]):
+            if outcome == state["current_player"]:
                 # The player who just moved (the opponent of current) is the winner
                 return +10000
             elif outcome == "Draw":
@@ -829,7 +838,7 @@ class HiveGame:
             if not legal:
                 break
             # Weighted random or any style of random move
-            action = self.weightedActionChoice(temp_state, legal)
+            action = self.randomActionChoice(temp_state, legal)
             temp_state = self.applyAction(temp_state, action)
             depth += 1
 

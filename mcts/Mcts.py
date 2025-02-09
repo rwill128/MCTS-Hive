@@ -160,44 +160,44 @@ class MCTS:
 
     def _backpropagate(self, node, simulation_value, root_node):
         """
-        Backpropagation: each ancestor accumulates simulation_value unaltered
-        (i.e., no perspective flip).
+        Standard MCTS backprop where each parent's perspective is toggled.
         """
-        winner = self.game.getGameOutcome(node.state)
-        if winner is not None and winner != "Draw":
-            if winner == self.perspective_player:
-                assert simulation_value > 0
-            else:
-                assert simulation_value < 0
 
-        # Optional: root_node might be the same as node’s topmost ancestor in some code,
-        # so you can check them the same or skip if it’s always the same object.
-        if root_node is not None:
-            assert root_node.state["current_player"] == self.perspective_player, (
-                f"MCTS perspective mismatch at the root: got {root_node.state['current_player']} "
-                f"expected {self.perspective_player}."
-            )
+        winner_at_end = self.game.getGameOutcome(node.state)
+
+        if winner_at_end is not None and winner_at_end == self.perspective_player:
+            print("Current player: " + node.state["current_player"])
+            print("Winner at end: " + winner_at_end)
+            print("Simulation value: " + str(simulation_value))
+            assert simulation_value > 1
+        elif winner_at_end is not None:
+            print("Current player: " + node.state["current_player"])
+            print("Winner at end: " + winner_at_end)
+            print("Simulation value: " + str(simulation_value))
+            assert simulation_value < 1
 
         while node is not None:
-                # 1. Check perspective flipping
-                if node.parent is not None:
-                    assert node.state["current_player"] != node.parent.state["current_player"], (
-                        f"MCTS perspective is not flipping: Node with current_player={node.state['current_player']} "
-                        f"found in chain for {self.perspective_player}."
-                    )
+            # If the node's current_player does NOT match the node we're back-propagating from,
+            # flip the sign.
+            if node.state["current_player"] != self.perspective_player:
+                print("We're back-propping a node where the current player is not the perspective player, flipping the sign.")
+                simulation_value = -simulation_value
 
-                # 2. Update totals
-                this_node_player = node.state["current_player"]
+            if winner_at_end is not None:
+                print("We have a winner")
+                if node.state["current_player"] == winner_at_end:
+                    print("Current player: " + node.state["current_player"])
+                    print("Winner at end: " + winner_at_end)
+                    print("Simulation value: " + str(simulation_value))
+                    assert simulation_value > 1
+                else:
+                    print("Current player: " + node.state["current_player"])
+                    print("Winner at end: " + winner_at_end)
+                    print("Simulation value: " + str(simulation_value))
+                    assert simulation_value < 1
 
-                if winner is not None and winner != "Draw":
-                    if winner == this_node_player:
-                        assert simulation_value > 0
-                    else:
-                        assert simulation_value < 0
-
-
-                node.update(simulation_value)
-                node = node.parent
+            node.update(simulation_value)
+            node = node.parent
 
     def _forced_check_depth_limited(self, state, player, depth):
         outcome = self.game.getGameOutcome(state)

@@ -301,7 +301,7 @@ def play_with_mcts():
 
     weights = {
         "winning_score": 10000,
-        "queen_factor": -5000,       # factor for queen's adjacency/surrounding
+        "queen_factor": 50,       # factor for queen's adjacency/surrounding
         "liberties_factor": 10,   # factor for queen's liberties
         "mobility_factor": 3,     # factor for movable pieces
         "early_factor": 2         # factor for early-game placement bonus
@@ -312,7 +312,8 @@ def play_with_mcts():
                 max_depth=10,
                 c_param=1.4,
                 forced_check_depth=0,
-                weights=weights)
+                weights=weights,
+                perspective_player="Player2")
     state = game.getInitialState()
     print("Initial board:")
     game.printState(state)
