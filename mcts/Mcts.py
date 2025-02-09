@@ -89,7 +89,7 @@ class MCTSNode:
 
 class MCTS:
     def __init__(self, game, forced_check_depth=1, num_iterations=1000,
-                 max_depth=20, c_param=1.4, eval_func=None, weights=None):
+                 max_depth=20, c_param=1.4, eval_func=None, weights=None, perspective_player=None):
         self.game = game
         self.forced_check_depth = forced_check_depth
         self.num_iterations = num_iterations
@@ -99,12 +99,20 @@ class MCTS:
         # Store the custom evaluation function; if none given, fall back to game.evaluateState
         self.eval_func = eval_func if eval_func is not None else self.game.evaluateState
 
+        # New: which player is this MCTS “for”?
+        if perspective_player is None:
+            raise ValueError("Must specify perspective_player (e.g. 'Player1' or 'Player2').")
+        self.perspective_player = perspective_player
+
         self.weights = weights
 
     def search(self, root_state, draw_callback=None):
         root_node = MCTSNode(root_state, None, forced_depth_left=self.forced_check_depth)
 
+        assert root_state["current_player"] == self.perspective_player
+
         for i in range(self.num_iterations):
+
             pygame.event.pump()
 
             # (1) SELECTION
@@ -151,13 +159,43 @@ class MCTS:
         return best_action, best_child
 
     def _backpropagate(self, node, simulation_value, root_node):
-        # Here, simulation_value is the heuristic evaluation (a numeric score)
+        """
+        Backpropagation: each ancestor accumulates simulation_value unaltered
+        (i.e., no perspective flip).
+        """
+        winner = self.game.getGameOutcome(node.state)
+        if winner is not None and winner != "Draw":
+            if winner == self.perspective_player:
+                assert simulation_value > 0
+            else:
+                assert simulation_value < 0
 
-        if node.parent is not None:
-            assert node.state["current_player"] != node.parent.state["current_player"], \
-                "Backprop assumption failed: parent and child have same current_player."
+        # Optional: root_node might be the same as node’s topmost ancestor in some code,
+        # so you can check them the same or skip if it’s always the same object.
+        if root_node is not None:
+            assert root_node.state["current_player"] == self.perspective_player, (
+                f"MCTS perspective mismatch at the root: got {root_node.state['current_player']} "
+                f"expected {self.perspective_player}."
+            )
 
         while node is not None:
+                # 1. Check perspective flipping
+                if node.parent is not None:
+                    assert node.state["current_player"] != node.parent.state["current_player"], (
+                        f"MCTS perspective is not flipping: Node with current_player={node.state['current_player']} "
+                        f"found in chain for {self.perspective_player}."
+                    )
+
+                # 2. Update totals
+                this_node_player = node.state["current_player"]
+
+                if winner is not None and winner != "Draw":
+                    if winner == this_node_player:
+                        assert simulation_value > 0
+                    else:
+                        assert simulation_value < 0
+
+
                 node.update(simulation_value)
                 node = node.parent
 

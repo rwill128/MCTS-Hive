@@ -174,7 +174,8 @@ def play_mcts_vs_mcts():
                         max_depth=20,
                         c_param=1.4,
                         forced_check_depth=0,
-                        weights=weights1)
+                        weights=weights1,
+                        perspective_player="Player1")
 
     weights2 = {
         "winning_score": 10000,
@@ -190,7 +191,8 @@ def play_mcts_vs_mcts():
                         max_depth=20,
                         c_param=1.4,
                         forced_check_depth=0,
-                        weights=weights2)
+                        weights=weights2,
+                        perspective_player="Player2")
 
     state = game.getInitialState()
     print("Initial board:")
