@@ -3,6 +3,7 @@ import sys
 import math
 import random
 from HivePocket.HivePocket import HiveGame  # Your Hive game implementation.
+from SinglePerspectiveMCTS import SinglePerspectiveMCTS
 from mcts.Mcts import MCTS                # Your MCTS class.
 
 # ---------------------- Hex Grid Helpers -------------------------
@@ -161,17 +162,17 @@ def play_mcts_vs_mcts():
 
 
     weights1 = {
-        "winning_score": 10000,
-        "queen_factor": 50,       # factor for queen's adjacency/surrounding
-        "liberties_factor": 10,   # factor for queen's liberties
-        "mobility_factor": 3,     # factor for movable pieces
+        "winning_score": -10000,
+        "queen_factor": -5000,       # factor for queen's adjacency/surrounding
+        "liberties_factor": -5000,   # factor for queen's liberties
+        "mobility_factor": 300,     # factor for movable pieces
         "early_factor": 2         # factor for early-game placement bonus
     }
 
     # Create separate MCTS instances for each player.
     mcts_player1 = MCTS(game,
-                        num_iterations=100,
-                        max_depth=200,
+                        num_iterations=300,
+                        max_depth=20,
                         c_param=1.4,
                         forced_check_depth=0,
                         weights=weights1,
@@ -179,16 +180,16 @@ def play_mcts_vs_mcts():
 
     weights2 = {
         "winning_score": 10000,
-        "queen_factor": 50,       # factor for queen's adjacency/surrounding
-        "liberties_factor": 10,   # factor for queen's liberties
-        "mobility_factor": 3,     # factor for movable pieces
-        "early_factor": 2         # factor for early-game placement bonus
+        "queen_factor": 5000,       # factor for queen's adjacency/surrounding
+        "liberties_factor": 5000,   # factor for queen's liberties
+        "mobility_factor": 300,     # factor for movable pieces
+        "early_factor": 2        # factor for early-game placement bonus
     }
 
 
     mcts_player2 = MCTS(game,
-                        num_iterations=100,
-                        max_depth=200,
+                        num_iterations=300,
+                        max_depth=20,
                         c_param=1.4,
                         forced_check_depth=0,
                         weights=weights2,

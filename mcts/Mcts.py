@@ -126,6 +126,7 @@ class MCTS:
             # Pass eval_func into simulateRandomPlayout
             simulation_value = self.game.simulateRandomPlayout(
                 node.state,
+                self.perspective_player,
                 max_depth=self.max_depth,
                 eval_func=self.eval_func,
                 weights=self.weights
@@ -162,42 +163,44 @@ class MCTS:
         """
         Standard MCTS backprop where each parent's perspective is toggled.
         """
-
-        winner_at_end = self.game.getGameOutcome(node.state)
-
-        if winner_at_end is not None and winner_at_end == self.perspective_player:
-            print("Current player: " + node.state["current_player"])
-            print("Winner at end: " + winner_at_end)
-            print("Simulation value: " + str(simulation_value))
-            assert simulation_value > 1
-        elif winner_at_end is not None:
-            print("Current player: " + node.state["current_player"])
-            print("Winner at end: " + winner_at_end)
-            print("Simulation value: " + str(simulation_value))
-            assert simulation_value < 1
+        # good_for_perspective_player = False
+        # if simulation_value > 0:
+        #     good_for_perspective_player = True
+        # if winner_at_end is not None and winner_at_end == self.perspective_player and node.state["current_player"] == self.perspective_player:
+        #     print("Current player: " + node.state["current_player"])
+        #     print("Winner at end: " + winner_at_end)
+        #     print("Simulation value: " + str(simulation_value))
+        #     assert simulation_value > 1
+        # elif winner_at_end is not None and winner_at_end != self.perspective_player and node.state["current_player"] != self.perspective_player:
+        #     print("Perspective player: " + self.perspective_player)
+        #     print("Current player: " + node.state["current_player"])
+        #     print("Winner at end: " + winner_at_end)
+        #     print("Simulation value: " + str(simulation_value))
+        #     assert simulation_value < 1
 
         while node is not None:
             # If the node's current_player does NOT match the node we're back-propagating from,
             # flip the sign.
-            if node.state["current_player"] != self.perspective_player:
-                print("We're back-propping a node where the current player is not the perspective player, flipping the sign.")
-                simulation_value = -simulation_value
+            #     print("We're back-propping a node where the current player is not the perspective player, flipping the sign.")
 
-            if winner_at_end is not None:
-                print("We have a winner")
-                if node.state["current_player"] == winner_at_end:
-                    print("Current player: " + node.state["current_player"])
-                    print("Winner at end: " + winner_at_end)
-                    print("Simulation value: " + str(simulation_value))
-                    assert simulation_value > 1
-                else:
-                    print("Current player: " + node.state["current_player"])
-                    print("Winner at end: " + winner_at_end)
-                    print("Simulation value: " + str(simulation_value))
-                    assert simulation_value < 1
+            # if node.state["current_player"] == self.perspective_player and good_for_perspective_player:
+            #     assert simulation_value > 0
+            # if winner_at_end is not None:
+            #     print("We have a winner")
+            #     if node.state["current_player"] == winner_at_end:
+            #         print("Current player: " + node.state["current_player"])
+            #         print("Winner at end: " + winner_at_end)
+            #         print("Simulation value: " + str(simulation_value))
+            #         assert simulation_value > 1
+            #     else:
+            #         print("Current player: " + node.state["current_player"])
+            #         print("Winner at end: " + winner_at_end)
+            #         print("Simulation value: " + str(simulation_value))
+            #         assert simulation_value < 1
 
             node.update(simulation_value)
             node = node.parent
+            simulation_value = -simulation_value
 
     def _forced_check_depth_limited(self, state, player, depth):
         outcome = self.game.getGameOutcome(state)

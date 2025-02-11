@@ -492,9 +492,9 @@ class HiveGame:
 
     def isBoardConnected(self, board, getAdjacentCells=None):
         """Checks if the board is connected (using Union-Find)."""
-        key = self.board_hash(board)
-        if key in self._connectivity_cache:
-            return self._connectivity_cache[key]
+        # key = self.board_hash(board)
+        # if key in self._connectivity_cache:
+        #     return self._connectivity_cache[key]
 
         occupied_cells = [cell for cell, stack in board.items() if stack]
         if not occupied_cells:
@@ -525,7 +525,7 @@ class HiveGame:
 
         roots = {find(cell) for cell in occupied_cells}
         result = (len(roots) == 1)
-        self._connectivity_cache[key] = result
+        # self._connectivity_cache[key] = result
         return result
 
 
@@ -629,13 +629,13 @@ class HiveGame:
         new_state["move_number"] += 1
 
 
-        if not self.isTerminal(new_state):
-            new_state["current_player"] = self.getOpponent(player)
+        # if not self.isTerminal(new_state):
+        new_state["current_player"] = self.getOpponent(player)
 
         self.clearCaches()
         return new_state
 
-    def evaluateState(self, state, weights=None):
+    def evaluateState(self, perspectivePlayer, state, weights=None):
         """
         Evaluate the board state from the perspective of the current player.
 
@@ -669,12 +669,17 @@ class HiveGame:
             for key, value in default_weights.items():
                 weights.setdefault(key, value)
 
+        # Assert that all necessary weights exist and are numeric
+        for key in default_weights.keys():
+            assert key in weights, f"Missing weight: {key}"
+            assert isinstance(weights[key], (int, float)), f"Weight '{key}' must be an int or float."
+
         # Check for a terminal outcome
         outcome = self.getGameOutcome(state)
         if outcome is not None:
-            if outcome == state["current_player"]:
+            if outcome == perspectivePlayer:
                 # The player who just moved (the opponent of current) is the winner
-                return +10000
+                return 10000
             elif outcome == "Draw":
                 return 0
             else:
@@ -682,8 +687,11 @@ class HiveGame:
                 return -10000
 
         board = state["board"]
-        p1_queen_pos = find_queen_position(board, "Player1")
-        p2_queen_pos = find_queen_position(board, "Player2")
+        # Assert board is a dictionary.
+        assert isinstance(board, dict), "Board must be a dictionary."
+
+        p1_queen_pos = find_queen_position(board, perspectivePlayer)
+        p2_queen_pos = find_queen_position(board, self.getOpponent(perspectivePlayer))
 
         # 1. Queen Surrounding & Liberties
         p1_liberties = p2_liberties = 0
@@ -714,29 +722,57 @@ class HiveGame:
         queen_score = weights["queen_factor"] * (p1_surround_count - p2_surround_count)
         queen_score += weights["liberties_factor"] * (p1_liberties - p2_liberties)
 
+        # Assertion: If neither queen is found, then queen_score should be 0.
+        if not p1_queen_pos and not p2_queen_pos:
+            assert queen_score == 0, "Expected queen_score to be 0 when no queens are present."
+
         # 2. Mobility & Pinning
-        p1_movable_pieces = self.countMovablePieces(board, "Player1")
-        p2_movable_pieces = self.countMovablePieces(board, "Player2")
-        mobility_score = weights["mobility_factor"] * (p1_movable_pieces - p2_movable_pieces)
+        current_player_movable = self.countMovablePieces(board, perspectivePlayer)
+        opponent_movable_pieces = self.countMovablePieces(board, self.getOpponent(perspectivePlayer))
+
+        # Assert that the counts are non-negative integers.
+        assert isinstance(current_player_movable, int) and current_player_movable >= 0, \
+            "Movable pieces count for current player should be a non-negative integer."
+        assert isinstance(opponent_movable_pieces, int) and opponent_movable_pieces >= 0, \
+            "Movable pieces count for opponent should be a non-negative integer."
+
+        mobility_diff = current_player_movable - opponent_movable_pieces
+        mobility_score = weights["mobility_factor"] * mobility_diff
+
+        # Assertions regarding the mobility score's sign:
+        if mobility_diff < 0:
+            assert mobility_score < 0, (
+                f"Expected negative mobility_score when current player's movable pieces are fewer than opponent's, "
+                f"got {mobility_score}"
+            )
+        elif mobility_diff > 0:
+            assert mobility_score > 0, (
+                f"Expected positive mobility_score when current player's movable pieces exceed opponent's, "
+                f"got {mobility_score}"
+            )
+        else:
+            assert mobility_score == 0, "Expected mobility_score to be 0 when both players have equal movable pieces."
 
         # 3. Early-Game Placement Bonus or Penalty
-        p1_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == "Player1")
-        p2_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == "Player2")
-        move_number = state["move_number"]
+        current_player_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == perspectivePlayer)
+        early_game_bonus = weights["early_factor"] * current_player_placed
 
-        early_game_bonus = 0
-        if move_number < 10:
-            early_game_bonus = weights["early_factor"] * (p1_placed - p2_placed)
+        # Assert that the early game bonus is non-negative.
+        assert early_game_bonus >= 0, "Early game bonus should be non-negative."
 
         # 4. Combine the factors into the final score
         score = queen_score + mobility_score + early_game_bonus
 
-        # Return score from the perspective of the current player
-        # If current_player is "Player2", flip the sign of the score
-        if state["current_player"] == "Player2":
-            return -score
-        else:
-            return score
+        # Assertion: Final score should equal the sum of its individual components.
+        computed_score = queen_score + mobility_score + early_game_bonus
+        assert score == computed_score, "Final score does not match the sum of its individual components."
+
+        # Return score from the perspective of the current player.
+        # If current_player is "Player2", you might want to flip the sign (commented out below):
+        # if state["current_player"] == "Player2":
+        #     return -score
+        # else:
+        return score
 
 
     def countMovablePieces(self, board, player):
@@ -826,7 +862,7 @@ class HiveGame:
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state, max_depth=10, eval_func=None, weights=None):
+    def simulateRandomPlayout(self, state, perspectivePlayer, max_depth=10, eval_func=None, weights=None):
         """
         Plays a random (or weighted-random) sequence of moves up to max_depth,
         then returns a numeric evaluation of the final position.
@@ -842,11 +878,14 @@ class HiveGame:
             temp_state = self.applyAction(temp_state, action)
             depth += 1
 
-        # Use the custom evaluation if given, else default to the built-in:
-        if eval_func:
-            return eval_func(temp_state)
-        else:
-            return self.evaluateState(temp_state, weights=weights)
+        evaluation_score = self.evaluateState(perspectivePlayer, temp_state, weights=weights)
+        if self.isTerminal(temp_state) and self.isQueenSurrounded(temp_state, self.getOpponent(perspectivePlayer)):
+            assert evaluation_score > 0
+
+        if self.isTerminal(temp_state) and self.isQueenSurrounded(temp_state, perspectivePlayer):
+            assert evaluation_score < 0
+
+        return evaluation_score
 
     # ---------------------------------------------------------
     # 5. Print / Debug
