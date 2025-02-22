@@ -362,41 +362,40 @@ class HiveGame:
     def getSpiderDestinations(self, board, start):
         results = set()
 
-        def dfs(current, path, steps):
-            print(f"DFS: steps={steps}, current={current}, path={path}")
-            if steps == 3:
-                # Place Spider at final position and check connectivity
-                temp_board[current] = [("Player1", "Spider")]
-                if self.isBoardConnected(temp_board):
-                    print(f"Adding destination: {current}")
-                    results.add(current)
-                del temp_board[current]
-                return
-
-            for neighbor in self.getAdjacentCells(*current):
-                if neighbor in path:
-                    continue
-                if neighbor in temp_board and temp_board[neighbor]:
-                    continue
-                # Ensure neighbor is adjacent to the hive
-                if any(adj in temp_board and temp_board[adj] for adj in self.getAdjacentCells(*neighbor)):
-                    if self.canSlide(current[0], current[1], neighbor[0], neighbor[1], temp_board):
-                        dfs(neighbor, path + [neighbor], steps + 1)
-
-        temp_board = {c: st[:] for c, st in board.items()}
+        # Create a temporary board without the Spider
+        temp_board = {coord: st[:] for coord, st in board.items()}
         if start in temp_board and temp_board[start]:
             temp_board[start].pop()
             if not temp_board[start]:
                 del temp_board[start]
 
+        # Check if the hive remains connected without the Spider
         if not self.isBoardConnected(temp_board):
-            print("Spider cannot move: hive disconnected without it")
-            return results
+            return results  # Spider is pinned
 
-        print(f"Starting DFS from {start}")
+        def dfs(current, path, steps):
+            if steps == 3:
+                # Simulate placing the Spider at 'current' and check connectivity
+                temp_board[current] = [("Player1", "Spider")]
+                if self.isBoardConnected(temp_board):
+                    results.add(current)
+                del temp_board[current]
+                return
+
+            # Get adjacent cells
+            for neighbor in self.getAdjacentCells(current[0], current[1]):
+                if neighbor in path:
+                    continue  # Avoid backtracking
+                # Ensure the neighbor is empty
+                if neighbor not in temp_board or not temp_board[neighbor]:
+                    # Ensure the neighbor is adjacent to the hive
+                    if any(adj in temp_board and temp_board[adj] for adj in self.getAdjacentCells(neighbor[0], neighbor[1])):
+                        # Check if sliding is possible
+                        if self.canSlide(current[0], current[1], neighbor[0], neighbor[1], temp_board):
+                            dfs(neighbor, path + [neighbor], steps + 1)
+
+        # Start DFS from the starting position
         dfs(start, [start], 0)
-
-        print(f"Final destinations: {results}")
         return results
 
     # --- New: Revised Ant Move Generation ---
