@@ -362,58 +362,41 @@ class HiveGame:
     def getSpiderDestinations(self, board, start):
         results = set()
 
-        def dfs(path, steps):
-            cur = path[-1]
+        def dfs(current, path, steps):
+            print(f"DFS: steps={steps}, current={current}, path={path}")
             if steps == 3:
-                results.add(cur)
+                # Place Spider at final position and check connectivity
+                temp_board[current] = [("Player1", "Spider")]
+                if self.isBoardConnected(temp_board):
+                    print(f"Adding destination: {current}")
+                    results.add(current)
+                del temp_board[current]
                 return
 
-            for neighbor in self.getAdjacentCells(*cur):
+            for neighbor in self.getAdjacentCells(*current):
                 if neighbor in path:
                     continue
                 if neighbor in temp_board and temp_board[neighbor]:
                     continue
+                # Ensure neighbor is adjacent to the hive
+                if any(adj in temp_board and temp_board[adj] for adj in self.getAdjacentCells(*neighbor)):
+                    if self.canSlide(current[0], current[1], neighbor[0], neighbor[1], temp_board):
+                        dfs(neighbor, path + [neighbor], steps + 1)
 
-                # Place spider
-                temp_board.setdefault(neighbor, []).append(("SpiderOwner","Spider"))
-
-                # Check connectivity and canSlide
-                if self.isBoardConnected(temp_board) and self.canSlide(cur[0], cur[1], neighbor[0], neighbor[1], temp_board):
-                    dfs(path + [neighbor], steps + 1)
-
-                # **Backtrack**: remove the spider you just placed
-                temp_board[neighbor].pop()
-                if not temp_board[neighbor]:
-                    del temp_board[neighbor]
-
-        # "Lift" the spider from its start so that cell is empty:
         temp_board = {c: st[:] for c, st in board.items()}
         if start in temp_board and temp_board[start]:
             temp_board[start].pop()
             if not temp_board[start]:
                 del temp_board[start]
 
-        # For the first step away from 'start', check which adjacent cells
-        # are empty and pass connectivity + sliding:
-        valid_starts = []
-        for first_neighbor in self.getAdjacentCells(*start):
-            if first_neighbor in temp_board and temp_board[first_neighbor]:
-                continue
-            # Test connectivity with spider at 'first_neighbor':
-            temp_board.setdefault(first_neighbor, []).append(("SpiderOwner","Spider"))
-            if self.isBoardConnected(temp_board) and self.canSlide(start[0], start[1],
-                                                                   first_neighbor[0], first_neighbor[1],
-                                                                   temp_board):
-                valid_starts.append(first_neighbor)
-            # Undo so we can try the next neighbor
-            temp_board[first_neighbor].pop()
-            if not temp_board[first_neighbor]:
-                del temp_board[first_neighbor]
+        if not self.isBoardConnected(temp_board):
+            print("Spider cannot move: hive disconnected without it")
+            return results
 
-        # Now run 3-step DFS from each valid first step
-        for fn in valid_starts:
-            dfs([start, fn], 1)
+        print(f"Starting DFS from {start}")
+        dfs(start, [start], 0)
 
+        print(f"Final destinations: {results}")
         return results
 
     # --- New: Revised Ant Move Generation ---
@@ -440,61 +423,37 @@ class HiveGame:
         return results
 
     def canSlide(self, from_q, from_r, to_q, to_r, board, debug=False):
-        key = (self.board_hash(board), from_q, from_r, to_q, to_r)
-        if key in self._can_slide_cache:
-            result = self._can_slide_cache[key]
+        """
+        Determines if a piece can slide from (from_q, from_r) to (to_q, to_r).
+        The move is possible if at least one of the two common neighbors is empty.
+        """
+        # Find the two common neighbors
+        adj_from = set(self.getAdjacentCells(from_q, from_r))
+        adj_to = set(self.getAdjacentCells(to_q, to_r))
+        common_neighbors = adj_from & adj_to
+        # Remove from and to if they are in the sets
+        common_neighbors.discard((from_q, from_r))
+        common_neighbors.discard((to_q, to_r))
+        if len(common_neighbors) != 2:
             if debug:
-                print(f"[DEBUG] canSlide({(from_q, from_r)} -> {(to_q, to_r)}) found in cache: {result}")
-            return result
+                print(f"[DEBUG] Unexpected number of common neighbors: {common_neighbors}")
+            return False  # Should not happen for adjacent cells
 
-        if debug:
-            print(f"[DEBUG] canSlide checking from {(from_q, from_r)} to {(to_q, to_r)}")
-
-        dq = to_q - from_q
-        dr = to_r - from_r
-        move_dir = (dq, dr)
-
-        adjacent_mapping = {
-            (1, 0):  [(0, 1), (1, -1)],
-            (0, 1):  [(-1, 1), (1, 0)],
-            (-1, 1): [(0, 1), (-1, 0)],
-            (-1, 0): [(-1, 1), (0, -1)],
-            (0, -1): [(1, -1), (-1, 0)],
-            (1, -1): [(1, 0), (0, -1)]
-        }
-        if move_dir not in adjacent_mapping:
-            if debug:
-                print(f"  [DEBUG] Invalid direction: {move_dir} not recognized.")
-            self._can_slide_cache[key] = False
-            return False
-
-        adj_dirs = adjacent_mapping[move_dir]
-        blocked_count = 0
-        for adj_q, adj_r in adj_dirs:
-            neighbor1 = (from_q + adj_q, from_r + adj_r)
-            neighbor2 = (to_q + adj_q, to_r + adj_r)
-
-            # If the piece is effectively "squeezed" by occupied neighbors on both sides,
-            # sliding is blocked
-            if (neighbor1 in board and board[neighbor1]) and (neighbor2 in board and board[neighbor2]):
-                blocked_count += 1
-
-        result = (blocked_count == 0)
-        self._can_slide_cache[key] = result
-
+        # Check if both common neighbors are occupied
+        both_occupied = all((n in board and board[n]) for n in common_neighbors)
+        result = not both_occupied
         if debug:
             if result:
-                print("  [DEBUG] Slide is possible.")
+                print(f"[DEBUG] Slide from {(from_q, from_r)} to {(to_q, to_r)} is possible.")
             else:
-                print(f"  [DEBUG] Slide blocked because blocked_count={blocked_count}")
-
+                print(f"[DEBUG] Slide from {(from_q, from_r)} to {(to_q, to_r)} is blocked.")
         return result
 
     def isBoardConnected(self, board, getAdjacentCells=None):
         """Checks if the board is connected (using Union-Find)."""
-        # key = self.board_hash(board)
-        # if key in self._connectivity_cache:
-        #     return self._connectivity_cache[key]
+        key = self.board_hash(board)
+        if key in self._connectivity_cache:
+            return self._connectivity_cache[key]
 
         occupied_cells = [cell for cell, stack in board.items() if stack]
         if not occupied_cells:
@@ -525,7 +484,7 @@ class HiveGame:
 
         roots = {find(cell) for cell in occupied_cells}
         result = (len(roots) == 1)
-        # self._connectivity_cache[key] = result
+        self._connectivity_cache[key] = result
         return result
 
 
