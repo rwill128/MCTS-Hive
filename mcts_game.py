@@ -2,6 +2,8 @@ import pygame
 import sys
 import math
 import random
+import json
+import datetime
 from HivePocket.HivePocket import HiveGame  # Your Hive game implementation.
 from SinglePerspectiveMCTS import SinglePerspectiveMCTS
 from mcts.Mcts import MCTS                # Your MCTS class.
@@ -160,16 +162,14 @@ def play_mcts_vs_mcts():
 
     game = HiveGame()
 
-
+    # Set up agent parameters.
     weights1 = {
         "winning_score": -10000,
         "queen_factor": -5000,       # factor for queen's adjacency/surrounding
         "liberties_factor": -5000,   # factor for queen's liberties
-        "mobility_factor": 300,     # factor for movable pieces
-        "early_factor": 2         # factor for early-game placement bonus
+        "mobility_factor": 300,      # factor for movable pieces
+        "early_factor": 2            # factor for early-game placement bonus
     }
-
-    # Create separate MCTS instances for each player.
     mcts_player1 = MCTS(game,
                         num_iterations=300,
                         max_depth=20,
@@ -183,10 +183,8 @@ def play_mcts_vs_mcts():
         "queen_factor": 5000,       # factor for queen's adjacency/surrounding
         "liberties_factor": 5000,   # factor for queen's liberties
         "mobility_factor": 300,     # factor for movable pieces
-        "early_factor": 2        # factor for early-game placement bonus
+        "early_factor": 2           # factor for early-game placement bonus
     }
-
-
     mcts_player2 = MCTS(game,
                         num_iterations=300,
                         max_depth=20,
@@ -199,9 +197,14 @@ def play_mcts_vs_mcts():
     print("Initial board:")
     game.printState(state)
 
+    # Draw the initial board.
     draw_hive_board(state, background)
     screen.blit(background, (0, 0))
     pygame.display.flip()
+
+    # Create a list to record each applied action for game history.
+    game_history = []
+    paused = False
 
     clock = pygame.time.Clock()
     running = True
@@ -219,9 +222,27 @@ def play_mcts_vs_mcts():
                 background = pygame.Surface(screen.get_size())
                 heatmap_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
                 draw_hive_board(state, background)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                paused = not paused
+                if paused:
+                    print("Game paused.")
+                else:
+                    print("Game unpaused.")
 
         if not running:
             break
+
+        # If paused, display an overlay and skip agent moves.
+        if paused:
+            # Draw the current board.
+            screen.blit(background, (0, 0))
+            # Render paused text.
+            font_big = pygame.font.SysFont(None, 48)
+            paused_text = font_big.render("Paused", True, (0, 0, 0))
+            screen.blit(paused_text, ((screen.get_width() - paused_text.get_width()) // 2, 10))
+            pygame.display.flip()
+            clock.tick(30)
+            continue
 
         # Decide which MCTS to use based on the current player.
         if state["current_player"] == "Player1":
@@ -244,6 +265,9 @@ def play_mcts_vs_mcts():
         # Optional pause to observe the heatmap changes.
         pygame.time.wait(500)
 
+        # Record the move before applying it.
+        game_history.append(action)
+
         state = game.applyAction(state, action)
         print("Applied move:", action)
         game.printState(state)
@@ -254,7 +278,37 @@ def play_mcts_vs_mcts():
         pygame.display.flip()
         clock.tick(1)
 
-    print("Game Over. Outcome:", game.getGameOutcome(state))
+    outcome = game.getGameOutcome(state)
+    print("Game Over. Outcome:", outcome)
+
+    # Prepare the game log with agent parameters and the move history.
+    history_data = {
+        "winner": outcome,
+        "agent1": {
+            "num_iterations": 300,
+            "max_depth": 20,
+            "c_param": 1.4,
+            "forced_check_depth": 0,
+            "weights": weights1,
+            "perspective_player": "Player1"
+        },
+        "agent2": {
+            "num_iterations": 300,
+            "max_depth": 20,
+            "c_param": 1.4,
+            "forced_check_depth": 0,
+            "weights": weights2,
+            "perspective_player": "Player2"
+        },
+        "moves": game_history
+    }
+
+    # Save the game log to a timestamped JSON file.
+    log_filename = f"game_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(log_filename, "w") as f:
+        json.dump(history_data, f, indent=4)
+    print(f"Game history saved to {log_filename}")
+
     pygame.quit()
     sys.exit()
 
