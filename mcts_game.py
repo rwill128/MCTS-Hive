@@ -1,11 +1,9 @@
 import pygame
 import sys
 import math
-import random
 import json
 import datetime
 from HivePocket.HivePocket import HiveGame  # Your Hive game implementation.
-from SinglePerspectiveMCTS import SinglePerspectiveMCTS
 from mcts.Mcts import MCTS                # Your MCTS class.
 
 # ---------------------- Hex Grid Helpers -------------------------
@@ -164,8 +162,8 @@ def play_mcts_vs_mcts():
 
     # ----------------- Define Agent Parameters Once -----------------
     params1 = {
-        "num_iterations": 300,
-        "max_depth": 10,
+        "num_iterations": 1000,
+        "max_depth": 20,
         "c_param": 1.4,
         "forced_check_depth": 0,
         "weights": {
@@ -178,8 +176,8 @@ def play_mcts_vs_mcts():
         "perspective_player": "Player1"
     }
     params2 = {
-        "num_iterations": 300,
-        "max_depth": 10,
+        "num_iterations": 1000,
+        "max_depth": 20,
         "c_param": 1.4,
         "forced_check_depth": 0,
         "weights": {

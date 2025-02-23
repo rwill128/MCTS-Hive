@@ -820,31 +820,23 @@ class HiveGame:
     def getCurrentPlayer(self, state):
         return state["current_player"]
 
-    def simulateRandomPlayout(self, state, perspectivePlayer, max_depth=10, eval_func=None, weights=None):
-        """
-        Plays a random (or weighted-random) sequence of moves up to max_depth,
-        then returns a numeric evaluation of the final position.
-        """
+    def simulateRandomPlayout(self, state, perspectivePlayer, max_depth=1000, eval_func=None, weights=None):
         temp_state = self.copyState(state)
         depth = 0
         while not self.isTerminal(temp_state) and depth < max_depth:
             legal = self.getLegalActions(temp_state)
             if not legal:
                 break
-            # Weighted random or any style of random move
             action = self.randomActionChoice(temp_state, legal)
             temp_state = self.applyAction(temp_state, action)
             depth += 1
-
-        evaluation_score = self.evaluateState(perspectivePlayer, temp_state, weights=weights)
-        if self.isTerminal(temp_state) and self.isQueenSurrounded(temp_state, self.getOpponent(perspectivePlayer)):
-            assert evaluation_score > 0
-
-        if self.isTerminal(temp_state) and self.isQueenSurrounded(temp_state, perspectivePlayer):
-            assert evaluation_score < 0
-
-        return evaluation_score
-
+        outcome = self.getGameOutcome(temp_state)
+        if outcome == perspectivePlayer:
+            return 1.0
+        elif outcome == "Draw":
+            return 0.0
+        else:
+            return -1.0
     # ---------------------------------------------------------
     # 5. Print / Debug
     # ---------------------------------------------------------
