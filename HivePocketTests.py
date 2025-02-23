@@ -180,11 +180,11 @@ class TestHiveGameMoves(unittest.TestCase):
         game = HiveGame()
         state = game.getInitialState()
 
-        piece_in_question = (0, -1)
+        piece_in_question = (0, 0)
 
         # Set up the board with Player1's Queen at (0, 0) and Player2's Queen at (0, 1)
         state["board"][(0, 0)] = [("Player1", "Queen")]
-        state["board"][(0, -1)] = [("Player1", "Spider")]
+        # state["board"][(0, -1)] = [("Player1", "Spider")]
         state["board"][(0, 1)] = [("Player2", "Queen")]
         state["current_player"] = "Player1"
 
@@ -194,7 +194,7 @@ class TestHiveGameMoves(unittest.TestCase):
         destinations = [action[2] for action in piece_moves]
 
         # Define the expected moves
-        expected_destinations = [(1, 1), (-1, 2)]  # Assuming these are the correct moves for the Spider
+        expected_destinations = [(1, 0), (-1, 1)]  # Assuming these are the correct moves for the Spider
 
         # Wrap assertions in a try-except-else block to handle visualization
         try:

@@ -162,36 +162,38 @@ def play_mcts_vs_mcts():
 
     game = HiveGame()
 
-    # Set up agent parameters.
-    weights1 = {
-        "winning_score": -10000,
-        "queen_factor": -5000,       # factor for queen's adjacency/surrounding
-        "liberties_factor": -5000,   # factor for queen's liberties
-        "mobility_factor": 300,      # factor for movable pieces
-        "early_factor": 2            # factor for early-game placement bonus
+    # ----------------- Define Agent Parameters Once -----------------
+    params1 = {
+        "num_iterations": 300,
+        "max_depth": 10,
+        "c_param": 1.4,
+        "forced_check_depth": 0,
+        "weights": {
+            "winning_score": 10000,
+            "queen_factor": 5000,
+            "liberties_factor": 5000,
+            "mobility_factor": 300,
+            "early_factor": 2
+        },
+        "perspective_player": "Player1"
     }
-    mcts_player1 = MCTS(game,
-                        num_iterations=300,
-                        max_depth=20,
-                        c_param=1.4,
-                        forced_check_depth=0,
-                        weights=weights1,
-                        perspective_player="Player1")
+    params2 = {
+        "num_iterations": 300,
+        "max_depth": 10,
+        "c_param": 1.4,
+        "forced_check_depth": 0,
+        "weights": {
+            "winning_score": 10000,
+            "queen_factor": 5000,
+            "liberties_factor": 5000,
+            "mobility_factor": 300,
+            "early_factor": 2
+        },
+        "perspective_player": "Player2"
+    }
 
-    weights2 = {
-        "winning_score": 10000,
-        "queen_factor": 5000,       # factor for queen's adjacency/surrounding
-        "liberties_factor": 5000,   # factor for queen's liberties
-        "mobility_factor": 300,     # factor for movable pieces
-        "early_factor": 2           # factor for early-game placement bonus
-    }
-    mcts_player2 = MCTS(game,
-                        num_iterations=300,
-                        max_depth=20,
-                        c_param=1.4,
-                        forced_check_depth=0,
-                        weights=weights2,
-                        perspective_player="Player2")
+    mcts_player1 = MCTS(game, **params1)
+    mcts_player2 = MCTS(game, **params2)
 
     state = game.getInitialState()
     print("Initial board:")
@@ -207,9 +209,26 @@ def play_mcts_vs_mcts():
     paused = False
 
     clock = pygame.time.Clock()
-    running = True
 
+    # ----------------- Custom Draw Callback that Honors Pause -----------------
+    def agent_draw_callback(root, iter_count):
+        nonlocal paused
+        # Draw heatmap and board.
+        draw_heatmap(root, iter_count, screen, background, heatmap_overlay, heatmap_colors, state["current_player"])
+        # While paused, process events and wait until unpaused.
+        while paused:
+            for event in pygame.event.get():
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    paused = False
+                    print("Game unpaused.")
+                elif event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+            pygame.time.wait(50)
+
+    running = True
     while not game.isTerminal(state) and running:
+        # Process events. (Note that if an agent is in search, the callback will also process events.)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -218,7 +237,6 @@ def play_mcts_vs_mcts():
                 screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE | pygame.DOUBLEBUF)
                 OFFSET_X = event.w // 2
                 OFFSET_Y = event.h // 2
-                # Recreate the background and overlay surfaces to match the new size.
                 background = pygame.Surface(screen.get_size())
                 heatmap_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
                 draw_hive_board(state, background)
@@ -232,11 +250,9 @@ def play_mcts_vs_mcts():
         if not running:
             break
 
-        # If paused, display an overlay and skip agent moves.
+        # If paused outside of agent search, display a paused overlay.
         if paused:
-            # Draw the current board.
             screen.blit(background, (0, 0))
-            # Render paused text.
             font_big = pygame.font.SysFont(None, 48)
             paused_text = font_big.render("Paused", True, (0, 0, 0))
             screen.blit(paused_text, ((screen.get_width() - paused_text.get_width()) // 2, 10))
@@ -247,20 +263,10 @@ def play_mcts_vs_mcts():
         # Decide which MCTS to use based on the current player.
         if state["current_player"] == "Player1":
             print("\nPlayer1 (MCTS) turn. Thinking...")
-            action = mcts_player1.search(
-                state,
-                draw_callback=lambda root, iter_count: draw_heatmap(
-                    root, iter_count, screen, background, heatmap_overlay, heatmap_colors, state["current_player"]
-                )
-            )
+            action = mcts_player1.search(state, draw_callback=agent_draw_callback)
         else:
             print("\nPlayer2 (MCTS) turn. Thinking...")
-            action = mcts_player2.search(
-                state,
-                draw_callback=lambda root, iter_count: draw_heatmap(
-                    root, iter_count, screen, background, heatmap_overlay, heatmap_colors, state["current_player"]
-                )
-            )
+            action = mcts_player2.search(state, draw_callback=agent_draw_callback)
 
         # Optional pause to observe the heatmap changes.
         pygame.time.wait(500)
@@ -284,22 +290,8 @@ def play_mcts_vs_mcts():
     # Prepare the game log with agent parameters and the move history.
     history_data = {
         "winner": outcome,
-        "agent1": {
-            "num_iterations": 300,
-            "max_depth": 20,
-            "c_param": 1.4,
-            "forced_check_depth": 0,
-            "weights": weights1,
-            "perspective_player": "Player1"
-        },
-        "agent2": {
-            "num_iterations": 300,
-            "max_depth": 20,
-            "c_param": 1.4,
-            "forced_check_depth": 0,
-            "weights": weights2,
-            "perspective_player": "Player2"
-        },
+        "agent1": params1,
+        "agent2": params2,
         "moves": game_history
     }
 

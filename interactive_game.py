@@ -304,7 +304,7 @@ def play_with_mcts():
         "queen_factor": 50,       # factor for queen's adjacency/surrounding
         "liberties_factor": 10,   # factor for queen's liberties
         "mobility_factor": 3,     # factor for movable pieces
-        "early_factor": 2         # factor for early-game placement bonus
+        "early_factor": 10         # factor for early-game placement bonus
     }
 
     mcts = MCTS(game,
