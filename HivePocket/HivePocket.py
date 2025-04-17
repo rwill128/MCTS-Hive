@@ -619,141 +619,79 @@ class HiveGame:
 
     def evaluateState(self, perspectivePlayer, state, weights=None):
         """
-        Evaluate the board state from the perspective of the current player.
+        Heuristic evaluation from `perspectivePlayer`.
 
-        The heuristic is broken into 4 parts:
-          1. Queen Surrounding & Liberties
-          2. Mobility & Pinning
-          3. Early-Game Placement Bonus or Penalty
-          4. Combine the scores
+        Components
+        ----------
+        1. + queen_pressure     : how many enemy stones touch their queen.
+           - self_pinched       : how many stones touch *our* queen.
+        2. + liberty_diff       : (their queen liberties) - (our queen liberties)
+        3. + mobility_diff      : (# our movable top pieces) - (# their movable)
+        4. + early_development  : # own stones on board * taper (only first ~10 plies)
 
-        The final score is returned from the perspective of the current player.
-
-        You can pass in a dictionary 'weights' to adjust the relative importance of each factor.
-        Expected keys (with default values) are:
-          - queen_factor: default 50
-          - liberties_factor: default 10
-          - mobility_factor: default 3
-          - early_factor: default 2
+        All coefficients are tunable through `weights`.
         """
-        # Set default weights if none are provided
-        default_weights = {
-            "queen_factor": 50,
-            "liberties_factor": 10,
-            "mobility_factor": 3,
-            "early_factor": 2,
-        }
-
+        # -------- default weights ---------
+        dflt = dict(
+            queen_pressure       = 50.0,
+            self_pinched_penalty = 50.0,
+            liberties_factor     = 12.0,
+            mobility_factor      = 4.0,
+            early_factor         = 6.0,
+            taper_length         = 6        # plies over which early bonus fades to 0
+        )
         if weights is None:
-            weights = default_weights
+            weights = dflt
         else:
-            # Merge provided weights with defaults
-            for key, value in default_weights.items():
-                weights.setdefault(key, value)
+            for k, v in dflt.items():
+                weights.setdefault(k, v)
 
-        # Assert that all necessary weights exist and are numeric
-        for key in default_weights.keys():
-            assert key in weights, f"Missing weight: {key}"
-            assert isinstance(weights[key], (int, float)), f"Weight '{key}' must be an int or float."
-
-        # Check for a terminal outcome
+        # ---------- terminal check ----------
         outcome = self.getGameOutcome(state)
         if outcome is not None:
-            if outcome == perspectivePlayer:
-                # The player who just moved (the opponent of current) is the winner
-                return 10000
-            elif outcome == "Draw":
-                return 0
-            else:
-                # Then the current_player must be the winner
-                return -10000
+            return  10000 if outcome == perspectivePlayer else \
+                -10000 if outcome not in (None, "Draw") else 0
 
-        board = state["board"]
-        # Assert board is a dictionary.
-        assert isinstance(board, dict), "Board must be a dictionary."
+        board   = state["board"]
+        me      = perspectivePlayer
+        opp     = self.getOpponent(me)
 
-        p1_queen_pos = find_queen_position(board, perspectivePlayer)
-        p2_queen_pos = find_queen_position(board, self.getOpponent(perspectivePlayer))
+        my_q    = find_queen_position(board, me)
+        opp_q   = find_queen_position(board, opp)
 
-        # 1. Queen Surrounding & Liberties
-        p1_liberties = p2_liberties = 0
-        p1_surround_count = 0
-        p2_surround_count = 0
+        # ----------- surround counts & liberties -------------
+        def surround_and_lib(pos):
+            if pos is None:
+                return 0, 0
+            surround = liberty = 0
+            for nq, nr in self.getAdjacentCells(*pos):
+                if (nq, nr) in board and board[(nq, nr)]:
+                    surround += 1
+                else:
+                    liberty  += 1
+            return surround, liberty
 
-        if p1_queen_pos:
-            p1_liberties = sum(
-                1 for nq, nr in self.getAdjacentCells(*p1_queen_pos)
-                if (nq, nr) not in board or not board[(nq, nr)]
-            )
-            p1_surround_count = sum(
-                1 for nq, nr in self.getAdjacentCells(*p1_queen_pos)
-                if (nq, nr) in board and board[(nq, nr)]
-            )
+        my_sur,  my_lib  = surround_and_lib(my_q)
+        op_sur,  op_lib  = surround_and_lib(opp_q)
 
-        if p2_queen_pos:
-            p2_liberties = sum(
-                1 for nq, nr in self.getAdjacentCells(*p2_queen_pos)
-                if (nq, nr) not in board or not board[(nq, nr)]
-            )
-            p2_surround_count = sum(
-                1 for nq, nr in self.getAdjacentCells(*p2_queen_pos)
-                if (nq, nr) in board and board[(nq, nr)]
-            )
+        # ----------- mobility -----------
+        my_mob  = self.countMovablePieces(board, me)
+        op_mob  = self.countMovablePieces(board, opp)
 
-        # Calculate queen score
-        queen_score = weights["queen_factor"] * (p1_surround_count - p2_surround_count)
-        queen_score += weights["liberties_factor"] * (p1_liberties - p2_liberties)
+        # ----------- early development taper -----------
+        placed_me = sum(1 for _, st in board.items() for o, _ in st if o == me)
+        move_no   = state["move_number"]
+        taper_len = weights["taper_length"]
+        taper     = max(0.0, 1.0 - max(0, move_no - 4) / taper_len)
 
-        # Assertion: If neither queen is found, then queen_score should be 0.
-        if not p1_queen_pos and not p2_queen_pos:
-            assert queen_score == 0, "Expected queen_score to be 0 when no queens are present."
+        # ----------- combine -----------
+        score  = 0.0
+        score += weights["queen_pressure"]       * (op_sur)
+        score -= weights["self_pinched_penalty"] * (my_sur)
+        score += weights["liberties_factor"]     * (op_lib - my_lib)
+        score += weights["mobility_factor"]      * (my_mob - op_mob)
+        score += weights["early_factor"]         * placed_me * taper
 
-        # 2. Mobility & Pinning
-        current_player_movable = self.countMovablePieces(board, perspectivePlayer)
-        opponent_movable_pieces = self.countMovablePieces(board, self.getOpponent(perspectivePlayer))
-
-        # Assert that the counts are non-negative integers.
-        assert isinstance(current_player_movable, int) and current_player_movable >= 0, \
-            "Movable pieces count for current player should be a non-negative integer."
-        assert isinstance(opponent_movable_pieces, int) and opponent_movable_pieces >= 0, \
-            "Movable pieces count for opponent should be a non-negative integer."
-
-        mobility_diff = current_player_movable - opponent_movable_pieces
-        mobility_score = weights["mobility_factor"] * mobility_diff
-
-        # Assertions regarding the mobility score's sign:
-        if mobility_diff < 0:
-            assert mobility_score < 0, (
-                f"Expected negative mobility_score when current player's movable pieces are fewer than opponent's, "
-                f"got {mobility_score}"
-            )
-        elif mobility_diff > 0:
-            assert mobility_score > 0, (
-                f"Expected positive mobility_score when current player's movable pieces exceed opponent's, "
-                f"got {mobility_score}"
-            )
-        else:
-            assert mobility_score == 0, "Expected mobility_score to be 0 when both players have equal movable pieces."
-
-        # 3. Early-Game Placement Bonus or Penalty
-        current_player_placed = sum(1 for _, stack in board.items() for (owner, _) in stack if owner == perspectivePlayer)
-        early_game_bonus = weights["early_factor"] * current_player_placed
-
-        # Assert that the early game bonus is non-negative.
-        assert early_game_bonus >= 0, "Early game bonus should be non-negative."
-
-        # 4. Combine the factors into the final score
-        score = queen_score + mobility_score + early_game_bonus
-
-        # Assertion: Final score should equal the sum of its individual components.
-        computed_score = queen_score + mobility_score + early_game_bonus
-        assert score == computed_score, "Final score does not match the sum of its individual components."
-
-        # Return score from the perspective of the current player.
-        # If current_player is "Player2", you might want to flip the sign (commented out below):
-        # if state["current_player"] == "Player2":
-        #     return -score
-        # else:
         return score
 
 
