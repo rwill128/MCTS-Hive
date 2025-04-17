@@ -122,16 +122,14 @@ class HiveZeroNet(nn.Module):
 
 AXIAL_TO_INDEX = {}
 FLAT = []
-ctr = 0
 for q in range(-BOARD_R, BOARD_R + 1):
     for r in range(-BOARD_R, BOARD_R + 1):
-        if abs(q + r) > BOARD_R:
-            continue  # outside board diamond
+        # we include the full bounding box (13×13) so policy head and index map match
         for t in PIECE_TYPES:
-            AXIAL_TO_INDEX[(q, r, t)] = ctr
+            AXIAL_TO_INDEX[(q, r, t)] = len(FLAT)
             FLAT.append((q, r, t))
-            ctr += 1
-POLICY_SIZE = len(FLAT)
+
+POLICY_SIZE = len(FLAT)  # now 845 = 13*13*5
 
 # ------------------------------------------------------------
 # Zero‑style evaluator plugged into your MCTS ----------------
@@ -153,50 +151,59 @@ class ZeroEvaluator:
 # ------------------------------------------------------------
 # Self‑play skeleton -----------------------------------------
 # ------------------------------------------------------------
-
 def softmax_temperature(logits, T=1.0):
     z = np.exp((logits - logits.max()) / T)
     return z / z.sum()
 
 
-def play_one_game(model: HiveZeroNet, self_play_T=1.0, max_moves=300):
-    game = HiveGame()
-    state = game.getInitialState()
-    evaluator = ZeroEvaluator(model)
+def pick_action_from_flat(policy: np.ndarray, legal, q, r, typ):
+    """Return first legal action matching the flat index; fallback random."""
+    for a in legal:
+        if a[0] == "PLACE":
+            _, tp, (aq, ar) = a
+            if (aq, ar) == (q, r) and tp[0] == typ:
+                return a
+        elif a[0] == "MOVE":
+            dest = a[2] if len(a) == 3 else a[2]
+            if dest == (q, r):
+                return a
+    return random.choice(legal)
 
+
+def play_one_game(model: HiveZeroNet, self_play_T=1.0, max_moves=300):
+    game   = HiveGame()
+    state  = game.getInitialState()
+    evalzr = ZeroEvaluator(model)
     history: List[Tuple[dict, np.ndarray]] = []
 
     while not game.isTerminal(state) and len(history) < max_moves:
-        logits, _ = evaluator.evaluate(state, state["current_player"])
-        priors = softmax_temperature(logits, T=self_play_T)
-        # Mask illegal moves
-        legal = game.getLegalActions(state)
+        logits, _ = evalzr.evaluate(state, state["current_player"])
+        priors    = softmax_temperature(logits, T=self_play_T)
+
+        # --- mask illegal moves ----------------------------------
         mask  = np.zeros(POLICY_SIZE, dtype=np.float32)
+        legal = game.getLegalActions(state)
         for a in legal:
             if a[0] == "PLACE":
-                _, typ, (q, r) = a
-            else:
-                _, _, (q, r) = a  # MOVE dest
-                typ = FLAT[0][2]  # hack: use first piece char as placeholder
-            idx = AXIAL_TO_INDEX.get((q, r, typ[0]))
+                _, tp, (q0, r0) = a
+                idx = AXIAL_TO_INDEX.get((q0, r0, tp[0]))
+            else:                          # MOVE
+                dest = a[2] if len(a) == 3 else a[2]
+                q0, r0 = dest
+                idx = AXIAL_TO_INDEX.get((q0, r0, PIECE_TYPES[0]))  # placeholder type
             if idx is not None:
                 mask[idx] = 1.0
-        priors *= mask
+        priors = priors * mask
         if priors.sum() == 0:
             priors = mask / mask.sum()
         priors /= priors.sum()
         history.append((game.copyState(state), priors))
-        # sample action proportional to priors (for exploration)
-        idx = np.random.choice(POLICY_SIZE, p=priors)
-        q, r, typ = FLAT[idx]
-        # naive: pick the *first* legal matching move
-        for a in legal:
-            if a[0] == "PLACE" and a[1][0] == typ and a[2] == (q, r):
-                action = a; break
-            if a[0] == "MOVE" and a[2] == (q, r):
-                action = a; break
-        else:
-            action = random.choice(legal)
+
+        # sample flat index and map back to action ----------------
+        flat_idx = np.random.choice(POLICY_SIZE, p=priors)
+        q, r, tchar = FLAT[flat_idx]
+        action = pick_action_from_flat(priors, legal, q, r, tchar)
+
         state = game.applyAction(state, action)
 
     winner = game.getGameOutcome(state)
@@ -206,34 +213,32 @@ def play_one_game(model: HiveZeroNet, self_play_T=1.0, max_moves=300):
     return [(s, p, z) for s, p in history]
 
 # ------------------------------------------------------------
-# Simple training loop --------------------------------------
+# Train loop (unchanged except optimiser line fixed) ----------
 # ------------------------------------------------------------
 
 def train(model: HiveZeroNet, data, batch_size=32, epochs=1, device="cpu"):
-    optimiser = optim.Adam(model.parameters(), lr=1e-3)
+    model = model.to(device)
+    opt = optim.Adam(model.parameters(), lr=1e-3)
     for _ in range(epochs):
         random.shuffle(data)
         for i in range(0, len(data), batch_size):
-            batch = data[i:i + batch_size]
-            states = torch.stack([encode_state(s, "Player1") for s, _, _ in batch]).to(device)
-            target_p = torch.tensor([p for _, p, _ in batch], dtype=torch.float32).to(device)
-            target_v = torch.tensor([v for _, _, v in batch], dtype=torch.float32).to(device)
-            logits, pred_v = model(states)
-            loss_p = F.cross_entropy(logits, target_p.argmax(1))
-            loss_v = F.mse_loss(pred_v.squeeze(), target_v)
+            batch = data[i:i+batch_size]
+            states = torch.stack([encode_state(s, "Player1") for s,_,_ in batch]).to(device)
+            t_p = torch.tensor([p for _,p,_ in batch], dtype=torch.float32).to(device)
+            t_v = torch.tensor([v for _,_,v in batch], dtype=torch.float32).to(device)
+            logits, v_pred = model(states)
+            loss_p = F.cross_entropy(logits, t_p.argmax(1))
+            loss_v = F.mse_loss(v_pred.squeeze(), t_v)
             loss = loss_p + loss_v
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
+            opt.zero_grad(); loss.backward(); opt.step()
 
 # ------------------------------------------------------------
 # Demo -------------------------------------------------------
 # ------------------------------------------------------------
 if __name__ == "__main__":
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    net = HiveZeroNet()
-    # quick smoke test: one self‑play game + one training pass
-    data = play_one_game(net, self_play_T=1.0)
+    net = HiveZeroNet().to(dev)
+    data = play_one_game(net)
     print("collected", len(data), "samples")
-    train(net, data, epochs=1, device=dev)
+    train(net, data, device=dev)
     print("OK – network updated once")
