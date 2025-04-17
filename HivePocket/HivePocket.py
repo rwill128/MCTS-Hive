@@ -372,20 +372,27 @@ class HiveGame:
         return not self.isBoardConnected(temp_board)
 
     def getSpiderDestinations(self, board, start, owner):
-        results = set()
-        original_owner = owner              # <‑‑ keep the real owner
+        """
+        Return every hex the spider (three‑step crawler) can end on, obeying
+        sliding and hive‑connectivity rules.  Works whether `board` already has
+        the spider removed or not.
+        """
+        results         = set()
+        original_owner  = owner
+        temp            = {c: s[:] for c, s in board.items()}
 
-        # work on a fresh copy so we can mutate in‑place
-        temp = {c: s[:] for c, s in board.items()}
-        temp[start].pop()
-        if not temp[start]:
-            del temp[start]
+        # Ensure the spider is *not* on the board copy
+        if start in temp and temp[start]:
+            temp[start].pop()
+            if not temp[start]:
+                del temp[start]
 
-        if not self.isBoardConnected(temp):     # pinned?
+        # If taking the spider off breaks the hive it is pinned
+        if not self.isBoardConnected(temp):
             return results
 
-        def dfs(cur, path, steps):
-            if steps == 3:
+        def dfs(cur, path, depth):
+            if depth == 3:
                 temp[cur] = [(original_owner, "Spider")]
                 if self.isBoardConnected(temp):
                     results.add(cur)
@@ -393,17 +400,19 @@ class HiveGame:
                 return
 
             for nb in self.getAdjacentCells(*cur):
-                if nb in path:                      # no back‑tracking
+                if nb in path:                          # no U‑turns / back‑tracking
                     continue
-                if nb in temp and temp[nb]:         # must be empty
+                if nb in temp and temp[nb]:             # must land on empty hex
                     continue
-                if not any((adj in temp and temp[adj]) for adj in self.getAdjacentCells(*nb)):
-                    continue                        # destination must hug hive
-                # --- put the spider back so canSlide sees it! ---
+                if not any((adj in temp and temp[adj])  # destination must touch hive
+                           for adj in self.getAdjacentCells(*nb)):
+                    continue
+
+                # Put the spider back on its current hex so canSlide can evaluate gap
                 temp[cur] = [(original_owner, "Spider")]
                 if self.canSlide(cur[0], cur[1], nb[0], nb[1], temp):
-                    del temp[cur]                  # take it out again for recursion
-                    dfs(nb, path + [nb], steps + 1)
+                    del temp[cur]                       # lift it again for recursion
+                    dfs(nb, path + [nb], depth + 1)
 
         dfs(start, [start], 0)
         return results
