@@ -617,81 +617,103 @@ class HiveGame:
         self.clearCaches()
         return new_state
 
+    # ------------------------------------------------------------------
+    # New heuristic
+    # ------------------------------------------------------------------
     def evaluateState(self, perspectivePlayer, state, weights=None):
         """
-        Heuristic evaluation from `perspectivePlayer`.
+        Static evaluation of `state` from `perspectivePlayer`.
 
-        Components
-        ----------
-        1. + queen_pressure     : how many enemy stones touch their queen.
-           - self_pinched       : how many stones touch *our* queen.
-        2. + liberty_diff       : (their queen liberties) - (our queen liberties)
-        3. + mobility_diff      : (# our movable top pieces) - (# their movable)
-        4. + early_development  : # own stones on board * taper (only first ~10 plies)
+        Feature list (all signed from my point of view):
+        -------------------------------------------------
+        1. queen_ring_diff        : (# enemy stones around their queen)
+                                    - (# my stones around my queen)
 
-        All coefficients are tunable through `weights`.
+        2. liberty_diff           : (enemy queen liberties) - (my queen liberties)
+
+        3. distance_pressure      : Σ (piece_value / (1+dist_to_enemy_Q))
+                                    - Σ_enemy (piece_value / (1+dist_to_my_Q))
+
+        4. mobility_diff          : movable_top_pieces(my) - movable_top_pieces(enemy)
+
+        5. development_bonus      : min(my_tiles, 4) * taper  (taper vanishes after move 8)
+
+        All coefficients live in *weights* so you can tune them in the JSON.
         """
-        # -------- default weights ---------
-        dflt = dict(
-            queen_pressure       = 50.0,
-            self_pinched_penalty = 50.0,
-            liberties_factor     = 12.0,
-            mobility_factor      = 4.0,
-            early_factor         = 6.0,
-            taper_length         = 6        # plies over which early bonus fades to 0
+
+        # ---------- default coefficients ----------
+        base = dict(
+            queen_ring_factor      = 60.0,
+            liberty_factor         = 15.0,
+            distance_pressure      = 25.0,
+            mobility_factor        = 5.0,
+            development_factor     = 6.0,
+            dev_taper_moves        = 8        # fade bonus from move 4 to move 12
         )
         if weights is None:
-            weights = dflt
+            weights = base
         else:
-            for k, v in dflt.items():
+            for k, v in base.items():
                 weights.setdefault(k, v)
 
-        # ---------- terminal check ----------
+        # ---------- terminal outcome ----------
         outcome = self.getGameOutcome(state)
         if outcome is not None:
             return  10000 if outcome == perspectivePlayer else \
                 -10000 if outcome not in (None, "Draw") else 0
 
-        board   = state["board"]
-        me      = perspectivePlayer
-        opp     = self.getOpponent(me)
+        board = state["board"]
+        me, opp = perspectivePlayer, self.getOpponent(perspectivePlayer)
+        my_q  = find_queen_position(board, me)
+        op_q  = find_queen_position(board, opp)
 
-        my_q    = find_queen_position(board, me)
-        opp_q   = find_queen_position(board, opp)
-
-        # ----------- surround counts & liberties -------------
-        def surround_and_lib(pos):
+        # ---------- helper: surround count & liberties ----------
+        def surround_liberties(pos):
             if pos is None:
                 return 0, 0
-            surround = liberty = 0
+            ring = lib = 0
             for nq, nr in self.getAdjacentCells(*pos):
                 if (nq, nr) in board and board[(nq, nr)]:
-                    surround += 1
+                    ring += 1
                 else:
-                    liberty  += 1
-            return surround, liberty
+                    lib  += 1
+            return ring, lib
 
-        my_sur,  my_lib  = surround_and_lib(my_q)
-        op_sur,  op_lib  = surround_and_lib(opp_q)
+        my_ring, my_lib = surround_liberties(my_q)
+        op_ring, op_lib = surround_liberties(op_q)
 
-        # ----------- mobility -----------
+        # ---------- distance‑weighted pressure ----------
+        PIECE_VALUE = dict(Queen=0, Beetle=2, Spider=1.5, Ant=1, Grasshopper=1)
+        my_press = op_press = 0.0
+        for (q, r), stack in board.items():
+            if not stack:
+                continue
+            owner, typ = stack[-1]
+            val = PIECE_VALUE.get(typ, 1)
+            if owner == me and op_q is not None:
+                d = hex_distance(q, r, *op_q)
+                my_press += val / (1 + d)
+            elif owner == opp and my_q is not None:
+                d = hex_distance(q, r, *my_q)
+                op_press += val / (1 + d)
+
+        # ---------- mobility ----------
         my_mob  = self.countMovablePieces(board, me)
         op_mob  = self.countMovablePieces(board, opp)
 
-        # ----------- early development taper -----------
-        placed_me = sum(1 for _, st in board.items() for o, _ in st if o == me)
-        move_no   = state["move_number"]
-        taper_len = weights["taper_length"]
-        taper     = max(0.0, 1.0 - max(0, move_no - 4) / taper_len)
+        # ---------- development (early) ----------
+        my_tiles = sum(1 for _, s in board.items() for o, _ in s if o == me)
+        move_no  = state["move_number"]
+        taper    = max(0.0, 1.0 - max(0, move_no - 4) / weights["dev_taper_moves"])
+        dev_bonus = weights["development_factor"] * min(my_tiles, 4) * taper
 
-        # ----------- combine -----------
-        score  = 0.0
-        score += weights["queen_pressure"]       * (op_sur)
-        score -= weights["self_pinched_penalty"] * (my_sur)
-        score += weights["liberties_factor"]     * (op_lib - my_lib)
-        score += weights["mobility_factor"]      * (my_mob - op_mob)
-        score += weights["early_factor"]         * placed_me * taper
-
+        # ---------- aggregate ----------
+        score = 0.0
+        score += weights["queen_ring_factor"] * (op_ring - my_ring)
+        score += weights["liberty_factor"]    * (op_lib  - my_lib)
+        score += weights["distance_pressure"] * (my_press - op_press)
+        score += weights["mobility_factor"]   * (my_mob   - op_mob)
+        score += dev_bonus
         return score
 
 
