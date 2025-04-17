@@ -281,14 +281,16 @@ class HiveGame:
 
             # 1. Check if removing this piece splits the hive
             if not self.isBoardConnected(temp_board):
-                if debug:
+                if debug and insectType == "Queen":
+                    print(f"    [DEBUG] Skipping Queen at {(q, r)}. Removing this piece breaks hive connectivity (pinned).")
+                if debug and insectType != "Queen":
                     print("    [DEBUG] Skipping. Removing this piece breaks hive connectivity (pinned).")
                 continue
             else:
-                if debug:
-                    print("    [DEBUG] Lifting piece does NOT break the hive.")
+                if debug and insectType == "Queen":
+                    print(f"    [DEBUG] Lifting Queen at {(q, r)} does NOT break the hive.")
 
-            # 2. Get possible destinations based on insect type
+            # 2. Get possible destinations based on insectType
             if insectType == "Queen" or insectType == "Beetle":
                 destinations = self.getAdjacentCells(q, r)
             elif insectType == "Grasshopper":
@@ -300,45 +302,51 @@ class HiveGame:
             else:
                 destinations = []
 
-            if debug:
-                print(f"    [DEBUG] Potential destinations = {list(destinations)}")
+            if debug and insectType == "Queen":
+                print(f"    [DEBUG] Potential destinations for Queen at {(q, r)}: {list(destinations)}")
 
-            # Inside movePieceActions, after computing 'destinations'
+            # Evaluate each destination
             for (tq, tr) in destinations:
-                # For Beetle and Grasshopper moves, we don’t need to check sliding.
-                # For Queen moves, we want to enforce sliding.
-                # For Spider and Ant moves, the DFS should already have validated sliding for each step.
+                # For Queen moves, enforce sliding
                 if insectType == "Queen":
                     if not self.canSlide(q, r, tq, tr, temp_board, debug=debug):
                         if debug:
-                            print(f"      [DEBUG] Slide from {(q, r)} to {(tq, tr)} is blocked, skipping.")
+                            print(f"      [DEBUG] Slide from {(q, r)} to {(tq, tr)} is blocked for Queen, skipping.")
                         continue
+                    else:
+                        if debug:
+                            print(f"      [DEBUG] Slide from {(q, r)} to {(tq, tr)} is possible for Queen.")
 
-                # (Optionally, if you want extra safety for Spider/Ant moves that lack a full DFS path,
-                #  you might check that the move is adjacent—but that’s not how their movement works.)
-
-                # Check occupancy and connectivity as before.
+                # Check occupancy (Queen can’t stack)
                 if insectType != "Beetle" and (tq, tr) in temp_board and temp_board[(tq, tr)]:
-                    if debug:
+                    if debug and insectType == "Queen":
+                        print(f"      [DEBUG] Destination {(tq, tr)} is occupied, skipping for Queen (only Beetle can stack).")
+                    if debug and insectType != "Queen":
                         print(f"      [DEBUG] Destination {(tq, tr)} is occupied, skipping (only Beetle can stack).")
                     continue
 
+                # Simulate move and check connectivity
                 temp_board.setdefault((tq, tr), []).append(piece)
                 if not self.isBoardConnected(temp_board):
                     temp_board[(tq, tr)].pop()  # Undo
                     if not temp_board[(tq, tr)]:
                         del temp_board[(tq, tr)]
-                    if debug:
+                    if debug and insectType == "Queen":
+                        print(f"      [DEBUG] Move to {(tq, tr)} breaks hive connectivity for Queen, skipping.")
+                    if debug and insectType != "Queen":
                         print(f"      [DEBUG] Move to {(tq, tr)} breaks hive connectivity afterwards, skipping.")
                     continue
+                else:
+                    if debug and insectType == "Queen":
+                        print(f"      [DEBUG] Move to {(tq, tr)} maintains hive connectivity for Queen.")
 
-                # Undo simulation and record the action.
+                # Undo simulation and record the action
                 temp_board[(tq, tr)].pop()
                 if not temp_board[(tq, tr)]:
                     del temp_board[(tq, tr)]
                 actions.append(("MOVE", (q, r), (tq, tr)))
-                if debug:
-                    print(f"      [DEBUG] Valid move => ({(q, r)} -> {(tq, tr)})")
+                if debug and insectType == "Queen":
+                    print(f"      [DEBUG] Valid move for Queen => ({(q, r)} -> {(tq, tr)})")
 
         if debug:
             print(f"[DEBUG] Total legal moves for {player}: {actions}")
