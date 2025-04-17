@@ -105,24 +105,20 @@ def softmax_T(x: np.ndarray, T: float):
     z = np.exp((x - x.max()) / T)
     return z / z.sum()
 
-def mask_illegal(pri: np.ndarray, legal):
+def mask_illegal(pri, legal):
     mask = np.zeros_like(pri)
     for a in legal:
-        if a[0] == "PASS":
-            continue
-        try:
-            if a[0] == "PLACE":
-                _, tp, (q, r) = a
-                idx = AXIAL_TO_IDX[(q, r, tp[0])]
-            else:   # MOVE
-                q, r = a[2]
-                idx = AXIAL_TO_IDX[(q, r, PIECE_TYPES[0])]
-            mask[idx] = 1.0
-        except KeyError:
-            pass
+        if a[0] == "PLACE":
+            _, tp, (q, r) = a
+            mask[AXIAL_TO_IDX[(q, r, tp[0])]] = 1.0
+        elif a[0] == "MOVE":
+            q, r = a[2]
+            mask[AXIAL_TO_IDX.get((q, r, PIECE_TYPES[0]), 0)] = 1.0
+
+    if mask.sum() == 0:          # only PASS is legal
+        return pri * 0           # all zeros – caller will handle PASS
     pri *= mask
-    s = pri.sum()
-    pri = (mask / mask.sum()) if s <= 0 or np.isnan(s) else pri / s
+    pri /= pri.sum()
     return pri
 
 def flat_to_action(idx, legal):
@@ -140,24 +136,41 @@ ROOT_NOISE_FRAC = 0.25
 DIR_ALPHA        = 0.3
 
 def play_one_game(net, T=1.0, max_moves=300):
-    game = HiveGame(); st = game.getInitialState(); ev = ZeroEvaluator(net)
+    game = HiveGame()
+    st   = game.getInitialState()
+    ev   = ZeroEvaluator(net)
     hist: List[Tuple[dict, np.ndarray, int]] = []
-    m = 0
-    while not game.isTerminal(st) and m < max_moves:
+    move_no = 0
+
+    while not game.isTerminal(st) and move_no < max_moves:
         logits, _ = ev.evaluate(st, st["current_player"])
-        temp = 0.3 if m >= 10 else T
-        pri   = softmax_T(logits, temp)
-        pri   = mask_illegal(pri, game.getLegalActions(st))
-        if m == 0:  # Dirichlet noise
-            pri = (1 - ROOT_NOISE_FRAC) * pri + ROOT_NOISE_FRAC * np.random.dirichlet(DIR_ALPHA * np.ones_like(pri))
+        temp = 0.3 if move_no >= 10 else T
+        pri  = softmax_T(logits, temp)
+
+        legal = game.getLegalActions(st)
+        pri   = mask_illegal(pri, legal)
+
+        # Dirichlet noise on the very first move
+        if move_no == 0:
+            pri = (1 - ROOT_NOISE_FRAC) * pri + ROOT_NOISE_FRAC * \
+                  np.random.dirichlet(DIR_ALPHA * np.ones_like(pri))
+
         hist.append((game.copyState(st), pri, 0))
-        idx = np.random.choice(POLICY_SIZE, p=pri)
-        act = flat_to_action(idx, game.getLegalActions(st))
-        st  = game.applyAction(st, act); m += 1
+
+        if pri.sum() == 0:                # only PASS is legal
+            act = ("PASS",)
+        else:
+            idx = np.random.choice(POLICY_SIZE, p=pri)
+            act = flat_to_action(idx, legal)
+
+        st = game.applyAction(st, act)
+        move_no += 1
+
     winner = game.getGameOutcome(st)
     z = 0 if winner == "Draw" else (1 if winner == "Player1" else -1)
-    if st["current_player"] == "Player2":  # from P1 perspective
+    if st["current_player"] == "Player2":   # from P1 perspective
         z = -z
+
     return [(s, p, z) for s, p, _ in hist]
 
 # ───────────────────── Training helpers ────────────────────
