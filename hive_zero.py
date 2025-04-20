@@ -108,15 +108,23 @@ def softmax_T(x: np.ndarray, T: float):
 def mask_illegal(pri, legal):
     mask = np.zeros_like(pri)
     for a in legal:
-        if a[0] == "PLACE":
-            _, tp, (q, r) = a
-            mask[AXIAL_TO_IDX[(q, r, tp[0])]] = 1.0
-        elif a[0] == "MOVE":
-            q, r = a[2]
-            mask[AXIAL_TO_IDX.get((q, r, PIECE_TYPES[0]), 0)] = 1.0
+        try:
+            if a[0] == "PLACE":
+                _, tp, (q, r) = a
+                idx = AXIAL_TO_IDX.get((q, r, tp[0]))
+            elif a[0] == "MOVE":
+                q, r = a[2]
+                idx = AXIAL_TO_IDX.get((q, r, PIECE_TYPES[0]))
+            else:                 # PASS
+                idx = None
+            if idx is not None:
+                mask[idx] = 1.0
+        except KeyError:
+            # off‑board coordinate → just skip
+            continue
 
-    if mask.sum() == 0:          # only PASS is legal
-        return pri * 0           # all zeros – caller will handle PASS
+    if mask.sum() == 0:          # only PASS legal
+        return pri * 0
     pri *= mask
     pri /= pri.sum()
     return pri
@@ -160,6 +168,7 @@ def play_one_game(net, T=1.0, max_moves=300):
         if pri.sum() == 0:                # only PASS is legal
             act = ("PASS",)
         else:
+            pri = pri / pri.sum()         # <── force ∑p = 1 (float64)
             idx = np.random.choice(POLICY_SIZE, p=pri)
             act = flat_to_action(idx, legal)
 
