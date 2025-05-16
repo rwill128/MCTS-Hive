@@ -1,7 +1,11 @@
 import math
 import random
-import pygame
 from typing import Optional, Tuple
+
+try:
+    import pygame
+except ImportError:  # pragma: no cover - pygame optional for headless use
+    pygame = None
 
 from HivePocket.HivePocket import hex_distance, find_queen_position
 from .eval_cache import EvalCache
@@ -145,7 +149,8 @@ class MCTS:
 
         for i in range(self.num_iterations):
             # --------------- HOUSEKEEPING ---------------
-            pygame.event.pump()   # keep the window responsive
+            if pygame is not None:
+                pygame.event.pump()   # keep the window responsive
 
             # --------------- SELECTION ------------------
             node = self._select(root)
@@ -169,7 +174,8 @@ class MCTS:
             # --------------- UI CALLBACK ----------------
             if draw_callback is not None:
                 draw_callback(root, i)
-            pygame.time.delay(1)
+            if pygame is not None:
+                pygame.time.delay(1)
 
         # Final sanity: did we update exactly *num_iterations* new paths?
         assert root.visit_count == start_visits + self.num_iterations, (
