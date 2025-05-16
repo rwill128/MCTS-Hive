@@ -5,6 +5,7 @@ import json
 import datetime
 from HivePocket.HivePocket import HiveGame  # Your Hive game implementation.
 from mcts.Mcts import MCTS                # Your MCTS class.
+from mcts.eval_cache import EvalCache
 
 # ---------------------- Hex Grid Helpers -------------------------
 HEX_SIZE = 40      # Radius of each hexagon.
@@ -159,6 +160,7 @@ def play_mcts_vs_mcts():
     heatmap_colors = {}
 
     game = HiveGame()
+    cache = EvalCache()
 
     # ----------------- Define Agent Parameters Once -----------------
     params1 = {
@@ -190,8 +192,8 @@ def play_mcts_vs_mcts():
         "perspective_player": "Player2"
     }
 
-    mcts_player1 = MCTS(game, **params1)
-    mcts_player2 = MCTS(game, **params2)
+    mcts_player1 = MCTS(game, cache=cache, **params1)
+    mcts_player2 = MCTS(game, cache=cache, **params2)
 
     state = game.getInitialState()
     print("Initial board:")
