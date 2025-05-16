@@ -38,6 +38,7 @@ import pygame  # noqa: E402
 
 from HivePocket.HivePocket import HiveGame  # noqa: E402
 from mcts.Mcts import MCTS                 # noqa: E402
+from mcts.eval_cache import EvalCache
 
 PLAYERS_DIR = Path("players")
 
@@ -116,9 +117,10 @@ def play_one_game(params_white: dict, params_black: dict, seed: int, visualize: 
     random.seed(seed)
     game = HiveGame()
     state = game.getInitialState()
+    cache = EvalCache()
 
-    mcts_white = MCTS(game, **params_white)
-    mcts_black = MCTS(game, **params_black)
+    mcts_white = MCTS(game, cache=cache, **params_white)
+    mcts_black = MCTS(game, cache=cache, **params_black)
 
     if visualize:
         screen = pygame.display.set_mode((800, 600))

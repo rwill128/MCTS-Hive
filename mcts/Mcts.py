@@ -4,6 +4,7 @@ import pygame
 from typing import Optional, Tuple
 
 from HivePocket.HivePocket import hex_distance, find_queen_position
+from .eval_cache import EvalCache
 
 
 class MCTSNode:
@@ -84,6 +85,11 @@ class MCTSNode:
         next_state = game.applyAction(self.state, action)
         child_forced = max(0, self.forced_depth_left - 1)
         child = MCTSNode(next_state, parent=self, forced_depth_left=child_forced)
+        if mcts.cache:
+            key = repr(mcts.game.canonical_state_key(next_state))
+            cached = mcts.cache.get(key)
+            if cached:
+                child.visit_count, child.total_value = cached
         self.children[action] = child
         return child
 
@@ -109,7 +115,7 @@ class MCTS:
     def __init__(self, game, *, perspective_player: str,
                  forced_check_depth: int = 1, num_iterations: int = 1000,
                  max_depth: int = 20, c_param: float = 1.4,
-                 eval_func=None, weights=None):
+                 eval_func=None, weights=None, cache: Optional[EvalCache] = None):
 
         self.game               = game
         self.forced_check_depth = forced_check_depth
@@ -119,6 +125,7 @@ class MCTS:
         self.eval_func          = eval_func or self.game.evaluateState
         self.weights            = weights
         self.perspective_player = perspective_player
+        self.cache              = cache
 
     # -----------------------------------------------------------------
     # Public API -------------------------------------------------------
@@ -129,6 +136,12 @@ class MCTS:
             "match the MCTS agent's perspective.")
 
         root = MCTSNode(root_state, None, self.forced_check_depth)
+        if self.cache:
+            key = repr(self.game.canonical_state_key(root_state))
+            cached = self.cache.get(key)
+            if cached:
+                root.visit_count, root.total_value = cached
+        start_visits = root.visit_count
 
         for i in range(self.num_iterations):
             # --------------- HOUSEKEEPING ---------------
@@ -158,9 +171,12 @@ class MCTS:
                 draw_callback(root, i)
             pygame.time.delay(1)
 
-        # Final sanity: did we update exactly *num_iterations* paths?
-        assert root.visit_count == self.num_iterations, (
-            f"root.visit_count={root.visit_count} but expected {self.num_iterations}")
+        # Final sanity: did we update exactly *num_iterations* new paths?
+        assert root.visit_count == start_visits + self.num_iterations, (
+            f"root.visit_count={root.visit_count} but expected {start_visits + self.num_iterations}")
+
+        if self.cache:
+            self.cache.save()
 
         best_action = self._best_action(root)
         return best_action
@@ -184,6 +200,9 @@ class MCTS:
     def _backpropagate(self, node: MCTSNode, value: float):
         while node is not None:
             node.update(value)
+            if self.cache:
+                key = repr(self.game.canonical_state_key(node.state))
+                self.cache.increment(key, value)
             node = node.parent
             value = -value  # flip perspective at each level
 

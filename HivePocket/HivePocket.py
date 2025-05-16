@@ -54,6 +54,59 @@ class HiveGame:
         return hash(items)
 
     # ---------------------------------------------------------
+    # Symmetry aware canonicalization helpers
+    # ---------------------------------------------------------
+    def _axial_to_cube(self, q, r):
+        x = q
+        z = r
+        y = -x - z
+        return x, y, z
+
+    def _cube_to_axial(self, x, y, z):
+        return x, z
+
+    def _rotate_cube(self, x, y, z):
+        """Rotate cube coordinates 60 degrees clockwise."""
+        return -z, -x, -y
+
+    def _reflect_cube(self, x, y, z):
+        """Reflect cube coordinates across the x=z axis."""
+        return x, z, y
+
+    def _transform_coord(self, q, r, k):
+        """Apply the k-th symmetry transformation to (q, r)."""
+        x, y, z = self._axial_to_cube(q, r)
+        rot = k % 6
+        refl = k // 6
+        for _ in range(rot):
+            x, y, z = self._rotate_cube(x, y, z)
+        if refl:
+            x, y, z = self._reflect_cube(x, y, z)
+        return self._cube_to_axial(x, y, z)
+
+    def canonical_board_key(self, board):
+        """Return a canonical representation of the board up to rotations/reflections."""
+        if not board:
+            return ()
+        reps = []
+        for k in range(12):
+            items = [
+                (self._transform_coord(q, r, k), tuple(stack))
+                for (q, r), stack in board.items()
+            ]
+            reps.append(tuple(sorted(items)))
+        return min(reps)
+
+    def canonical_state_key(self, state):
+        board_key = self.canonical_board_key(state["board"])
+        current_player = state["current_player"]
+        pieces_in_hand = tuple(sorted(
+            (player, tuple(sorted(pieces.items())))
+            for player, pieces in state["pieces_in_hand"].items()
+        ))
+        return (board_key, current_player, pieces_in_hand)
+
+    # ---------------------------------------------------------
     # 1. Initialization & Game State
     # ---------------------------------------------------------
     def getInitialState(self):

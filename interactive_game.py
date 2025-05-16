@@ -4,6 +4,7 @@ import math
 import random
 from HivePocket.HivePocket import HiveGame  # Your Hive game implementation.
 from mcts.Mcts import MCTS                # Your MCTS class.
+from mcts.eval_cache import EvalCache
 
 # ---------------------- Hex Grid Helpers -------------------------
 HEX_SIZE = 40      # Radius of each hexagon.
@@ -298,6 +299,7 @@ def play_with_mcts():
     heatmap_colors = {}
 
     game = HiveGame()
+    cache = EvalCache()
 
     weights = {
         "winning_score": 10000,
@@ -313,7 +315,8 @@ def play_with_mcts():
                 c_param=1.4,
                 forced_check_depth=0,
                 weights=weights,
-                perspective_player="Player2")
+                perspective_player="Player2",
+                cache=cache)
     state = game.getInitialState()
     print("Initial board:")
     game.printState(state)
