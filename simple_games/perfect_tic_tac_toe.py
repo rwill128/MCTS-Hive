@@ -19,7 +19,7 @@ class PerfectTicTacToePlayer:
     def _minimax(self, board_serialized, to_move):
         board, _ = board_serialized
         state = {
-            "board": [list(row) for row in board],
+            "board": [[None if c == '-' else c for c in row] for row in board],
             "current_player": to_move,
         }
         outcome = self.game.getGameOutcome(state)

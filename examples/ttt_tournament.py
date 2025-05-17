@@ -15,11 +15,15 @@ import json
 import random
 from pathlib import Path
 from typing import Dict, Tuple, List
+import sys
 
 try:
     import pygame
 except ImportError:  # pragma: no cover - allow headless use
     pygame = None
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.append(str(BASE_DIR))
 
 from mcts.Mcts import MCTS
 from simple_games.tic_tac_toe import TicTacToe
@@ -29,8 +33,8 @@ try:
 except Exception:  # pragma: no cover - pygame optional
     init_display = draw_board = None
 
-PLAYERS_DIR = Path("../ttt_players")
-RESULTS_FILE = Path("ttt_results.json")
+PLAYERS_DIR = BASE_DIR / "ttt_players"
+RESULTS_FILE = BASE_DIR / "ttt_results.json"
 K_FACTOR = 16
 
 
