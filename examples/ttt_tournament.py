@@ -174,11 +174,10 @@ def run(display: bool = True) -> None:
                 screen=screen,
             )
 
-            key = (
-                f"{x_name}_vs_{o_name}"
-                if orientation == 0
-                else f"{o_name}_vs_{x_name}"
-            )
+            # Keep orientation-specific results separated by always putting the
+            # X player first.  The previous conditional collapsed both
+            # orientations into the same key, miscounting games.
+            key = f"{x_name}_vs_{o_name}"
             record = data["pair_results"].setdefault(key, {"w": 0, "d": 0, "l": 0})
             if result == 1:
                 record["w"] += 1

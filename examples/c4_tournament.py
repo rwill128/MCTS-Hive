@@ -186,11 +186,10 @@ def run(display: bool = True) -> None:
                 screen=screen,
             )
 
-            key = (
-                f"{x_name}_vs_{o_name}"
-                if orientation == 0
-                else f"{o_name}_vs_{x_name}"
-            )
+            # Record results with the X player first so that each orientation
+            # has its own entry.  Using a conditional here caused all games to
+            # be stored under the same key regardless of orientation.
+            key = f"{x_name}_vs_{o_name}"
             record = data["pair_results"].setdefault(key, {"w": 0, "d": 0, "l": 0})
             if result == 1:
                 record["w"] += 1
