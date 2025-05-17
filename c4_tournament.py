@@ -4,8 +4,9 @@
 This script loads player configurations from ``c4_players/*.json`` and
 runs a continuous Elo tournament. Results are written to
 ``c4_results.json`` after every game so progress is preserved between
-runs. The tournament loops endlessly and can be stopped by typing
-``quit`` (or pressing ``Ctrl+C``) after any game.
+runs. Players with fewer recorded games are matched first so new
+configs quickly obtain ratings. The tournament loops endlessly and can
+be stopped by typing ``quit`` (or pressing ``Ctrl+C``) after any game.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import argparse
 import json
 import random
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 from mcts.Mcts import MCTS
 from simple_games.connect_four import ConnectFour
@@ -60,12 +61,44 @@ def save_results(data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
-def next_game(pair_idx: int, orientation: int, total_pairs: int) -> Tuple[int, int]:
-    orientation += 1
-    if orientation == 2:
+def game_counts(data: dict, names: List[str]) -> Dict[str, int]:
+    counts = {n: 0 for n in names}
+    for key, record in data.get("pair_results", {}).items():
+        a, _, b = key.partition("_vs_")
+        games = record.get("w", 0) + record.get("d", 0) + record.get("l", 0)
+        counts[a] = counts.get(a, 0) + games
+        counts[b] = counts.get(b, 0) + games
+    return counts
+
+
+def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
+    counts = game_counts(data, names)
+    pairs = [(i, j) for i in range(len(names)) for j in range(i + 1, len(names))]
+
+    min_total = None
+    candidates = []
+    for i, j in pairs:
+        total = counts.get(names[i], 0) + counts.get(names[j], 0)
+        if min_total is None or total < min_total:
+            min_total = total
+            candidates = [(i, j)]
+        elif total == min_total:
+            candidates.append((i, j))
+
+    i, j = random.choice(candidates)
+
+    key_ab = f"{names[i]}_vs_{names[j]}"
+    key_ba = f"{names[j]}_vs_{names[i]}"
+    count_ab = sum(data.get("pair_results", {}).get(key_ab, {}).values())
+    count_ba = sum(data.get("pair_results", {}).get(key_ba, {}).values())
+    if count_ab < count_ba:
         orientation = 0
-        pair_idx = (pair_idx + 1) % total_pairs
-    return pair_idx, orientation
+    elif count_ba < count_ab:
+        orientation = 1
+    else:
+        orientation = random.randint(0, 1)
+
+    return (i, j), orientation
 
 
 def play_one_game(game: ConnectFour, params_x: dict, params_o: dict, seed: int) -> int:
@@ -88,15 +121,12 @@ def run() -> None:
     game = ConnectFour()
     players = load_players()
     names = list(players)
-    pairs = [(i, j) for i in range(len(names)) for j in range(i + 1, len(names))]
     data = load_results(names)
-    pair_idx = data.get("pair_index", 0)
-    orientation = data.get("orientation", 0)
 
     g = 0
     try:
         while True:
-            i, j = pairs[pair_idx]
+            (i, j), orientation = choose_pair(names, data)
             if orientation == 0:
                 x_name, o_name = names[i], names[j]
             else:
@@ -137,9 +167,6 @@ def run() -> None:
             data["ratings"][x_name] = update(ra, score_a, ea)
             data["ratings"][o_name] = update(rb, 1 - score_a, eb)
 
-            pair_idx, orientation = next_game(pair_idx, orientation, len(pairs))
-            data["pair_index"] = pair_idx
-            data["orientation"] = orientation
             save_results(data)
 
             print("Current Elo standings:")
