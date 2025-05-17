@@ -12,7 +12,16 @@ class PerfectTicTacToePlayer:
         self.perspective = perspective_player
 
     def _serialize(self, state):
-        board = tuple(tuple(cell or '-' for cell in row) for row in state["board"])
+        """Serialize a state for memoization.
+
+        ``tuple`` objects are used so states can be cached via :func:`lru_cache`.
+        Unlike the previous implementation we keep ``None`` values intact
+        because ``None`` is hashable and represents empty cells correctly for
+        ``TicTacToe``.  Converting ``None`` to a placeholder string caused the
+        minimax evaluation to treat ``'-'`` as a regular piece, leading to
+        incorrect outcomes.
+        """
+        board = tuple(tuple(cell for cell in row) for row in state["board"])
         return board, state["current_player"]
 
     @lru_cache(maxsize=None)
