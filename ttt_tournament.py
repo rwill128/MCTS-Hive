@@ -17,6 +17,7 @@ from typing import Dict, Tuple
 
 from mcts.Mcts import MCTS
 from simple_games.tic_tac_toe import TicTacToe
+from simple_games.perfect_tic_tac_toe import PerfectTicTacToePlayer
 
 PLAYERS_DIR = Path("ttt_players")
 RESULTS_FILE = Path("ttt_results.json")
@@ -70,8 +71,13 @@ def next_game(pair_idx: int, orientation: int, total_pairs: int) -> Tuple[int, i
 
 def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) -> int:
     random.seed(seed)
-    mcts_x = MCTS(game=game, perspective_player="X", **params_x)
-    mcts_o = MCTS(game=game, perspective_player="O", **params_o)
+    def make_player(cfg, role):
+        if cfg.get("type") == "perfect":
+            return PerfectTicTacToePlayer(game, perspective_player=role)
+        return MCTS(game=game, perspective_player=role, **cfg)
+
+    mcts_x = make_player(params_x, "X")
+    mcts_o = make_player(params_o, "O")
     state = game.getInitialState()
     while not game.isTerminal(state):
         to_move = game.getCurrentPlayer(state)
@@ -171,6 +177,7 @@ def init_players() -> None:
         "iter600": {"num_iterations": 600, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "c2":      {"num_iterations": 200, "max_depth": 9, "c_param": 2.0, "forced_check_depth": 0},
         "c3":      {"num_iterations": 200, "max_depth": 9, "c_param": 3.0, "forced_check_depth": 0},
+        "perfect": {"type": "perfect"},
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
