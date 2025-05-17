@@ -148,7 +148,8 @@ def run() -> None:
             print()
 
             try:
-                cmd = input("Press Enter to continue or type 'quit' to exit: ")
+                # cmd = input("Press Enter to continue or type 'quit' to exit: ")
+                cmd = "continue"
             except EOFError:
                 cmd = ""
             if cmd.strip().lower() in {"q", "quit", "exit"}:
