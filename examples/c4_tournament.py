@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - allow headless use
 
 from mcts.Mcts import MCTS
 from simple_games.connect_four import ConnectFour
+from simple_games.minimax_connect_four import MinimaxConnectFourPlayer
 try:
     from simple_games.c4_visualizer import init_display, draw_board
 except Exception:  # pragma: no cover - pygame optional
@@ -136,8 +137,14 @@ def play_one_game(
     screen=None,
 ) -> int:
     random.seed(seed)
-    mcts_x = MCTS(game=game, perspective_player="X", **params_x)
-    mcts_o = MCTS(game=game, perspective_player="O", **params_o)
+    def make_player(cfg, role):
+        if cfg.get("type") == "minimax":
+            depth = int(cfg.get("depth", 4))
+            return MinimaxConnectFourPlayer(game, perspective_player=role, depth=depth)
+        return MCTS(game=game, perspective_player=role, **cfg)
+
+    mcts_x = make_player(params_x, "X")
+    mcts_o = make_player(params_o, "O")
     state = game.getInitialState()
     if screen is not None:
         draw_board(screen, state["board"])
@@ -246,6 +253,7 @@ def init_players() -> None:
         "iter6000": {"num_iterations": 6000, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "c2":      {"num_iterations": 200, "max_depth": 42, "c_param": 2.0, "forced_check_depth": 0},
         "c3":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0},
+        "minimax": {"type": "minimax", "depth": 4},
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
