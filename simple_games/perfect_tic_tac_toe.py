@@ -12,14 +12,23 @@ class PerfectTicTacToePlayer:
         self.perspective = perspective_player
 
     def _serialize(self, state):
-        board = tuple(tuple(cell or '-' for cell in row) for row in state["board"])
+        # Preserve ``None`` cells exactly so that cached boards remain
+        # compatible with the game's native representation.  Older cache
+        # entries may still contain ``'-'`` in place of ``None`` but new
+        # serializations no longer substitute that sentinel value.
+        board = tuple(tuple(cell for cell in row) for row in state["board"])
         return board, state["current_player"]
 
     @lru_cache(maxsize=None)
     def _minimax(self, board_serialized, to_move):
         board, _ = board_serialized
         state = {
-            "board": [list(row) for row in board],
+            # Convert legacy ``'-'`` placeholders back to ``None`` so that
+            # caches created with older versions remain usable.
+            "board": [
+                [None if cell == '-' else cell for cell in row]
+                for row in board
+            ],
             "current_player": to_move,
         }
         outcome = self.game.getGameOutcome(state)
