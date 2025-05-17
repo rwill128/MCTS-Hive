@@ -149,7 +149,7 @@ class MCTS:
 
         for i in range(self.num_iterations):
             # --------------- HOUSEKEEPING ---------------
-            if pygame is not None:
+            if pygame is not None and hasattr(pygame, "get_init") and pygame.get_init():
                 pygame.event.pump()   # keep the window responsive
 
             # --------------- SELECTION ------------------
