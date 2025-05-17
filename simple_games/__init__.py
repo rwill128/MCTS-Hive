@@ -1,0 +1,2 @@
+
+from .minimax_connect_four import MinimaxConnectFourPlayer
