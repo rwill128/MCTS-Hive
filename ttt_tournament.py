@@ -4,14 +4,14 @@
 This script loads player configurations from ``ttt_players/*.json`` and
 runs a continuous Elo tournament. Results are written to
 ``ttt_results.json`` after every game so progress is preserved between
-runs.
+runs. The tournament loops endlessly and can be stopped by typing
+``quit`` (or pressing ``Ctrl+C``) after any game.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import random
-from itertools import combinations
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -84,7 +84,7 @@ def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) ->
     return 1 if outcome == "X" else -1 if outcome == "O" else 0
 
 
-def run(num_games: int) -> None:
+def run() -> None:
     game = TicTacToe()
     players = load_players()
     names = list(players)
@@ -93,55 +93,83 @@ def run(num_games: int) -> None:
     pair_idx = data.get("pair_index", 0)
     orientation = data.get("orientation", 0)
 
-    for g in range(num_games):
-        i, j = pairs[pair_idx]
-        if orientation == 0:
-            x_name, o_name = names[i], names[j]
-        else:
-            x_name, o_name = names[j], names[i]
+    g = 0
+    try:
+        while True:
+            i, j = pairs[pair_idx]
+            if orientation == 0:
+                x_name, o_name = names[i], names[j]
+            else:
+                x_name, o_name = names[j], names[i]
 
-        print(f"Game {g+1}/{num_games}: {x_name} (X) vs {o_name} (O)")
-        result = play_one_game(game, players[x_name], players[o_name], seed=random.randint(0, 2**32 - 1))
+            g += 1
+            print(f"Game {g}: {x_name} (X) vs {o_name} (O)")
+            result = play_one_game(
+                game,
+                players[x_name],
+                players[o_name],
+                seed=random.randint(0, 2**32 - 1),
+            )
 
-        key = f"{x_name}_vs_{o_name}" if orientation == 0 else f"{o_name}_vs_{x_name}"
-        record = data["pair_results"].setdefault(key, {"w": 0, "d": 0, "l": 0})
-        if result == 1:
-            record["w"] += 1
-            score_a = 1.0
-            print("  X wins")
-        elif result == 0:
-            record["d"] += 1
-            score_a = 0.5
-            print("  Draw")
-        else:
-            record["l"] += 1
-            score_a = 0.0
-            print("  O wins")
+            key = (
+                f"{x_name}_vs_{o_name}"
+                if orientation == 0
+                else f"{o_name}_vs_{x_name}"
+            )
+            record = data["pair_results"].setdefault(key, {"w": 0, "d": 0, "l": 0})
+            if result == 1:
+                record["w"] += 1
+                score_a = 1.0
+                print("  X wins")
+            elif result == 0:
+                record["d"] += 1
+                score_a = 0.5
+                print("  Draw")
+            else:
+                record["l"] += 1
+                score_a = 0.0
+                print("  O wins")
 
-        ra = data["ratings"][x_name]
-        rb = data["ratings"][o_name]
-        ea = expected(ra, rb)
-        eb = expected(rb, ra)
-        data["ratings"][x_name] = update(ra, score_a, ea)
-        data["ratings"][o_name] = update(rb, 1 - score_a, eb)
+            ra = data["ratings"][x_name]
+            rb = data["ratings"][o_name]
+            ea = expected(ra, rb)
+            eb = expected(rb, ra)
+            data["ratings"][x_name] = update(ra, score_a, ea)
+            data["ratings"][o_name] = update(rb, 1 - score_a, eb)
 
-        pair_idx, orientation = next_game(pair_idx, orientation, len(pairs))
-        data["pair_index"] = pair_idx
-        data["orientation"] = orientation
-        save_results(data)
+            pair_idx, orientation = next_game(pair_idx, orientation, len(pairs))
+            data["pair_index"] = pair_idx
+            data["orientation"] = orientation
+            save_results(data)
 
-        print("Current Elo standings:")
-        for n, r in sorted(data["ratings"].items(), key=lambda x: -x[1]):
-            print(f"  {n:<15} {r:6.1f}")
-        print()
+            print("Current Elo standings:")
+            for n, r in sorted(data["ratings"].items(), key=lambda x: -x[1]):
+                print(f"  {n:<15} {r:6.1f}")
+            print()
+
+            try:
+                cmd = input("Press Enter to continue or type 'quit' to exit: ")
+            except EOFError:
+                cmd = ""
+            if cmd.strip().lower() in {"q", "quit", "exit"}:
+                break
+    except KeyboardInterrupt:
+        print("\nInterrupted. Progress saved.")
 
 
 def init_players() -> None:
     PLAYERS_DIR.mkdir(exist_ok=True)
     samples = {
+        "iter20":  {"num_iterations": 20,  "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
+        "iter50":  {"num_iterations": 50,  "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "iter100": {"num_iterations": 100, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
+        "iter150": {"num_iterations": 150, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
+        "iter200": {"num_iterations": 200, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
+        "iter300": {"num_iterations": 300, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "iter400": {"num_iterations": 400, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
+        "iter600": {"num_iterations": 600, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "c2":      {"num_iterations": 200, "max_depth": 9, "c_param": 2.0, "forced_check_depth": 0},
+        "c3":      {"num_iterations": 200, "max_depth": 9, "c_param": 3.0, "forced_check_depth": 0},
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
@@ -153,11 +181,14 @@ def init_players() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--games", type=int, default=10, help="number of games to play this session")
-    parser.add_argument("--init-players", action="store_true", help="create sample configs in ttt_players/")
+    parser.add_argument(
+        "--init-players",
+        action="store_true",
+        help="create sample configs in ttt_players/",
+    )
     args = parser.parse_args()
 
     if args.init_players:
         init_players()
     else:
-        run(args.games)
+        run()
