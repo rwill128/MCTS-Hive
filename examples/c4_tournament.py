@@ -273,4 +273,4 @@ if __name__ == "__main__":
     if args.init_players:
         init_players()
     else:
-        run(display=False)
+        run(display=True)
