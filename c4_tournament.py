@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Round-robin MCTS tournament for Tic-Tac-Toe.
+"""Round-robin MCTS tournament for Connect Four.
 
-This script loads player configurations from ``ttt_players/*.json`` and
+This script loads player configurations from ``c4_players/*.json`` and
 runs a continuous Elo tournament. Results are written to
-``ttt_results.json`` after every game so progress is preserved between
+``c4_results.json`` after every game so progress is preserved between
 runs. Players with fewer recorded games are matched first so new
 configs quickly obtain ratings. The tournament loops endlessly and can
 be stopped by typing ``quit`` (or pressing ``Ctrl+C``) after any game.
@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Dict, Tuple, List
 
 from mcts.Mcts import MCTS
-from simple_games.tic_tac_toe import TicTacToe
+from simple_games.connect_four import ConnectFour
 
-PLAYERS_DIR = Path("ttt_players")
-RESULTS_FILE = Path("ttt_results.json")
+PLAYERS_DIR = Path("c4_players")
+RESULTS_FILE = Path("c4_results.json")
 K_FACTOR = 16
 
 
@@ -38,7 +38,7 @@ def load_players() -> Dict[str, dict]:
         with path.open() as f:
             players[path.stem] = json.load(f)
     if not players:
-        raise FileNotFoundError("No player configs found in 'ttt_players/'.")
+        raise FileNotFoundError("No player configs found in 'c4_players/'.")
     return players
 
 
@@ -101,7 +101,7 @@ def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
     return (i, j), orientation
 
 
-def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) -> int:
+def play_one_game(game: ConnectFour, params_x: dict, params_o: dict, seed: int) -> int:
     random.seed(seed)
     mcts_x = MCTS(game=game, perspective_player="X", **params_x)
     mcts_o = MCTS(game=game, perspective_player="O", **params_o)
@@ -118,7 +118,7 @@ def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) ->
 
 
 def run() -> None:
-    game = TicTacToe()
+    game = ConnectFour()
     players = load_players()
     names = list(players)
     data = load_results(names)
@@ -188,16 +188,16 @@ def run() -> None:
 def init_players() -> None:
     PLAYERS_DIR.mkdir(exist_ok=True)
     samples = {
-        "iter20":  {"num_iterations": 20,  "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter50":  {"num_iterations": 50,  "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter100": {"num_iterations": 100, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter150": {"num_iterations": 150, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter200": {"num_iterations": 200, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter300": {"num_iterations": 300, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter400": {"num_iterations": 400, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter600": {"num_iterations": 600, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "c2":      {"num_iterations": 200, "max_depth": 9, "c_param": 2.0, "forced_check_depth": 0},
-        "c3":      {"num_iterations": 200, "max_depth": 9, "c_param": 3.0, "forced_check_depth": 0},
+        "iter20":  {"num_iterations": 20,  "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter50":  {"num_iterations": 50,  "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter100": {"num_iterations": 100, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter150": {"num_iterations": 150, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter200": {"num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter300": {"num_iterations": 300, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter400": {"num_iterations": 400, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter600": {"num_iterations": 600, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "c2":      {"num_iterations": 200, "max_depth": 42, "c_param": 2.0, "forced_check_depth": 0},
+        "c3":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0},
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--init-players",
         action="store_true",
-        help="create sample configs in ttt_players/",
+        help="create sample configs in c4_players/",
     )
     args = parser.parse_args()
 
