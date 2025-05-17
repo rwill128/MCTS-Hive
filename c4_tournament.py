@@ -52,16 +52,34 @@ def load_players() -> Dict[str, dict]:
 
 
 def load_results(names) -> dict:
+    """Load saved Elo data and keep it in sync with *names*.
+
+    Adds default ratings for any new players and prunes ratings for
+    players that no longer have a config file.  This prevents KeyError
+    crashes when the set of configs changes between runs.
+    """
+
     if RESULTS_FILE.exists():
         with RESULTS_FILE.open() as f:
             data = json.load(f)
     else:
         data = {
-            "ratings": {n: 1500.0 for n in names},
+            "ratings": {},
             "pair_results": {},
+            # legacy fields kept for backward-compatibility
             "pair_index": 0,
             "orientation": 0,
         }
+
+    # Make sure every current player has a rating entry.
+    for n in names:
+        data.setdefault("ratings", {}).setdefault(n, 1500.0)
+
+    # Remove ratings for configs that no longer exist.
+    obsolete = set(data["ratings"].keys()) - set(names)
+    for n in obsolete:
+        del data["ratings"][n]
+
     return data
 
 
@@ -226,6 +244,7 @@ def init_players() -> None:
         "iter300": {"num_iterations": 300, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "iter400": {"num_iterations": 400, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "iter600": {"num_iterations": 600, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter6000": {"num_iterations": 6000, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "c2":      {"num_iterations": 200, "max_depth": 42, "c_param": 2.0, "forced_check_depth": 0},
         "c3":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0},
     }
