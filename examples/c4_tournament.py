@@ -28,7 +28,7 @@ try:
 except Exception:  # pragma: no cover - pygame optional
     init_display = draw_board = None
 
-PLAYERS_DIR = Path("c4_players")
+PLAYERS_DIR = Path("../c4_players")
 RESULTS_FILE = Path("c4_results.json")
 K_FACTOR = 16
 

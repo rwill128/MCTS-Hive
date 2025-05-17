@@ -20,7 +20,7 @@ from mcts.Mcts import MCTS
 from simple_games.tic_tac_toe import TicTacToe
 from simple_games.perfect_tic_tac_toe import PerfectTicTacToePlayer
 
-PLAYERS_DIR = Path("ttt_players")
+PLAYERS_DIR = Path("../ttt_players")
 RESULTS_FILE = Path("ttt_results.json")
 K_FACTOR = 16
 
