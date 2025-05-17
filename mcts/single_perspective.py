@@ -1,17 +1,20 @@
+from __future__ import annotations
+
 import math
 import random
+from dataclasses import dataclass, field
 
+@dataclass(slots=True)
 class SingleTurnNode:
-    def __init__(self, state, parent=None):
-        """
-        state: a game state in which it's perspective_player's turn
-               OR a terminal state (from perspective_player's point of view).
-        """
-        self.state = state
-        self.parent = parent
-        self.children = {}       # Dict[action -> SingleTurnNode]
-        self.visit_count = 0
-        self.total_value = 0.0
+    state: dict
+    parent: "SingleTurnNode" | None = None
+    children: dict = field(default_factory=dict)
+    visit_count: int = 0
+    total_value: float = 0.0
+
+    def __post_init__(self):
+        """Validate that the node state is provided."""
+        assert self.state is not None
 
     @property
     def avg_value(self):

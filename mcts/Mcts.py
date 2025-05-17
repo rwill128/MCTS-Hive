@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import math
 import random
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 try:
@@ -11,6 +14,7 @@ from HivePocket.HivePocket import hex_distance, find_queen_position
 from .eval_cache import EvalCache
 
 
+@dataclass(slots=True)
 class MCTSNode:
     """A single node of the Monte‑Carlo Tree.
 
@@ -20,15 +24,13 @@ class MCTSNode:
     recover the edge data easily.
     """
 
-    def __init__(self, state: dict, parent: Optional["MCTSNode"] = None,
-                 forced_depth_left: int = 0):
-        self.state           = state
-        self.parent          = parent
-        self.children        = {}          # action -> MCTSNode
-        self.visit_count     = 0
-        self.total_value     = 0.0
-        self._legal_override = None        # Optional[set] of forced actions
-        self.forced_depth_left = forced_depth_left
+    state: dict
+    parent: Optional["MCTSNode"] = None
+    forced_depth_left: int = 0
+    children: dict = field(default_factory=dict)
+    visit_count: int = 0
+    total_value: float = 0.0
+    _legal_override: Optional[set] = None
 
     # ---------------------------------------------------------------------
     # Cheap helpers -------------------------------------------------------
