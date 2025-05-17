@@ -16,9 +16,18 @@ import random
 from pathlib import Path
 from typing import Dict, Tuple, List
 
+try:
+    import pygame
+except ImportError:  # pragma: no cover - allow headless use
+    pygame = None
+
 from mcts.Mcts import MCTS
 from simple_games.tic_tac_toe import TicTacToe
 from simple_games.perfect_tic_tac_toe import PerfectTicTacToePlayer
+try:
+    from simple_games.ttt_visualizer import init_display, draw_board
+except Exception:  # pragma: no cover - pygame optional
+    init_display = draw_board = None
 
 PLAYERS_DIR = Path("ttt_players")
 RESULTS_FILE = Path("ttt_results.json")
@@ -102,7 +111,13 @@ def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
     return (i, j), orientation
 
 
-def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) -> int:
+def play_one_game(
+    game: TicTacToe,
+    params_x: dict,
+    params_o: dict,
+    seed: int,
+    screen=None,
+) -> int:
     random.seed(seed)
     def make_player(cfg, role):
         if cfg.get("type") == "perfect":
@@ -112,6 +127,9 @@ def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) ->
     mcts_x = make_player(params_x, "X")
     mcts_o = make_player(params_o, "O")
     state = game.getInitialState()
+    if screen is not None:
+        draw_board(screen, state["board"])
+        pygame.event.pump()
     while not game.isTerminal(state):
         to_move = game.getCurrentPlayer(state)
         if to_move == "X":
@@ -119,15 +137,23 @@ def play_one_game(game: TicTacToe, params_x: dict, params_o: dict, seed: int) ->
         else:
             action = mcts_o.search(state)
         state = game.applyAction(state, action)
+        if screen is not None:
+            draw_board(screen, state["board"])
+            pygame.event.pump()
+            pygame.time.delay(300)
     outcome = game.getGameOutcome(state)
     return 1 if outcome == "X" else -1 if outcome == "O" else 0
 
 
-def run() -> None:
+def run(display: bool = True) -> None:
     game = TicTacToe()
     players = load_players()
     names = list(players)
     data = load_results(names)
+    if display and pygame is not None and init_display is not None:
+        screen = init_display()
+    else:
+        screen = None
 
     g = 0
     try:
@@ -145,6 +171,7 @@ def run() -> None:
                 players[x_name],
                 players[o_name],
                 seed=random.randint(0, 2**32 - 1),
+                screen=screen,
             )
 
             key = (
@@ -189,6 +216,9 @@ def run() -> None:
                 break
     except KeyboardInterrupt:
         print("\nInterrupted. Progress saved.")
+    finally:
+        if screen is not None and pygame is not None:
+            pygame.quit()
 
 
 def init_players() -> None:
@@ -221,9 +251,14 @@ if __name__ == "__main__":
         action="store_true",
         help="create sample configs in ttt_players/",
     )
+    parser.add_argument(
+        "--no-display",
+        action="store_true",
+        help="run tournament without the pygame visualizer",
+    )
     args = parser.parse_args()
 
     if args.init_players:
         init_players()
     else:
-        run()
+        run(display=not args.no_display)
