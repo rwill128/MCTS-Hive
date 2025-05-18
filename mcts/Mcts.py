@@ -11,7 +11,14 @@ except ImportError:  # pragma: no cover - pygame optional for headless use
     pygame = None
 
 from HivePocket.HivePocket import hex_distance, find_queen_position
+from functools import lru_cache
 from .eval_cache import EvalCache
+
+
+@lru_cache(maxsize=None)
+def _cached_hex_distance(q1: int, r1: int, q2: int, r2: int) -> int:
+    """Cached wrapper around :func:`hex_distance` for performance."""
+    return hex_distance(q1, r1, q2, r2)
 
 
 @dataclass(slots=True)
@@ -122,7 +129,21 @@ class MCTS:
                  forced_check_depth: int = 1, num_iterations: int = 1000,
                  max_depth: int = 20, c_param: float = 1.4,
                  minimax_depth: int = 0,
-                 eval_func=None, weights=None, cache: Optional[EvalCache] = None):
+                 eval_func=None, weights=None, cache: Optional[EvalCache] = None,
+                 fast_best_action: bool = True,
+                 use_distance_cache: bool = True):
+        """Construct an MCTS instance.
+
+        Parameters
+        ----------
+        fast_best_action : bool, optional
+            If True (default) use a faster C-backed implementation when
+            choosing the best action at the root.  Setting this to False
+            reverts to the original Python loop for comparison or testing.
+        use_distance_cache : bool, optional
+            If True (default) cache distance calculations in
+            :meth:`weightedActionChoice` for improved performance.
+        """
 
         self.game               = game
         self.forced_check_depth = forced_check_depth
@@ -134,6 +155,8 @@ class MCTS:
         self.perspective_player = perspective_player
         self.cache              = cache
         self.minimax_depth      = minimax_depth
+        self.fast_best_action   = fast_best_action
+        self.use_distance_cache = use_distance_cache
 
     # -----------------------------------------------------------------
     # Public API -------------------------------------------------------
@@ -207,11 +230,20 @@ class MCTS:
 
     def _best_action(self, root: MCTSNode):
         assert root.children, "No actions available from root"
-        best_action, best_visits = None, -1
-        for action, child in root.children.items():
-            if child.visit_count > best_visits:
-                best_action, best_visits = action, child.visit_count
-        return best_action
+        if self.fast_best_action:
+            # Use the built-in max which is implemented in C and typically
+            # faster than an explicit Python loop for this simple reduction.
+            best_action, _ = max(
+                root.children.items(), key=lambda item: item[1].visit_count
+            )
+            return best_action
+        else:
+            # Fallback to the original Python implementation for comparison.
+            best_action, best_visits = None, -1
+            for action, child in root.children.items():
+                if child.visit_count > best_visits:
+                    best_action, best_visits = action, child.visit_count
+            return best_action
 
     def _backpropagate(self, node: MCTSNode, value: float):
         while node is not None:
@@ -317,7 +349,10 @@ class MCTS:
                 _, _, (q, r) = act
             else:
                 _, _, (q, r) = act  # MOVE, we only look at destination
-            d = hex_distance(q, r, eq_q, eq_r)
+            if self.use_distance_cache:
+                d = _cached_hex_distance(q, r, eq_q, eq_r)
+            else:
+                d = hex_distance(q, r, eq_q, eq_r)
             w = 1.0 / (1.0 + 2.0 * d * d)
             weights.append(w)
         total = sum(weights)
