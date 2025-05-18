@@ -85,30 +85,27 @@ class MinimaxConnectFourPlayer:
         else:
             return max(-1.0, score / 10000.0)
 
-    def search(self, state):
+    def search(self, state, value_callback=None):
         actions = self.game.getLegalActions(state)
         winning_actions = []
+        scores = {}
         for action in actions:
             next_state = self.game.applyAction(state, action)
             if self.game.getGameOutcome(next_state) == self.perspective:
                 winning_actions.append(action)
+                score = 1.0
+            else:
+                ser = self._serialize(next_state)
+                score = self._minimax(ser, next_state["current_player"], self.depth - 1)
+            scores[action] = score
 
         if winning_actions:
-            return random.choice(winning_actions)
+            best_actions = winning_actions
+        else:
+            best_score = max(scores.values())
+            best_actions = [a for a, s in scores.items() if s == best_score]
 
-        best_score = -float("inf")
-        best_actions = []
-        for action in actions:
-            # Keep the OS compositor happy by consuming window events regularly.
-            if pygame is not None and hasattr(pygame, "get_init") and pygame.get_init():
-                pygame.event.pump()
+        if value_callback is not None:
+            value_callback(scores)
 
-            next_state = self.game.applyAction(state, action)
-            ser = self._serialize(next_state)
-            score = self._minimax(ser, next_state["current_player"], self.depth - 1)
-            if score > best_score:
-                best_score = score
-                best_actions = [action]
-            elif score == best_score:
-                best_actions.append(action)
         return random.choice(best_actions)
