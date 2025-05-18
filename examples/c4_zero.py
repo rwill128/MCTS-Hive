@@ -219,14 +219,19 @@ WEIGHTS_DIR = Path("c4_weights")
 
 
 def run(
-    games: int = 2,
+    games: int = 10,
     epochs: int = 10,
     batch: int = 32,
-    forever: bool = False,
+    forever: bool = True,
     data_path: Path = DATA_DIR / "data.pth",
     weights_path: Path = WEIGHTS_DIR / "weights.pth",
 ) -> None:
-    """Run self-play training and persist data/weights."""
+    """Run self-play training and persist data/weights.
+
+    The function will automatically resume from existing ``data_path`` and
+    ``weights_path`` if those files are present. Training continues indefinitely
+    until interrupted.
+    """
     if not HAS_TORCH:
         raise RuntimeError("PyTorch is required for training")
 
@@ -234,8 +239,12 @@ def run(
     WEIGHTS_DIR.mkdir(exist_ok=True)
 
     net = C4ZeroNet()
+    if Path(weights_path).exists():
+        load_weights(net, Path(weights_path))
     opt = torch.optim.Adam(net.parameters(), lr=1e-2)
     buffer = []
+    if Path(data_path).exists():
+        buffer = load_dataset(Path(data_path))
     loop = 0
     try:
         while True:
