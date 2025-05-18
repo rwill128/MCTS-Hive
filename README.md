@@ -9,6 +9,7 @@ This repository contains a Monte-Carlo Tree Search implementation along with a c
 - `simple_games/` – Minimal games such as Tic-Tac-Toe, Connect Four and Chess.
 - `examples/` – Scripts and experiments demonstrating usage of the library.
 - `tests/` – Unit tests.
+- `docs/` – Additional documentation including [`connect_four_board.md`](docs/connect_four_board.md).
 
 Player configuration JSON files for Connect Four and Tic-Tac-Toe remain in `c4_players/` and `ttt_players/` respectively.
 
