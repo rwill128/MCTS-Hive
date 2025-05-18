@@ -2,16 +2,14 @@
 """Minimal AlphaGo-style self-play training for Connect Four.
 
 This script implements a small convolutional network and a short
-self-play loop so unit tests can run quickly. It can also run
-continuously for longer experiments when the ``--forever`` flag is
-provided. Training data and network weights can be saved and reloaded.
-The :class:`ZeroC4Player` class wraps a trained network for use in
-``c4_tournament.py``.
+self-play loop so unit tests can run quickly. Training data will be
+stored in ``c4_data/`` and network weights in ``c4_weights/`` relative to
+the project root. The :class:`ZeroC4Player` class wraps a trained network
+for use in ``c4_tournament.py``.
 """
 
 from __future__ import annotations
 
-import argparse
 import random
 from pathlib import Path
 from typing import List, Tuple
@@ -216,9 +214,25 @@ class ZeroC4Player:
 # Command-line interface
 # ---------------------------------------------------------------------------
 
-def run(args) -> None:
+DATA_DIR = Path("c4_data")
+WEIGHTS_DIR = Path("c4_weights")
+
+
+def run(
+    games: int = 2,
+    epochs: int = 10,
+    batch: int = 32,
+    forever: bool = False,
+    data_path: Path = DATA_DIR / "data.pth",
+    weights_path: Path = WEIGHTS_DIR / "weights.pth",
+) -> None:
+    """Run self-play training and persist data/weights."""
     if not HAS_TORCH:
         raise RuntimeError("PyTorch is required for training")
+
+    DATA_DIR.mkdir(exist_ok=True)
+    WEIGHTS_DIR.mkdir(exist_ok=True)
+
     net = C4ZeroNet()
     opt = torch.optim.Adam(net.parameters(), lr=1e-2)
     buffer = []
@@ -226,39 +240,24 @@ def run(args) -> None:
     try:
         while True:
             loop += 1
-            for _ in range(args.games):
+            for _ in range(games):
                 buffer.extend(play_one_game(net))
             print(f"Generated {len(buffer)} samples")
             loss_before = evaluate_loss(net, buffer)
-            for _ in range(args.epochs):
-                batch = random.sample(buffer, min(len(buffer), args.batch))
-                train_step(net, batch, opt)
+            for _ in range(epochs):
+                batch_data = random.sample(buffer, min(len(buffer), batch))
+                train_step(net, batch_data, opt)
             loss_after = evaluate_loss(net, buffer)
             print(f"Loop {loop}: Loss {loss_before:.3f} -> {loss_after:.3f}")
-            if args.data_path:
-                save_dataset(buffer, Path(args.data_path))
-            if args.weights_path:
-                save_weights(net, Path(args.weights_path))
-            if not args.forever:
+            save_dataset(buffer, Path(data_path))
+            save_weights(net, Path(weights_path))
+            if not forever:
                 break
     except KeyboardInterrupt:
         print("Stopping training ...")
     finally:
-        if args.weights_path:
-            save_weights(net, Path(args.weights_path))
-
-
-def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser()
-    p.add_argument("--games", type=int, default=2)
-    p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--batch", type=int, default=32)
-    p.add_argument("--data-path")
-    p.add_argument("--weights-path")
-    p.add_argument("--forever", action="store_true",
-                   help="train indefinitely until interrupted")
-    return p
+        save_weights(net, Path(weights_path))
 
 
 if __name__ == "__main__":
-    run(parser().parse_args())
+    run()
