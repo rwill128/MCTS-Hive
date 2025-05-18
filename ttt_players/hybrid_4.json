@@ -1,0 +1,7 @@
+{
+  "num_iterations": 200,
+  "max_depth": 42,
+  "c_param": 3.0,
+  "forced_check_depth": 0,
+  "minimax_depth": 4
+}

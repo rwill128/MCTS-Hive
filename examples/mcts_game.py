@@ -182,6 +182,7 @@ def play_mcts_vs_mcts():
         "max_depth": 20,
         "c_param": 1.4,
         "forced_check_depth": 0,
+        "minimax_depth": 3,
         "weights": {
             "winning_score": 10000,
             "queen_factor": 5000,

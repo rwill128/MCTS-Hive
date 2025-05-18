@@ -129,7 +129,7 @@ def play_one_game(game: Go, params_b: dict, params_w: dict, seed: int, screen=No
 
 
 def run(display: bool = True) -> None:
-    game = Go(size=5)
+    game = Go(size=9)
     players = load_players()
     names = list(players)
     data = load_results(names)

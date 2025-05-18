@@ -231,10 +231,13 @@ def init_players() -> None:
         "iter300": {"num_iterations": 300, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "iter400": {"num_iterations": 400, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "iter600": {"num_iterations": 600, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter6000": {"num_iterations": 6000, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
+        # "iter6000": {"num_iterations": 6000, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
         "c2":      {"num_iterations": 200, "max_depth": 9, "c_param": 2.0, "forced_check_depth": 0},
         "c3":      {"num_iterations": 200, "max_depth": 9, "c_param": 3.0, "forced_check_depth": 0},
         "perfect": {"type": "perfect"},
+        "hybrid_4": {"num_iterations": 0, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 4 },
+        "hybrid_6": {"num_iterations": 0, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 6 },
+        "hybrid_9": {"num_iterations": 0, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 9 },
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
@@ -261,4 +264,4 @@ if __name__ == "__main__":
     if args.init_players:
         init_players()
     else:
-        run(display=not args.no_display)
+        run(display=True)
