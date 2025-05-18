@@ -86,10 +86,49 @@ class ConnectFour:
             return -1.0
 
     def evaluateState(self, perspectivePlayer, state, weights=None):
+        """Evaluate ``state`` from the perspective of ``perspectivePlayer``.
+
+        The previous implementation returned ``1``, ``0`` or ``-1`` based only
+        on terminal outcomes.  This version mirrors the heuristic used by the
+        :class:`MinimaxConnectFourPlayer` so non‑terminal positions also receive
+        meaningful scores.
+        """
+
         outcome = self.getGameOutcome(state)
         if outcome == perspectivePlayer:
             return 1.0
-        elif outcome == "Draw" or outcome is None:
+        if outcome == "Draw":
             return 0.0
-        else:
+        if outcome is not None:
             return -1.0
+
+        # Non-terminal position – compute a heuristic based on potential lines
+        board = state["board"]
+        player = perspectivePlayer
+        opp = self.getOpponent(player)
+        score = 0.0
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                for dr, dc in ((1, 0), (0, 1), (1, 1), (1, -1)):
+                    cells = []
+                    for i in range(4):
+                        rr = r + dr * i
+                        cc = c + dc * i
+                        if 0 <= rr < self.ROWS and 0 <= cc < self.COLS:
+                            cells.append(board[rr][cc])
+                        else:
+                            break
+                    if len(cells) != 4:
+                        continue
+                    if opp not in cells:
+                        count = cells.count(player)
+                        score += pow(10.0, count - 1)
+                    elif player not in cells:
+                        count = cells.count(opp)
+                        score -= pow(10.0, count - 1)
+
+        # Clamp heuristic score to [-1, 1] for consistency with terminal values
+        if score > 0:
+            return min(1.0, score / 10000.0)
+        else:
+            return max(-1.0, score / 10000.0)
