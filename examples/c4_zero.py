@@ -164,7 +164,7 @@ def save_dataset(data, path: Path) -> None:
 def load_dataset(path: Path):
     if not HAS_TORCH:
         raise RuntimeError("PyTorch is required for load_dataset")
-    raw = torch.load(path)
+    raw = torch.load(path, weights_only=False)
     return [(torch.tensor(s), a, v) for s, a, v in raw]
 
 
