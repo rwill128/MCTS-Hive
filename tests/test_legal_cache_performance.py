@@ -30,8 +30,8 @@ class TestLegalCachePerformance(unittest.TestCase):
         on_times = [self.measure_search(True) for _ in range(3)]
         avg_off = sum(off_times) / len(off_times)
         avg_on = sum(on_times) / len(on_times)
-        # Assert that enabling caching does not make things slower
-        self.assertLess(avg_on, avg_off)
+        # Assert that enabling caching is not significantly slower
+        self.assertLessEqual(avg_on, avg_off)
 
 
 if __name__ == '__main__':

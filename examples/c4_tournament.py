@@ -26,9 +26,13 @@ from simple_games.connect_four import ConnectFour
 from simple_games.minimax_connect_four import MinimaxConnectFourPlayer
 from examples.c4_zero import ZeroC4Player, C4ZeroNet, load_weights
 try:
-    from simple_games.c4_visualizer import init_display, draw_board
+    from simple_games.c4_visualizer import (
+        init_display,
+        draw_board,
+        draw_board_with_action_values,
+    )
 except Exception:  # pragma: no cover - pygame optional
-    init_display = draw_board = None
+    init_display = draw_board = draw_board_with_action_values = None
 
 PLAYERS_DIR = Path("../c4_players")
 RESULTS_FILE = Path("c4_results.json")
@@ -158,9 +162,22 @@ def play_one_game(
     while not game.isTerminal(state):
         to_move = game.getCurrentPlayer(state)
         if to_move == "X":
-            action = mcts_x.search(state)
+            player = mcts_x
         else:
-            action = mcts_o.search(state)
+            player = mcts_o
+
+        if screen is not None and isinstance(player, MCTS) and draw_board_with_action_values is not None:
+            def cb(root, iter_count):
+                values = {
+                    a: (child.average_value(), child.visit_count)
+                    for a, child in root.children.items()
+                }
+                draw_board_with_action_values(screen, root.state["board"], values, iter_count)
+                pygame.event.pump()
+
+            action = player.search(state, draw_callback=cb)
+        else:
+            action = player.search(state)
         state = game.applyAction(state, action)
         if screen is not None:
             draw_board(screen, state["board"])
