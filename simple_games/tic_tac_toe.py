@@ -1,6 +1,21 @@
 import random
+from typing import List, Tuple
+
 
 class TicTacToe:
+    """Minimal TicTacToe implementation with optional precomputation."""
+
+    def __init__(self, use_precomputed_lines: bool = True):
+        self.use_precomputed_lines = use_precomputed_lines
+        if self.use_precomputed_lines:
+            lines: List[List[Tuple[int, int]]] = []
+            for r in range(3):
+                lines.append([(r, c) for c in range(3)])
+            for c in range(3):
+                lines.append([(r, c) for r in range(3)])
+            lines.append([(i, i) for i in range(3)])
+            lines.append([(i, 2 - i) for i in range(3)])
+            self._precomputed_lines = lines
     def getInitialState(self):
         board = [[None]*3 for _ in range(3)]
         return {"board": board, "current_player": "X"}
@@ -33,16 +48,30 @@ class TicTacToe:
 
     def getGameOutcome(self, state):
         board = state["board"]
-        lines = []
-        for r in range(3):
-            lines.append(board[r])
-        for c in range(3):
-            lines.append([board[r][c] for r in range(3)])
-        lines.append([board[i][i] for i in range(3)])
-        lines.append([board[i][2-i] for i in range(3)])
-        for line in lines:
-            if line[0] is not None and all(cell == line[0] for cell in line):
-                return line[0]
+        if self.use_precomputed_lines:
+            for line in self._precomputed_lines:
+                r0, c0 = line[0]
+                first = board[r0][c0]
+                if first is None:
+                    continue
+                won = True
+                for r, c in line[1:]:
+                    if board[r][c] != first:
+                        won = False
+                        break
+                if won:
+                    return first
+        else:
+            lines = []
+            for r in range(3):
+                lines.append(board[r])
+            for c in range(3):
+                lines.append([board[r][c] for r in range(3)])
+            lines.append([board[i][i] for i in range(3)])
+            lines.append([board[i][2 - i] for i in range(3)])
+            for line in lines:
+                if line[0] is not None and all(cell == line[0] for cell in line):
+                    return line[0]
         if all(cell is not None for row in board for cell in row):
             return "Draw"
         return None
