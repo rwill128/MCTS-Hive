@@ -231,6 +231,27 @@ SAMPLE = {
         "weights": {"winning_score": 1e4, "queen_factor": 50, "liberties_factor": 10,
                     "mobility_factor": 3, "early_factor": 2},
         "perspective_player": "Player1"
+    },
+    "deep": {
+        "num_iterations": 800, "max_depth": 16, "c_param": 1.4,
+        "forced_check_depth": 0,
+        "weights": {"winning_score": 1e4, "queen_factor": 50, "liberties_factor": 10,
+                    "mobility_factor": 3, "early_factor": 2},
+        "perspective_player": "Player1"
+    },
+    "aggressive": {
+        "num_iterations": 400, "max_depth": 12, "c_param": 1.4,
+        "forced_check_depth": 0,
+        "weights": {"winning_score": 1e4, "queen_factor": 70, "liberties_factor": 5,
+                    "mobility_factor": 4, "early_factor": 3},
+        "perspective_player": "Player1"
+    },
+    "exploit": {
+        "num_iterations": 400, "max_depth": 12, "c_param": 1.0,
+        "forced_check_depth": 0,
+        "weights": {"winning_score": 1e4, "queen_factor": 50, "liberties_factor": 10,
+                    "mobility_factor": 3, "early_factor": 2},
+        "perspective_player": "Player1"
     }
 }
 
