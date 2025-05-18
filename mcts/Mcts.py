@@ -31,6 +31,7 @@ class MCTSNode:
     visit_count: int = 0
     total_value: float = 0.0
     _legal_override: Optional[set] = None
+    _legal_cache: Optional[set] = None
 
     # ---------------------------------------------------------------------
     # Cheap helpers -------------------------------------------------------
@@ -64,14 +65,25 @@ class MCTSNode:
                 best_children.append(child)
         return random.choice(best_children)
 
-    def is_fully_expanded(self, game) -> bool:
-        legal = self._legal_override if self._legal_override is not None else set(game.getLegalActions(self.state))
+    def _get_legal(self, game, cache: bool) -> set:
+        if self._legal_override is not None:
+            return self._legal_override
+        if cache:
+            if self._legal_cache is None:
+                self._legal_cache = set(game.getLegalActions(self.state))
+            return self._legal_cache
+        return set(game.getLegalActions(self.state))
+
+    def is_fully_expanded(self, game, cache_legal_actions: bool = False) -> bool:
+        legal = self._get_legal(game, cache_legal_actions)
         return len(self.children) == len(legal)
 
     def prune_to_actions(self, allowed_actions):
         """Drop children not in *allowed_actions* and lock future expansions."""
         self.children = {a: n for a, n in self.children.items() if a in allowed_actions}
-        self._legal_override = set(allowed_actions)
+        allowed = set(allowed_actions)
+        self._legal_override = allowed
+        self._legal_cache = allowed
 
     def expand(self, game, mcts) -> "MCTSNode":
         """Expand on an untried legal action and return the created child."""
@@ -83,7 +95,7 @@ class MCTSNode:
                 self.prune_to_actions(safe)
             self.forced_depth_left = 0  # do it only once
 
-        legal = self._legal_override if self._legal_override is not None else set(game.getLegalActions(self.state))
+        legal = self._get_legal(game, mcts.cache_legal_actions)
         untried = list(legal - self.children.keys())
         assert untried, "expand called on fully expanded node"
 
@@ -122,7 +134,8 @@ class MCTS:
                  forced_check_depth: int = 1, num_iterations: int = 1000,
                  max_depth: int = 20, c_param: float = 1.4,
                  minimax_depth: int = 0,
-                 eval_func=None, weights=None, cache: Optional[EvalCache] = None):
+                 eval_func=None, weights=None, cache: Optional[EvalCache] = None,
+                 cache_legal_actions: bool = False):
 
         self.game               = game
         self.forced_check_depth = forced_check_depth
@@ -134,6 +147,7 @@ class MCTS:
         self.perspective_player = perspective_player
         self.cache              = cache
         self.minimax_depth      = minimax_depth
+        self.cache_legal_actions = cache_legal_actions
 
     # -----------------------------------------------------------------
     # Public API -------------------------------------------------------
@@ -160,7 +174,7 @@ class MCTS:
             node = self._select(root)
 
             # --------------- EXPANSION ------------------
-            if not node.is_terminal(self.game) and not node.is_fully_expanded(self.game):
+            if not node.is_terminal(self.game) and not node.is_fully_expanded(self.game, self.cache_legal_actions):
                 node = node.expand(self.game, self)
 
             # --------------- SIMULATION -----------------
@@ -201,7 +215,7 @@ class MCTS:
     # Internal helpers --------------------------------------------
     # -------------------------------------------------------------
     def _select(self, node: MCTSNode) -> MCTSNode:
-        while not node.is_terminal(self.game) and node.is_fully_expanded(self.game):
+        while not node.is_terminal(self.game) and node.is_fully_expanded(self.game, self.cache_legal_actions):
             node = node.best_child(self.c_param)
         return node
 
