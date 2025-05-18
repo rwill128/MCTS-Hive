@@ -12,7 +12,8 @@ This repository contains a Monte-Carlo Tree Search implementation along with a c
 - `docs/` – Additional documentation including [`connect_four_board.md`](docs/connect_four_board.md)
   , [`hive_board_representation.md`](docs/hive_board_representation.md)
   , [`single_perspective_mcts.md`](docs/single_perspective_mcts.md)
-  and [`tic_tac_toe_td_rl.md`](docs/tic_tac_toe_td_rl.md).
+  , [`tic_tac_toe_td_rl.md`](docs/tic_tac_toe_td_rl.md)
+  , [`forced_move_pruning.md`](docs/forced_move_pruning.md).
 
 Player configuration JSON files for Connect Four and Tic-Tac-Toe remain in `c4_players/` and `ttt_players/` respectively.
 
