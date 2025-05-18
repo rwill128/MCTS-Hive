@@ -10,6 +10,7 @@ through each update with play, pause, back and forward controls.
 import json
 import os
 import random
+import time
 import tkinter as tk
 from ast import literal_eval
 from tkinter import ttk
@@ -123,11 +124,29 @@ class TrainerUI:
         screen = min(self.root.winfo_screenwidth(), self.root.winfo_screenheight())
         self.board_size = int(screen * 0.6)
 
+        self.left_text = tk.Text(self.root, width=40, height=20)
+        self.left_text.grid(row=0, column=0, padx=5, sticky="n")
+        algo_msg = (
+            "Algorithm: Temporal-Difference value learning\n"
+            "We store a value V(s) for each board state from X's perspective.\n"
+            "After each episode the final reward is backed up through all\n"
+            "visited states using:\n"
+            "    V(s) <- V(s) + lr * (R - V(s))\n"
+            "The sign of R flips after every move because players alternate."
+        )
+        self.left_text.insert(tk.END, algo_msg)
+        self.left_text.config(state=tk.DISABLED)
+
         self.canvas = tk.Canvas(self.root, width=self.board_size, height=self.board_size, bg="white")
-        self.canvas.grid(row=0, column=0, columnspan=5, pady=5)
+        self.canvas.grid(row=0, column=1, pady=5)
+
+        self.right_text = tk.Text(self.root, width=40, height=20)
+        self.right_text.grid(row=0, column=2, padx=5, sticky="n")
+        self.right_text.insert(tk.END, "Step explanation will appear here.")
+        self.right_text.config(state=tk.DISABLED)
 
         self.table = tk.Text(self.root, width=60, height=10)
-        self.table.grid(row=1, column=0, columnspan=5)
+        self.table.grid(row=1, column=0, columnspan=3)
 
         self.prev_btn = ttk.Button(self.root, text="<<", command=self.prev_step)
         self.play_btn = ttk.Button(self.root, text="Play", command=self.toggle_play)
@@ -203,11 +222,33 @@ class TrainerUI:
         for idx, (k, v) in enumerate(list(self.agent.values.items())[:10], 1):
             self.table.insert(tk.END, f"{idx}. {k} -> {v:.2f}\n")
 
+    def _animate_value_change(self, key: Tuple, old: float, new: float) -> None:
+        steps = 10 if not self.fast_mode else 5
+        diff = new - old
+        for i in range(steps + 1):
+            cur = old + diff * i / steps
+            self.agent.values[key] = cur
+            self._draw_board(key)
+            self._update_table()
+            self.right_text.config(state=tk.NORMAL)
+            self.right_text.delete("1.0", tk.END)
+            self.right_text.insert(
+                tk.END,
+                "V <- V + lr * (R - V)\n"
+                f"old={old:.2f} target={new:.2f} current={cur:.2f}"
+            )
+            self.right_text.config(state=tk.DISABLED)
+            self.root.update()
+            time.sleep(self.step_delay / 1000 / steps)
+
     def _apply_step(self, idx: int, forward: bool):
         key, old, new = self.steps[idx]
-        self.agent.values[key] = new if forward else old
-        self._draw_board(key)
-        self._update_table()
+        if forward:
+            self._animate_value_change(key, old, new)
+        else:
+            self.agent.values[key] = old
+            self._draw_board(key)
+            self._update_table()
 
     def next_step(self):
         if self.step_idx + 1 >= len(self.steps):
@@ -245,7 +286,7 @@ class TrainerUI:
     def _auto_step(self):
         if self.playing:
             self.next_step()
-            self.root.after(self.step_delay, self._auto_step)
+            self.root.after(0, self._auto_step)
 
     def run(self):
         if self.steps:
