@@ -10,6 +10,7 @@ This repository contains a Monte-Carlo Tree Search implementation along with a c
 - `examples/` – Scripts and experiments demonstrating usage of the library.
 - `tests/` – Unit tests.
 - `docs/` – Additional documentation including [`connect_four_board.md`](docs/connect_four_board.md)
+  , [`hive_board_representation.md`](docs/hive_board_representation.md)
   , [`single_perspective_mcts.md`](docs/single_perspective_mcts.md)
   and [`tic_tac_toe_td_rl.md`](docs/tic_tac_toe_td_rl.md).
 
