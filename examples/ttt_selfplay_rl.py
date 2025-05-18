@@ -28,6 +28,19 @@ class RLAgent:
         board = tuple(tuple(cell for cell in row) for row in state["board"])
         return board, state["current_player"]
 
+    def move_values(self, state: dict) -> Dict[Tuple[int, int], float]:
+        """Return value estimate for each legal action from this state."""
+        actions = self.game.getLegalActions(state)
+        values: Dict[Tuple[int, int], float] = {}
+        for a in actions:
+            ns = self.game.applyAction(state, a)
+            key = self._key(ns)
+            val = self.values.get(key, 0.0)
+            if state["current_player"] == "O":
+                val = -val
+            values[a] = val
+        return values
+
     def _policy_action(self, state: dict):
         actions = self.game.getLegalActions(state)
         if random.random() < self.epsilon:
@@ -74,9 +87,19 @@ class TrainerUI:
         self.root = tk.Tk()
         self.root.title("TicTacToe RL Trainer")
 
-        self.canvas = tk.Canvas(self.root, width=260, height=260, bg="white")
+        # full screen window
+        try:
+            self.root.state("zoomed")  # type: ignore[attr-defined]
+        except tk.TclError:
+            self.root.attributes("-zoomed", True)
+
+        screen = min(self.root.winfo_screenwidth(), self.root.winfo_screenheight())
+        self.board_size = int(screen * 0.8)
+
+        self.canvas = tk.Canvas(self.root, width=self.board_size, height=self.board_size, bg="white")
         self.canvas.grid(row=0, column=0, columnspan=4, pady=5)
-        self.table = tk.Text(self.root, width=40, height=10)
+
+        self.table = tk.Text(self.root, width=60, height=10)
         self.table.grid(row=1, column=0, columnspan=4)
 
         self.prev_btn = ttk.Button(self.root, text="<<", command=self.prev_step)
@@ -94,23 +117,55 @@ class TrainerUI:
             self.steps.extend(upd)
 
     def _draw_board(self, key: Tuple):
-        board, _ = key
+        board, player = key
         self.canvas.delete("all")
-        size = 80
-        off = 10
+        size = self.board_size // 3
+        off = (self.board_size - 3 * size) // 2
+
+        state = {"board": [list(row) for row in board], "current_player": player}
+        move_vals = self.agent.move_values(state)
+
+        def val_color(v: float) -> str:
+            v = max(-1.0, min(1.0, v))
+            r = int(max(0, -v) * 255)
+            g = int(max(0, v) * 255)
+            return f"#{r:02x}{g:02x}00"
+
+        for r in range(3):
+            for c in range(3):
+                x1 = off + c * size
+                y1 = off + r * size
+                x2 = x1 + size
+                y2 = y1 + size
+                piece = board[r][c]
+                if piece is None and (r, c) in move_vals:
+                    color = val_color(move_vals[(r, c)])
+                    self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, width=0)
+                    self.canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2,
+                                            text=f"{move_vals[(r,c)]:.2f}")
+
         for i in range(4):
             self.canvas.create_line(off, off + i * size, off + 3 * size, off + i * size)
             self.canvas.create_line(off + i * size, off, off + i * size, off + 3 * size)
+
         for r in range(3):
             for c in range(3):
                 piece = board[r][c]
+                if piece is None:
+                    continue
                 x = off + c * size + size / 2
                 y = off + r * size + size / 2
                 if piece == "X":
-                    self.canvas.create_line(x - 20, y - 20, x + 20, y + 20, width=3, fill="red")
-                    self.canvas.create_line(x + 20, y - 20, x - 20, y + 20, width=3, fill="red")
+                    self.canvas.create_line(x - size * 0.3, y - size * 0.3,
+                                            x + size * 0.3, y + size * 0.3,
+                                            width=3, fill="red")
+                    self.canvas.create_line(x + size * 0.3, y - size * 0.3,
+                                            x - size * 0.3, y + size * 0.3,
+                                            width=3, fill="red")
                 elif piece == "O":
-                    self.canvas.create_oval(x - 20, y - 20, x + 20, y + 20, width=3, outline="blue")
+                    self.canvas.create_oval(x - size * 0.3, y - size * 0.3,
+                                            x + size * 0.3, y + size * 0.3,
+                                            width=3, outline="blue")
 
     def _update_table(self):
         self.table.delete("1.0", tk.END)
