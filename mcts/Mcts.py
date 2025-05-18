@@ -204,11 +204,8 @@ class MCTS:
 
         best_action = self._best_action(root)
         if self.minimax_depth > 0:
-            mm_action, mm_score = self._minimax_search(root_state, self.minimax_depth)
-            mcts_state = self.game.applyAction(root_state, best_action)
-            mcts_score = self.eval_func(self.perspective_player, mcts_state, self.weights)
-            if mm_score > mcts_score:
-                return mm_action
+            mm_action, _ = self._minimax_search(root_state, self.minimax_depth)
+            return mm_action
         return best_action
 
     # -------------------------------------------------------------
