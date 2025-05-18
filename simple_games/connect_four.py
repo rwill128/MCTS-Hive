@@ -4,6 +4,40 @@ class ConnectFour:
     ROWS = 6
     COLS = 7
 
+    def __init__(self, use_precomputed_lines: bool = True):
+        """Create a Connect Four game instance.
+
+        Parameters
+        ----------
+        use_precomputed_lines : bool, optional
+            If True (default), evaluation uses a precomputed list of all
+            possible four-in-a-row lines on the board.  This avoids rebuilding
+            the list on every call and slightly improves performance.  Setting
+            the flag to ``False`` restores the original behaviour.
+        """
+
+        self.use_precomputed_lines = use_precomputed_lines
+
+        # Precompute every possible line of four cells once.  The old
+        # implementation rebuilt these nested loops inside
+        # ``evaluateState``.  Building the list once upfront lets that method
+        # iterate directly over the coordinates.
+        lines = []
+        for r in range(self.ROWS):
+            for c in range(self.COLS):
+                for dr, dc in ((1, 0), (0, 1), (1, 1), (1, -1)):
+                    cells = []
+                    for i in range(4):
+                        rr = r + dr * i
+                        cc = c + dc * i
+                        if 0 <= rr < self.ROWS and 0 <= cc < self.COLS:
+                            cells.append((rr, cc))
+                        else:
+                            break
+                    if len(cells) == 4:
+                        lines.append(cells)
+        self._precomputed_lines = lines
+
     def getInitialState(self):
         board = [[None]*self.COLS for _ in range(self.ROWS)]
         return {"board": board, "current_player": "X"}
@@ -107,25 +141,35 @@ class ConnectFour:
         player = perspectivePlayer
         opp = self.getOpponent(player)
         score = 0.0
-        for r in range(self.ROWS):
-            for c in range(self.COLS):
-                for dr, dc in ((1, 0), (0, 1), (1, 1), (1, -1)):
-                    cells = []
-                    for i in range(4):
-                        rr = r + dr * i
-                        cc = c + dc * i
-                        if 0 <= rr < self.ROWS and 0 <= cc < self.COLS:
-                            cells.append(board[rr][cc])
-                        else:
-                            break
-                    if len(cells) != 4:
-                        continue
-                    if opp not in cells:
-                        count = cells.count(player)
-                        score += pow(10.0, count - 1)
-                    elif player not in cells:
-                        count = cells.count(opp)
-                        score -= pow(10.0, count - 1)
+        if self.use_precomputed_lines:
+            for line in self._precomputed_lines:
+                cells = [board[r][c] for r, c in line]
+                if opp not in cells:
+                    count = cells.count(player)
+                    score += pow(10.0, count - 1)
+                elif player not in cells:
+                    count = cells.count(opp)
+                    score -= pow(10.0, count - 1)
+        else:
+            for r in range(self.ROWS):
+                for c in range(self.COLS):
+                    for dr, dc in ((1, 0), (0, 1), (1, 1), (1, -1)):
+                        cells = []
+                        for i in range(4):
+                            rr = r + dr * i
+                            cc = c + dc * i
+                            if 0 <= rr < self.ROWS and 0 <= cc < self.COLS:
+                                cells.append(board[rr][cc])
+                            else:
+                                break
+                        if len(cells) != 4:
+                            continue
+                        if opp not in cells:
+                            count = cells.count(player)
+                            score += pow(10.0, count - 1)
+                        elif player not in cells:
+                            count = cells.count(opp)
+                            score -= pow(10.0, count - 1)
 
         # Clamp heuristic score to [-1, 1] for consistency with terminal values
         if score > 0:
