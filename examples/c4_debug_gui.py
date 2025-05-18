@@ -9,6 +9,8 @@ value estimate for each column and updates after every playout.
 """
 
 import json
+import threading
+import tkinter as tk
 import pygame
 
 from simple_games.connect_four import ConnectFour
@@ -16,6 +18,7 @@ from simple_games.minimax_connect_four import MinimaxConnectFourPlayer
 from simple_games.c4_visualizer import (
     draw_board,
     draw_board_with_action_values,
+    highlight_move,
     CELL_SIZE,
     MARGIN,
 )
@@ -105,9 +108,28 @@ def main() -> None:
 
     board_surface = pygame.Surface((width, height - UI_HEIGHT))
     font = pygame.font.SysFont(None, 24)
-    json_text = '{"num_iterations": 200, "max_depth": 42, "c_param": 1.4}'
-    input_active = False
+    json_holder = {"text": '{"num_iterations": 200, "max_depth": 42, "c_param": 1.4}'}
+    run_flag = {"go": False}
     selected_move = None
+
+    def request_run():
+        run_flag["go"] = True
+
+    def start_editor():
+        root = tk.Tk()
+        root.title("Search Config")
+        text = tk.Text(root, width=50, height=5)
+        text.insert("1.0", json_holder["text"])
+        text.pack()
+
+        def update(_=None):
+            json_holder["text"] = text.get("1.0", tk.END).strip()
+
+        text.bind("<KeyRelease>", update)
+        tk.Button(root, text="Run Search", command=lambda: [update(), request_run()]).pack()
+        threading.Thread(target=root.mainloop, daemon=True).start()
+
+    start_editor()
 
     clock = pygame.time.Clock()
     draw_board(board_surface, state["board"])
@@ -123,29 +145,24 @@ def main() -> None:
                         state["current_player"] = (
                             "O" if state["current_player"] == "X" else "X"
                         )
-                    elif 100 <= event.pos[0] <= width - 100:
-                        input_active = True
                     elif width - 90 <= event.pos[0] <= width - 10:
-                        selected_move = run_search(
-                            game,
-                            game.copyState(state),
-                            json_text,
-                            screen,
-                            board_surface,
-                        )
-                        draw_board(board_surface, state["board"])
+                        request_run()
                 else:
                     rc = board_pos_from_pixel(event.pos, game.ROWS, game.COLS)
                     if rc:
                         cycle_cell(state["board"], *rc)
                         draw_board(board_surface, state["board"])
-            if event.type == pygame.KEYDOWN and input_active:
-                if event.key == pygame.K_RETURN:
-                    input_active = False
-                elif event.key == pygame.K_BACKSPACE:
-                    json_text = json_text[:-1]
-                else:
-                    json_text += event.unicode
+
+        if run_flag["go"]:
+            run_flag["go"] = False
+            selected_move = run_search(
+                game,
+                game.copyState(state),
+                json_holder["text"],
+                screen,
+                board_surface,
+            )
+            highlight_move(board_surface, state["board"], selected_move)
 
         screen.fill((200, 200, 200))
         screen.blit(board_surface, (0, UI_HEIGHT))
@@ -154,9 +171,8 @@ def main() -> None:
         pygame.draw.rect(screen, (230, 230, 230), (0, 0, width, UI_HEIGHT))
         turn_label = font.render(f"Turn: {state['current_player']}", True, (0, 0, 0))
         screen.blit(turn_label, (15, 20))
-        pygame.draw.rect(screen, (255, 255, 255), (100, 15, width - 200, 30))
-        txt_surf = font.render(json_text, True, (0, 0, 0))
-        screen.blit(txt_surf, (105, 20))
+        info = font.render("Edit JSON in TK window", True, (0, 0, 0))
+        screen.blit(info, (120, 20))
         pygame.draw.rect(screen, (180, 180, 180), (width - 80, 15, 70, 30))
         run_lbl = font.render("Run", True, (0, 0, 0))
         screen.blit(run_lbl, (width - 65, 20))

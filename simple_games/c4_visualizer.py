@@ -87,3 +87,26 @@ def draw_board_with_action_values(
         txt = font.render(f"Iter: {iteration}", True, (0, 0, 0))
         screen.blit(txt, (10, 10))
     pygame.display.flip()
+
+
+def highlight_move(screen, board, move: int) -> None:
+    """Draw the board and highlight the landing spot for *move*."""
+    draw_board(screen, board)
+    if move is None:
+        pygame.display.flip()
+        return
+    rows = len(board)
+    if rows == 0 or move < 0 or move >= len(board[0]):
+        pygame.display.flip()
+        return
+    landing_row = None
+    for r in range(rows):
+        if board[r][move] is None:
+            landing_row = r
+            break
+    if landing_row is None:
+        landing_row = rows - 1
+    x = MARGIN + move * CELL_SIZE + CELL_SIZE // 2
+    y = MARGIN + (rows - 1 - landing_row) * CELL_SIZE + CELL_SIZE // 2
+    pygame.draw.circle(screen, (0, 255, 0), (x, y), CELL_SIZE // 2 - 4, 5)
+    pygame.display.flip()
