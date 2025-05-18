@@ -237,6 +237,7 @@ class MCTS:
     # Forced‑move pruning (unchanged) ------------------------------
     # -------------------------------------------------------------
     def _forced_check_depth_limited(self, state, player, depth):
+        """Return True if ``player`` can force a win within ``depth`` moves."""
         outcome = self.game.getGameOutcome(state)
         if outcome is not None:
             return outcome == player
@@ -245,17 +246,38 @@ class MCTS:
         to_move = self.game.getCurrentPlayer(state)
         actions = self.game.getLegalActions(state)
         if to_move == player:
-            return any(self._forced_check_depth_limited(self.game.applyAction(state, a), player, depth - 1)
-                       for a in actions)
+            return any(
+                self._forced_check_depth_limited(
+                    self.game.applyAction(state, a), player, depth - 1)
+                for a in actions)
         else:
-            return all(self._forced_check_depth_limited(self.game.applyAction(state, a), player, depth - 1)
-                       for a in actions)
+            return all(
+                self._forced_check_depth_limited(
+                    self.game.applyAction(state, a), player, depth - 1)
+                for a in actions)
 
     def _forced_move_check(self, state, depth):
+        """Return a winning move or the subset of actions that are safe.
+
+        Parameters
+        ----------
+        state : dict
+            Current game state.
+        depth : int
+            How deep to search for forced wins.
+
+        Returns
+        -------
+        Tuple[action | None, list[action]]
+            ``(winning_action, safe_actions)`` where ``winning_action`` is a
+            move that wins immediately or via a depth-limited forced line.  If
+            no such move exists it is ``None`` and ``safe_actions`` contains the
+            legal moves that do not allow the opponent a forced reply.
+        """
         current = self.game.getCurrentPlayer(state)
-        legal   = self.game.getLegalActions(state)
+        legal = self.game.getLegalActions(state)
         forced_win = None
-        safe        = []
+        safe = []
         for a in legal:
             nxt = self.game.applyAction(state, a)
             out = self.game.getGameOutcome(nxt)
