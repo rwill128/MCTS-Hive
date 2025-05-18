@@ -87,6 +87,15 @@ class MinimaxConnectFourPlayer:
 
     def search(self, state):
         actions = self.game.getLegalActions(state)
+        winning_actions = []
+        for action in actions:
+            next_state = self.game.applyAction(state, action)
+            if self.game.getGameOutcome(next_state) == self.perspective:
+                winning_actions.append(action)
+
+        if winning_actions:
+            return random.choice(winning_actions)
+
         best_score = -float("inf")
         best_actions = []
         for action in actions:
