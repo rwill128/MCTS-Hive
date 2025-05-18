@@ -7,8 +7,11 @@ updates it through self-play episodes. The Tkinter UI lets you step
 through each update with play, pause, back and forward controls.
 """
 
+import json
+import os
 import random
 import tkinter as tk
+from ast import literal_eval
 from tkinter import ttk
 from typing import Dict, List, Tuple
 
@@ -16,13 +19,33 @@ from simple_games.tic_tac_toe import TicTacToe
 
 
 class RLAgent:
-    """Simplistic value-based agent for Tic-Tac-Toe."""
+    """Simplistic value-based agent for Tic-Tac-Toe with persistence."""
 
-    def __init__(self, lr: float = 0.1, epsilon: float = 0.1):
+    def __init__(self, lr: float = 0.1, epsilon: float = 0.1,
+                 storage_path: str = "ttt_rl_values.json"):
         self.game = TicTacToe()
-        self.values: Dict[Tuple, float] = {}
         self.lr = lr
         self.epsilon = epsilon
+        self.storage_path = storage_path
+        self.values: Dict[Tuple, float] = {}
+        self._load_values()
+
+    def _load_values(self) -> None:
+        if os.path.exists(self.storage_path):
+            with open(self.storage_path, "r") as f:
+                raw = json.load(f)
+            self.values = {literal_eval(k): v for k, v in raw.items()}
+        else:
+            self.values = {}
+
+    def save_values(self) -> None:
+        with open(self.storage_path, "w") as f:
+            json.dump({str(k): v for k, v in self.values.items()}, f)
+
+    def reset(self) -> None:
+        self.values.clear()
+        if os.path.exists(self.storage_path):
+            os.remove(self.storage_path)
 
     def _key(self, state: dict) -> Tuple:
         board = tuple(tuple(cell for cell in row) for row in state["board"])
@@ -73,6 +96,7 @@ class RLAgent:
             updates.append((key, old, new))
             reward = -reward
         updates.reverse()
+        self.save_values()
         return updates, outcome
 
 
@@ -81,9 +105,12 @@ class TrainerUI:
 
     def __init__(self, agent: RLAgent, episodes: int = 50):
         self.agent = agent
+        self.episodes = episodes
         self.steps: List[Tuple[Tuple, float, float]] = []
         self.step_idx = -1
         self.playing = False
+        self.step_delay = 500
+        self.fast_mode = False
         self.root = tk.Tk()
         self.root.title("TicTacToe RL Trainer")
 
@@ -94,22 +121,26 @@ class TrainerUI:
             self.root.attributes("-zoomed", True)
 
         screen = min(self.root.winfo_screenwidth(), self.root.winfo_screenheight())
-        self.board_size = int(screen * 0.8)
+        self.board_size = int(screen * 0.6)
 
         self.canvas = tk.Canvas(self.root, width=self.board_size, height=self.board_size, bg="white")
-        self.canvas.grid(row=0, column=0, columnspan=4, pady=5)
+        self.canvas.grid(row=0, column=0, columnspan=5, pady=5)
 
         self.table = tk.Text(self.root, width=60, height=10)
-        self.table.grid(row=1, column=0, columnspan=4)
+        self.table.grid(row=1, column=0, columnspan=5)
 
         self.prev_btn = ttk.Button(self.root, text="<<", command=self.prev_step)
         self.play_btn = ttk.Button(self.root, text="Play", command=self.toggle_play)
         self.next_btn = ttk.Button(self.root, text=">>", command=self.next_step)
+        self.speed_btn = ttk.Button(self.root, text="Fast", command=self.toggle_speed)
+        self.clear_btn = ttk.Button(self.root, text="Clear", command=self.clear_values)
         self.prev_btn.grid(row=2, column=0)
         self.play_btn.grid(row=2, column=1)
         self.next_btn.grid(row=2, column=2)
+        self.speed_btn.grid(row=2, column=3)
+        self.clear_btn.grid(row=2, column=4)
 
-        self._generate_updates(episodes)
+        self._generate_updates(self.episodes)
 
     def _generate_updates(self, episodes: int):
         for _ in range(episodes):
@@ -196,10 +227,25 @@ class TrainerUI:
         if self.playing:
             self._auto_step()
 
+    def toggle_speed(self):
+        self.fast_mode = not self.fast_mode
+        self.step_delay = 100 if self.fast_mode else 500
+        self.speed_btn.config(text="Slow" if self.fast_mode else "Fast")
+
+    def clear_values(self):
+        self.agent.reset()
+        self.steps = []
+        self.step_idx = -1
+        self.table.delete("1.0", tk.END)
+        self.canvas.delete("all")
+        self._generate_updates(self.episodes)
+        if self.steps:
+            self.next_step()
+
     def _auto_step(self):
         if self.playing:
             self.next_step()
-            self.root.after(500, self._auto_step)
+            self.root.after(self.step_delay, self._auto_step)
 
     def run(self):
         if self.steps:
