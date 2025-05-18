@@ -1,6 +1,6 @@
 # MCTS-Hive
 
-This repository contains a Monte-Carlo Tree Search implementation along with a collection of example scripts and simple board games used for experimentation. The `MCTS` class also exposes an optional depth-limited minimax search. Set the `minimax_depth` parameter when constructing `MCTS` to enable a hybrid that considers both algorithms.
+This repository contains a Monte-Carlo Tree Search implementation along with a collection of example scripts and simple board games used for experimentation. The `MCTS` class also exposes an optional depth-limited minimax search. Set the `minimax_depth` parameter when constructing `MCTS` to enable a hybrid approach. When enabled, the minimax result always overrides the MCTS suggestion.
 
 ## Directory overview
 

@@ -86,6 +86,7 @@ class TrainerUI:
         self.playing = False
         self.root = tk.Tk()
         self.root.title("TicTacToe RL Trainer")
+
         # full screen window
         try:
             self.root.state("zoomed")  # type: ignore[attr-defined]
