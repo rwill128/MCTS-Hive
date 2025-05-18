@@ -116,18 +116,27 @@ def main() -> None:
         run_flag["go"] = True
 
     def start_editor():
-        root = tk.Tk()
-        root.title("Search Config")
-        text = tk.Text(root, width=50, height=5)
-        text.insert("1.0", json_holder["text"])
-        text.pack()
+        """Launch the Tk window in a dedicated thread."""
 
-        def update(_=None):
-            json_holder["text"] = text.get("1.0", tk.END).strip()
+        def tk_thread():
+            root = tk.Tk()
+            root.title("Search Config")
+            text = tk.Text(root, width=50, height=5)
+            text.insert("1.0", json_holder["text"])
+            text.pack()
 
-        text.bind("<KeyRelease>", update)
-        tk.Button(root, text="Run Search", command=lambda: [update(), request_run()]).pack()
-        threading.Thread(target=root.mainloop, daemon=True).start()
+            def update(_=None):
+                json_holder["text"] = text.get("1.0", tk.END).strip()
+
+            text.bind("<KeyRelease>", update)
+            tk.Button(
+                root,
+                text="Run Search",
+                command=lambda: [update(), request_run()],
+            ).pack()
+            root.mainloop()
+
+        threading.Thread(target=tk_thread, daemon=True).start()
 
     start_editor()
 
