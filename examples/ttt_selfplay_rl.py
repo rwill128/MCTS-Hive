@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Minimal self-play RL for Tic-Tac-Toe with Tkinter visualization.
+
+This script demonstrates a tiny AlphaZero-style training loop without
+neural networks. It maintains a value table for every board state and
+updates it through self-play episodes. The Tkinter UI lets you step
+through each update with play, pause, back and forward controls.
+"""
+
+import random
+import tkinter as tk
+from tkinter import ttk
+from typing import Dict, List, Tuple
+
+from simple_games.tic_tac_toe import TicTacToe
+
+
+class RLAgent:
+    """Simplistic value-based agent for Tic-Tac-Toe."""
+
+    def __init__(self, lr: float = 0.1, epsilon: float = 0.1):
+        self.game = TicTacToe()
+        self.values: Dict[Tuple, float] = {}
+        self.lr = lr
+        self.epsilon = epsilon
+
+    def _key(self, state: dict) -> Tuple:
+        board = tuple(tuple(cell for cell in row) for row in state["board"])
+        return board, state["current_player"]
+
+    def _policy_action(self, state: dict):
+        actions = self.game.getLegalActions(state)
+        if random.random() < self.epsilon:
+            return random.choice(actions)
+        vals = []
+        for a in actions:
+            ns = self.game.applyAction(state, a)
+            key = self._key(ns)
+            val = self.values.get(key, 0.0)
+            if state["current_player"] == "O":
+                val = -val
+            vals.append(val)
+        best = max(vals)
+        return actions[vals.index(best)]
+
+    def play_episode(self) -> Tuple[List[Tuple[Tuple, float, float]], str]:
+        state = self.game.getInitialState()
+        hist: List[Tuple] = []
+        while not self.game.isTerminal(state):
+            hist.append(self._key(state))
+            action = self._policy_action(state)
+            state = self.game.applyAction(state, action)
+        outcome = self.game.getGameOutcome(state)
+        reward = 1 if outcome == "X" else -1 if outcome == "O" else 0
+        updates: List[Tuple[Tuple, float, float]] = []
+        for key in reversed(hist):
+            old = self.values.get(key, 0.0)
+            new = old + self.lr * (reward - old)
+            self.values[key] = new
+            updates.append((key, old, new))
+            reward = -reward
+        updates.reverse()
+        return updates, outcome
+
+
+class TrainerUI:
+    """Tkinter front-end to visualise training updates."""
+
+    def __init__(self, agent: RLAgent, episodes: int = 50):
+        self.agent = agent
+        self.steps: List[Tuple[Tuple, float, float]] = []
+        self.step_idx = -1
+        self.playing = False
+        self.root = tk.Tk()
+        self.root.title("TicTacToe RL Trainer")
+
+        self.canvas = tk.Canvas(self.root, width=260, height=260, bg="white")
+        self.canvas.grid(row=0, column=0, columnspan=4, pady=5)
+        self.table = tk.Text(self.root, width=40, height=10)
+        self.table.grid(row=1, column=0, columnspan=4)
+
+        self.prev_btn = ttk.Button(self.root, text="<<", command=self.prev_step)
+        self.play_btn = ttk.Button(self.root, text="Play", command=self.toggle_play)
+        self.next_btn = ttk.Button(self.root, text=">>", command=self.next_step)
+        self.prev_btn.grid(row=2, column=0)
+        self.play_btn.grid(row=2, column=1)
+        self.next_btn.grid(row=2, column=2)
+
+        self._generate_updates(episodes)
+
+    def _generate_updates(self, episodes: int):
+        for _ in range(episodes):
+            upd, _ = self.agent.play_episode()
+            self.steps.extend(upd)
+
+    def _draw_board(self, key: Tuple):
+        board, _ = key
+        self.canvas.delete("all")
+        size = 80
+        off = 10
+        for i in range(4):
+            self.canvas.create_line(off, off + i * size, off + 3 * size, off + i * size)
+            self.canvas.create_line(off + i * size, off, off + i * size, off + 3 * size)
+        for r in range(3):
+            for c in range(3):
+                piece = board[r][c]
+                x = off + c * size + size / 2
+                y = off + r * size + size / 2
+                if piece == "X":
+                    self.canvas.create_line(x - 20, y - 20, x + 20, y + 20, width=3, fill="red")
+                    self.canvas.create_line(x + 20, y - 20, x - 20, y + 20, width=3, fill="red")
+                elif piece == "O":
+                    self.canvas.create_oval(x - 20, y - 20, x + 20, y + 20, width=3, outline="blue")
+
+    def _update_table(self):
+        self.table.delete("1.0", tk.END)
+        for idx, (k, v) in enumerate(list(self.agent.values.items())[:10], 1):
+            self.table.insert(tk.END, f"{idx}. {k} -> {v:.2f}\n")
+
+    def _apply_step(self, idx: int, forward: bool):
+        key, old, new = self.steps[idx]
+        self.agent.values[key] = new if forward else old
+        self._draw_board(key)
+        self._update_table()
+
+    def next_step(self):
+        if self.step_idx + 1 >= len(self.steps):
+            return
+        self.step_idx += 1
+        self._apply_step(self.step_idx, True)
+
+    def prev_step(self):
+        if self.step_idx < 0:
+            return
+        self._apply_step(self.step_idx, False)
+        self.step_idx -= 1
+
+    def toggle_play(self):
+        self.playing = not self.playing
+        self.play_btn.config(text="Pause" if self.playing else "Play")
+        if self.playing:
+            self._auto_step()
+
+    def _auto_step(self):
+        if self.playing:
+            self.next_step()
+            self.root.after(500, self._auto_step)
+
+    def run(self):
+        if self.steps:
+            self.next_step()
+        self.root.mainloop()
+
+
+if __name__ == "__main__":
+    agent = RLAgent(lr=0.2, epsilon=0.2)
+    ui = TrainerUI(agent, episodes=50)
+    ui.run()
