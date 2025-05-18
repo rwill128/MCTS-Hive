@@ -284,9 +284,15 @@ class TrainerUI:
             self.next_step()
 
     def _auto_step(self):
-        if self.playing:
-            self.next_step()
-            self.root.after(0, self._auto_step)
+        if not self.playing:
+            return
+        if self.step_idx + 1 >= len(self.steps):
+            # stop playback when no more steps remain
+            self.playing = False
+            self.play_btn.config(text="Play")
+            return
+        self.next_step()
+        self.root.after(0, self._auto_step)
 
     def run(self):
         if self.steps:
