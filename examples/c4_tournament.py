@@ -176,6 +176,17 @@ def play_one_game(
                 pygame.event.pump()
 
             action = player.search(state, draw_callback=cb)
+        elif screen is not None and isinstance(player, MinimaxConnectFourPlayer) and draw_board_with_action_values is not None:
+            def cb(values):
+                draw_board_with_action_values(
+                    screen,
+                    state["board"],
+                    {a: (v, 1) for a, v in values.items()},
+                    None,
+                )
+                pygame.event.pump()
+
+            action = player.search(state, value_callback=cb)
         else:
             action = player.search(state)
         state = game.applyAction(state, action)
