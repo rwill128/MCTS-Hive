@@ -199,6 +199,8 @@ def init_players() -> None:
         "iter20": {"num_iterations": 20, "max_depth": 100, "c_param": 1.4, "forced_check_depth": 0},
         "iter50": {"num_iterations": 50, "max_depth": 100, "c_param": 1.4, "forced_check_depth": 0},
         "iter100": {"num_iterations": 100, "max_depth": 100, "c_param": 1.4, "forced_check_depth": 0},
+        "iter200": {"num_iterations": 200, "max_depth": 100, "c_param": 1.4, "forced_check_depth": 0},
+        "c1":      {"num_iterations": 100, "max_depth": 100, "c_param": 1.0, "forced_check_depth": 0},
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
