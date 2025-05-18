@@ -121,6 +121,7 @@ class MCTS:
     def __init__(self, game, *, perspective_player: str,
                  forced_check_depth: int = 1, num_iterations: int = 1000,
                  max_depth: int = 20, c_param: float = 1.4,
+                 minimax_depth: int = 0,
                  eval_func=None, weights=None, cache: Optional[EvalCache] = None):
 
         self.game               = game
@@ -132,6 +133,7 @@ class MCTS:
         self.weights            = weights
         self.perspective_player = perspective_player
         self.cache              = cache
+        self.minimax_depth      = minimax_depth
 
     # -----------------------------------------------------------------
     # Public API -------------------------------------------------------
@@ -187,6 +189,12 @@ class MCTS:
             self.cache.save()
 
         best_action = self._best_action(root)
+        if self.minimax_depth > 0:
+            mm_action, mm_score = self._minimax_search(root_state, self.minimax_depth)
+            mcts_state = self.game.applyAction(root_state, best_action)
+            mcts_score = self.eval_func(self.perspective_player, mcts_state, self.weights)
+            if mm_score > mcts_score:
+                return mm_action
         return best_action
 
     # -------------------------------------------------------------
@@ -252,6 +260,46 @@ class MCTS:
             if not self._forced_check_depth_limited(nxt, opp, depth - 1):
                 safe.append(a)
         return forced_win, safe
+
+    # -------------------------------------------------------------
+    # Optional minimax search ------------------------------------
+    # -------------------------------------------------------------
+    def _minimax_value(self, state, depth) -> float:
+        outcome = self.game.getGameOutcome(state)
+        if outcome == self.perspective_player:
+            return 1.0
+        if outcome == "Draw":
+            return 0.0
+        if outcome is not None:
+            return -1.0
+        if depth == 0:
+            return self.eval_func(self.perspective_player, state, self.weights)
+
+        to_move = self.game.getCurrentPlayer(state)
+        actions = self.game.getLegalActions(state)
+        scores = []
+        for action in actions:
+            next_state = self.game.applyAction(state, action)
+            score = self._minimax_value(next_state, depth - 1)
+            scores.append(score)
+        if to_move == self.perspective_player:
+            return max(scores)
+        else:
+            return min(scores)
+
+    def _minimax_search(self, state, depth) -> Tuple:
+        actions = self.game.getLegalActions(state)
+        best_score = -float("inf")
+        best_actions = []
+        for action in actions:
+            next_state = self.game.applyAction(state, action)
+            score = self._minimax_value(next_state, depth - 1)
+            if score > best_score:
+                best_score = score
+                best_actions = [action]
+            elif score == best_score:
+                best_actions.append(action)
+        return random.choice(best_actions), best_score
 
     # -------------------------------------------------------------
     # Misc convenience --------------------------------------------
