@@ -285,6 +285,7 @@ def init_players() -> None:
         "iter400": {"num_iterations": 400, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "iter600": {"num_iterations": 600, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "iter6000": {"num_iterations": 6000, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
+        "iter100000": {"num_iterations": 100000, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "iter800": {"num_iterations": 800, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
         "c1":      {"num_iterations": 200, "max_depth": 42, "c_param": 1.0, "forced_check_depth": 0},
         "check2":  {"num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 2},
