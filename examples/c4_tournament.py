@@ -184,7 +184,7 @@ def run(display: bool = True) -> None:
                 x_name, o_name = names[j], names[i]
 
             g += 1
-            print(f"Game {g}: {x_name} (R) vs {o_name} (B)")
+            print(f"Game {g}: {x_name} (R) vs {o_name} (Y)")
             result = play_one_game(
                 game,
                 players[x_name],
