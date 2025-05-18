@@ -2,9 +2,11 @@
 """Minimal AlphaGo-style self-play training for Connect Four.
 
 This script implements a small convolutional network and a short
-self-play loop so unit tests can run quickly. Training data and
-network weights can be saved and reloaded. The :class:`ZeroC4Player`
-class wraps a trained network for use in ``c4_tournament.py``.
+self-play loop so unit tests can run quickly. It can also run
+continuously for longer experiments when the ``--forever`` flag is
+provided. Training data and network weights can be saved and reloaded.
+The :class:`ZeroC4Player` class wraps a trained network for use in
+``c4_tournament.py``.
 """
 
 from __future__ import annotations
@@ -220,19 +222,30 @@ def run(args) -> None:
     net = C4ZeroNet()
     opt = torch.optim.Adam(net.parameters(), lr=1e-2)
     buffer = []
-    for _ in range(args.games):
-        buffer.extend(play_one_game(net))
-    print(f"Generated {len(buffer)} samples")
-    loss_before = evaluate_loss(net, buffer)
-    for _ in range(args.epochs):
-        batch = random.sample(buffer, min(len(buffer), args.batch))
-        train_step(net, batch, opt)
-    loss_after = evaluate_loss(net, buffer)
-    print(f"Loss {loss_before:.3f} -> {loss_after:.3f}")
-    if args.data_path:
-        save_dataset(buffer, Path(args.data_path))
-    if args.weights_path:
-        save_weights(net, Path(args.weights_path))
+    loop = 0
+    try:
+        while True:
+            loop += 1
+            for _ in range(args.games):
+                buffer.extend(play_one_game(net))
+            print(f"Generated {len(buffer)} samples")
+            loss_before = evaluate_loss(net, buffer)
+            for _ in range(args.epochs):
+                batch = random.sample(buffer, min(len(buffer), args.batch))
+                train_step(net, batch, opt)
+            loss_after = evaluate_loss(net, buffer)
+            print(f"Loop {loop}: Loss {loss_before:.3f} -> {loss_after:.3f}")
+            if args.data_path:
+                save_dataset(buffer, Path(args.data_path))
+            if args.weights_path:
+                save_weights(net, Path(args.weights_path))
+            if not args.forever:
+                break
+    except KeyboardInterrupt:
+        print("Stopping training ...")
+    finally:
+        if args.weights_path:
+            save_weights(net, Path(args.weights_path))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -242,6 +255,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--batch", type=int, default=32)
     p.add_argument("--data-path")
     p.add_argument("--weights-path")
+    p.add_argument("--forever", action="store_true",
+                   help="train indefinitely until interrupted")
     return p
 
 
