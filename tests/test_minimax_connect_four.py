@@ -21,6 +21,8 @@ class TestMinimaxConnectFour(unittest.TestCase):
         board[1][0] = "X"
         board[2][0] = "X"
         state["current_player"] = "X"
+        # The board should not already be a win for X
+        self.assertIsNone(game.getGameOutcome(state))
         player = MinimaxConnectFourPlayer(game, perspective_player="X", depth=4)
         best = player.search(state)
         self.assertEqual(best, 0)
