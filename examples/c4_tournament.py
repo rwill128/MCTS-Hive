@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - allow headless use
 from mcts.Mcts import MCTS
 from simple_games.connect_four import ConnectFour
 from simple_games.minimax_connect_four import MinimaxConnectFourPlayer
+from examples.c4_zero import ZeroC4Player, C4ZeroNet, load_weights
 try:
     from simple_games.c4_visualizer import init_display, draw_board
 except Exception:  # pragma: no cover - pygame optional
@@ -141,6 +142,11 @@ def play_one_game(
         if cfg.get("type") == "minimax":
             depth = int(cfg.get("depth", 4))
             return MinimaxConnectFourPlayer(game, perspective_player=role, depth=depth)
+        if cfg.get("type") == "zero":
+            net = C4ZeroNet()
+            load_weights(net, Path(cfg["weights"]))
+            temp = float(cfg.get("temperature", 0.0))
+            return ZeroC4Player(net, temperature=temp)
         return MCTS(game=game, perspective_player=role, **cfg)
 
     mcts_x = make_player(params_x, "X")
