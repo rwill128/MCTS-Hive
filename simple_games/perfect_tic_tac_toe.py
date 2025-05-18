@@ -3,6 +3,11 @@ from functools import lru_cache
 
 from .tic_tac_toe import TicTacToe
 
+try:
+    import pygame
+except ImportError:  # pragma: no cover - allow headless use
+    pygame = None
+
 
 class PerfectTicTacToePlayer:
     """Minimax-based player that never loses."""
@@ -43,6 +48,9 @@ class PerfectTicTacToePlayer:
         actions = self.game.getLegalActions(state)
         scores = []
         for action in actions:
+            if pygame is not None and hasattr(pygame, "get_init") and pygame.get_init():
+                pygame.event.pump()
+
             next_state = self.game.applyAction(state, action)
             ser = self._serialize(next_state)
             score = self._minimax(ser, next_state["current_player"])
@@ -57,6 +65,9 @@ class PerfectTicTacToePlayer:
         best_score = -float("inf")
         best_actions = []
         for action in actions:
+            if pygame is not None and hasattr(pygame, "get_init") and pygame.get_init():
+                pygame.event.pump()
+
             next_state = self.game.applyAction(state, action)
             ser = self._serialize(next_state)
             score = self._minimax(ser, next_state["current_player"])

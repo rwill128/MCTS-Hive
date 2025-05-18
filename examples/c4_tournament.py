@@ -184,7 +184,7 @@ def run(display: bool = True) -> None:
                 x_name, o_name = names[j], names[i]
 
             g += 1
-            print(f"Game {g}: {x_name} (X) vs {o_name} (O)")
+            print(f"Game {g}: {x_name} (R) vs {o_name} (B)")
             result = play_one_game(
                 game,
                 players[x_name],
@@ -259,6 +259,7 @@ def init_players() -> None:
         "search_4":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 4},
         "search_4":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 6},
         "minimax": {"type": "minimax", "depth": 4},
+        "minimax_6": {"type": "minimax", "depth": 6},
         "hybrid_4": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 4 },
         "hybrid_6": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 6 },
     }

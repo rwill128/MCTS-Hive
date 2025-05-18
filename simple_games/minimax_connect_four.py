@@ -3,6 +3,11 @@ from functools import lru_cache
 
 from .connect_four import ConnectFour
 
+try:
+    import pygame
+except ImportError:  # pragma: no cover - allow headless use
+    pygame = None
+
 
 class MinimaxConnectFourPlayer:
     """Simple depth-limited minimax player for Connect Four."""
@@ -37,6 +42,10 @@ class MinimaxConnectFourPlayer:
         actions = self.game.getLegalActions(state)
         scores = []
         for action in actions:
+            # Keep the OS compositor happy by consuming window events regularly.
+            if pygame is not None and hasattr(pygame, "get_init") and pygame.get_init():
+                pygame.event.pump()
+
             next_state = self.game.applyAction(state, action)
             ser = self._serialize(next_state)
             score = self._minimax(ser, next_state["current_player"], depth - 1)
@@ -81,6 +90,10 @@ class MinimaxConnectFourPlayer:
         best_score = -float("inf")
         best_actions = []
         for action in actions:
+            # Keep the OS compositor happy by consuming window events regularly.
+            if pygame is not None and hasattr(pygame, "get_init") and pygame.get_init():
+                pygame.event.pump()
+
             next_state = self.game.applyAction(state, action)
             ser = self._serialize(next_state)
             score = self._minimax(ser, next_state["current_player"], self.depth - 1)
