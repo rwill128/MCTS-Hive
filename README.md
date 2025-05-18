@@ -6,7 +6,7 @@ This repository contains a Monte-Carlo Tree Search implementation along with a c
 
 - `mcts/` – Core MCTS algorithms.
 - `HivePocket/` – Simplified Hive board game implementation.
-- `simple_games/` – Minimal games such as Tic-Tac-Toe and Connect Four.
+- `simple_games/` – Minimal games such as Tic-Tac-Toe, Connect Four and Chess.
 - `examples/` – Scripts and experiments demonstrating usage of the library.
 - `tests/` – Unit tests.
 
