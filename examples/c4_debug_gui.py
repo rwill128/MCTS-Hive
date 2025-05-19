@@ -12,6 +12,7 @@ progresses.
 import json
 import threading
 import tkinter as tk
+from pathlib import Path
 import pygame
 
 from simple_games.connect_four import ConnectFour
@@ -24,6 +25,18 @@ from simple_games.c4_visualizer import (
     MARGIN,
 )
 from mcts.Mcts import MCTS
+try:
+    from examples.c4_zero import (
+        ZeroC4Player,
+        C4ZeroNet,
+        load_weights,
+        encode_state,
+        HAS_TORCH,
+    )
+    if HAS_TORCH:
+        import torch
+except Exception:  # pragma: no cover - optional dependency missing
+    HAS_TORCH = False
 
 UI_HEIGHT = 60
 
@@ -74,6 +87,31 @@ def run_search(game, state, cfg_json, screen, board_surface):
             pygame.display.flip()
 
         move = player.search(state, value_callback=cb)
+        return move
+    elif cfg.get("type") == "zero":
+        if not HAS_TORCH:
+            print("PyTorch not available")
+            return None
+        net = C4ZeroNet()
+        load_weights(net, Path(cfg["weights"]))
+        temp = float(cfg.get("temperature", 0.0))
+        player = ZeroC4Player(net, temperature=temp)
+
+        tensor = encode_state(state, state["current_player"]).unsqueeze(0)
+        with torch.no_grad():
+            logits, _ = net(tensor)
+            probs = logits.softmax(1)[0].tolist()
+        values = {i: (p, 1) for i, p in enumerate(probs)}
+        draw_board_with_action_values(
+            board_surface,
+            state["board"],
+            values,
+            None,
+        )
+        screen.blit(board_surface, (0, UI_HEIGHT))
+        pygame.display.flip()
+
+        move = player.search(state)
         return move
     else:
         cfg.setdefault("perspective_player", state["current_player"])
