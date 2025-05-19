@@ -63,6 +63,7 @@ def draw_board_with_action_values(
     rows = len(board)
     cols = len(board[0]) if rows else 0
     overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 0))
     max_visits = max(v[1] for v in values.values()) if values else 1
     for col in range(cols):
         if col not in values:
