@@ -274,14 +274,29 @@ def play_one_game(
         else:
             player = mcts_o
 
-        if screen is not None and isinstance(player, MCTS) and draw_board_with_action_values is not None:
-            def cb(root, iter_count):
-                values = {
-                    a: (child.average_value(), child.visit_count)
-                    for a, child in root.children.items()
-                }
-                draw_board_with_action_values(screen, root.state["board"], values, iter_count)
-                pygame.event.pump()
+        # --------------------------------------------------------------
+        # Keep the GUI responsive: we need to call ``pygame.event.pump``
+        # regularly during potentially long MCTS searches.  If the rich
+        # visualiser is available we already pump inside the callback that
+        # draws action values.  If not, we still provide a lightweight
+        # callback that simply pumps events every few iterations.
+        # --------------------------------------------------------------
+
+        if screen is not None and isinstance(player, MCTS):
+            if draw_board_with_action_values is not None:
+                def cb(root, iter_count):
+                    values = {
+                        a: (child.average_value(), child.visit_count)
+                        for a, child in root.children.items()
+                    }
+                    draw_board_with_action_values(screen, root.state["board"], values, iter_count)
+                    pygame.event.pump()
+            else:
+                def cb(root, iter_count):
+                    # Pump events every 250 iterations to prevent the window
+                    # from being marked "unresponsive" by the window manager.
+                    if iter_count % 250 == 0:
+                        pygame.event.pump()
 
             action = player.search(state, draw_callback=cb)
         elif screen is not None and isinstance(player, MinimaxConnectFourPlayer) and draw_board_with_action_values is not None:
