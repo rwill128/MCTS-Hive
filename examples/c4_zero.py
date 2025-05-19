@@ -58,7 +58,7 @@ if HAS_TORCH:
     class C4ZeroNet(nn.Module):
         """Policy/value network for Connect Four with adjustable size."""
 
-        def __init__(self, channels: int = 32, layers: int = 8):
+        def __init__(self, channels: int = 64, layers: int = 16):
             super().__init__()
             conv_layers = [nn.Conv2d(3, channels, 3, padding=1), nn.ReLU()]
             for _ in range(layers - 1):
@@ -221,14 +221,14 @@ WEIGHTS_DIR = Path("c4_weights")
 
 
 def run(
-    games: int = 1000,
-    epochs: int = 500,
-    batch: int = 256,
+    games: int = 100,
+    epochs: int = 50,
+    batch: int = 32,
     forever: bool = True,
     data_path: Path = DATA_DIR / "data.pth",
     weights_path: Path = WEIGHTS_DIR / "weights.pth",
     channels: int = 64,
-    lr: float = 1e-4,
+    lr: float = 5e-5,
     lr_step_size: int = 50,
     lr_gamma: float = 0.95,
 ) -> None:

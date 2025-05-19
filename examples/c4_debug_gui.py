@@ -224,7 +224,7 @@ def main() -> None:
 
     board_surface = pygame.Surface((width, height - UI_HEIGHT))
     font = pygame.font.SysFont(None, 24)
-    json_holder = {"text": '{"num_iterations": 200, "max_depth": 42, "c_param": 1.4}'}
+    json_holder = {"text": '{ "type": "mcts_zero", "weights": "c4_weights/weights.pth", "num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0, "temperature": 0.0, }'}
     run_flag = {"go": False}
     selected_move = None
 

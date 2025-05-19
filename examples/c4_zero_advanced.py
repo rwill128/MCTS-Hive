@@ -159,6 +159,8 @@ def play_one_game(net: AdvancedC4ZeroNet, T: float = 1.0, max_moves: int = 42) -
 
         if move_no == 0:
             pri = (1 - ROOT_NOISE_FRAC) * pri + ROOT_NOISE_FRAC * np.random.dirichlet(DIR_ALPHA * np.ones_like(pri))
+            # Ensure numerical stability – the mixture can drift from exact unity
+            pri /= pri.sum()
 
         hist.append((game.copyState(st), pri, 0))
 
@@ -216,7 +218,15 @@ def load_buffer(path: Path, maxlen: int) -> deque:
     """Load a replay buffer from ``path`` if it exists."""
     if torch is None:
         raise RuntimeError("PyTorch is required for load_buffer")
-    data = torch.load(path)
+    # PyTorch ≥ 2.6 defaults to ``weights_only=True`` which blocks ordinary
+    # pickled Python objects (our replay-buffer entries).  We explicitly set
+    # ``weights_only=False`` when the argument is supported to restore the
+    # pre-2.6 behaviour, while maintaining compatibility with older versions.
+    try:
+        data = torch.load(path, weights_only=False)  # PyTorch 2.6+
+    except TypeError:
+        # Older PyTorch without the ``weights_only`` parameter
+        data = torch.load(path)
     return deque(data, maxlen=maxlen)
 
 
@@ -240,11 +250,27 @@ def run(args=None) -> None:
         if ckpts:
             args.resume = str(ckpts[-1])
 
+    # ------------------------------------------------------------------
+    # Build network + optimiser and attempt to restore the most recent
+    # *full* training state (weights, optimiser, epoch counter).  Falling
+    # back to the legacy behaviour that only restores network weights if a
+    # --resume path is given or a checkpoint exists.
+    # ------------------------------------------------------------------
     net = AdvancedC4ZeroNet().to(dev)
-    if args.resume:
-        print("Resuming from", args.resume)
-        net.load_state_dict(torch.load(args.resume, map_location=dev))
     opt = torch.optim.Adam(net.parameters(), lr=1e-3)
+
+    state_path = ckdir / "train_state.pt"
+    start_ep = 1
+
+    if state_path.exists():
+        print("Resuming full training state from", state_path)
+        st = torch.load(state_path, map_location=dev)
+        net.load_state_dict(st["net"])
+        opt.load_state_dict(st["opt"])
+        start_ep = int(st.get("epoch", 1))
+    elif args.resume:
+        print("Resuming weights from", args.resume)
+        net.load_state_dict(torch.load(args.resume, map_location=dev))
 
     buf: deque
     if BUFFER_PATH.exists():
@@ -260,7 +286,7 @@ def run(args=None) -> None:
             print(f"  game {g+1}/{args.games} → buffer {len(buf)}", flush=True)
 
     try:
-        for ep in range(1, args.epochs + 1):
+        for ep in range(start_ep, args.epochs + 1):
             buf.extend(play_one_game(net, T=args.temp))
             batch = random.sample(buf, args.batch) if len(buf) >= args.batch else list(buf)
             loss = train_step(net, batch, opt, dev)
@@ -286,7 +312,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--gpu", action="store_true")
     p.add_argument("--games", type=int, default=20)
-    p.add_argument("--epochs", type=int, default=1000)
+    p.add_argument("--epochs", type=int, default=10000000)
     p.add_argument("--buffer", type=int, default=50000)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--temp", type=float, default=1.0)
