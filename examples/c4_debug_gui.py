@@ -10,6 +10,7 @@ progresses.
 """
 
 import json
+import random
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -39,6 +40,47 @@ except Exception:  # pragma: no cover - optional dependency missing
     HAS_TORCH = False
 
 UI_HEIGHT = 60
+
+
+class ZeroGuidedMCTS(MCTS):
+    """MCTS variant that uses a Zero network to guide simulations."""
+
+    def __init__(self, game: ConnectFour, net: C4ZeroNet, perspective_player: str, temperature: float = 0.0, **kwargs):
+        super().__init__(game=game, perspective_player=perspective_player, **kwargs)
+        if not HAS_TORCH:
+            raise RuntimeError("PyTorch is required for ZeroGuidedMCTS")
+        self.net = net
+        self.temperature = temperature
+
+    def _guided_action(self, state: dict) -> int:
+        tensor = encode_state(state, state["current_player"]).unsqueeze(0)
+        with torch.no_grad():
+            logits, _ = self.net(tensor)
+            probs = logits.softmax(1)[0].tolist()
+        legal = self.game.getLegalActions(state)
+        masked = [probs[a] if a in legal else 0.0 for a in range(self.game.COLS)]
+        if sum(masked) == 0:
+            return random.choice(legal)
+        if self.temperature > 0:
+            dist = [p ** (1.0 / self.temperature) for p in masked]
+            s = sum(dist)
+            dist = [p / s for p in dist]
+            return random.choices(range(self.game.COLS), dist)[0]
+        return max(legal, key=lambda a: masked[a])
+
+    def _simulate(self, state: dict) -> float:
+        temp_state = self.game.copyState(state)
+        depth = 0
+        while not self.game.isTerminal(temp_state) and depth < self.max_depth:
+            action = self._guided_action(temp_state)
+            temp_state = self.game.applyAction(temp_state, action)
+            depth += 1
+        outcome = self.game.getGameOutcome(temp_state)
+        if outcome == self.perspective_player:
+            return 1.0
+        if outcome == "Draw" or outcome is None:
+            return 0.0
+        return -1.0
 
 
 def board_pos_from_pixel(pos, rows, cols):
@@ -115,6 +157,38 @@ def run_search(game, state, cfg_json, screen, board_surface):
         pygame.display.flip()
 
         move = player.search(state)
+        return move
+    elif cfg.get("type") == "mcts_zero":
+        if not HAS_TORCH:
+            print("PyTorch not available")
+            return None
+        net = C4ZeroNet()
+        load_weights(net, Path(cfg["weights"]))
+        temp = float(cfg.get("temperature", 0.0))
+        params = {k: v for k, v in cfg.items() if k not in {"type", "weights", "temperature"}}
+        mcts = ZeroGuidedMCTS(
+            game=game,
+            net=net,
+            perspective_player=state["current_player"],
+            temperature=temp,
+            **params,
+        )
+
+        def draw_cb(root, iter_count):
+            values = {
+                a: (child.average_value(), child.visit_count)
+                for a, child in root.children.items()
+            }
+            draw_board_with_action_values(
+                board_surface,
+                root.state["board"],
+                values,
+                iter_count,
+            )
+            screen.blit(board_surface, (0, UI_HEIGHT))
+            pygame.display.flip()
+
+        move = mcts.search(state, draw_callback=draw_cb)
         return move
     else:
         cfg.setdefault("perspective_player", state["current_player"])
