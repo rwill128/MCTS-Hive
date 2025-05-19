@@ -72,6 +72,9 @@ def run_search(game, state, cfg_json, screen, board_surface):
             )
             screen.blit(board_surface, (0, UI_HEIGHT))
             pygame.display.flip()
+            # Keep the window responsive and make updates visible
+            pygame.event.pump()
+            pygame.time.delay(50)
 
         move = player.search(state, value_callback=cb)
         return move
