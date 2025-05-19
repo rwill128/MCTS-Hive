@@ -250,12 +250,12 @@ def run(args=None) -> None:
         if ckpts:
             args.resume = str(ckpts[-1])
 
-    # ------------------------------------------------------------------
-    # Build network + optimiser and attempt to restore the most recent
-    # *full* training state (weights, optimiser, epoch counter).  Falling
-    # back to the legacy behaviour that only restores network weights if a
-    # --resume path is given or a checkpoint exists.
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
+    # Build network & optimiser, then attempt to restore a *full* training
+    # state (network weights + optimiser parameters + last epoch counter).
+    # If no such state exists we fall back to the legacy behaviour of
+    # restoring only the network weights (via --resume or latest checkpoint).
+    # --------------------------------------------------------------
     net = AdvancedC4ZeroNet().to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=1e-3)
 
@@ -297,11 +297,24 @@ def run(args=None) -> None:
                 torch.save(net.state_dict(), path)
                 save_buffer(buf, BUFFER_PATH)
                 print("saved", path, flush=True)
+
+            # Save full training state so interruptions can resume seamlessly
+            torch.save({
+                "net": net.state_dict(),
+                "opt": opt.state_dict(),
+                "epoch": ep if 'ep' in locals() else start_ep,
+            }, state_path)
     except KeyboardInterrupt:
         print("Stopping training …")
     finally:
         torch.save(net.state_dict(), ckdir / "last.pt")
         save_buffer(buf, BUFFER_PATH)
+        # Ensure the most recent state is flushed to disk
+        torch.save({
+            "net": net.state_dict(),
+            "opt": opt.state_dict(),
+            "epoch": ep if 'ep' in locals() else start_ep,
+        }, state_path)
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +325,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--gpu", action="store_true")
     p.add_argument("--games", type=int, default=20)
-    p.add_argument("--epochs", type=int, default=10000000)
+    p.add_argument("--epochs", type=int, default=1000)
     p.add_argument("--buffer", type=int, default=50000)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--temp", type=float, default=1.0)
