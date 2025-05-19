@@ -178,12 +178,7 @@ class MCTS:
                 node = node.expand(self.game, self)
 
             # --------------- SIMULATION -----------------
-            sim_val = self.game.simulateRandomPlayout(
-                node.state,
-                self.perspective_player,
-                max_depth=self.max_depth,
-                eval_func=self.eval_func,
-                weights=self.weights)
+            sim_val = self._simulate(node.state)
             assert -1.0 - 1e-6 <= sim_val <= 1.0 + 1e-6, "simulateRandomPlayout must return in [-1,1]"
 
             # --------------- BACKPROP -------------------
@@ -223,6 +218,16 @@ class MCTS:
             if child.visit_count > best_visits:
                 best_action, best_visits = action, child.visit_count
         return best_action
+
+    def _simulate(self, state: dict) -> float:
+        """Run a default random playout from ``state``."""
+        return self.game.simulateRandomPlayout(
+            state,
+            self.perspective_player,
+            max_depth=self.max_depth,
+            eval_func=self.eval_func,
+            weights=self.weights,
+        )
 
     def _backpropagate(self, node: MCTSNode, value: float):
         while node is not None:

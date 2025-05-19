@@ -1,0 +1,9 @@
+{
+  "type": "mcts_zero",
+  "weights": "c4_weights/weights.pth",
+  "temperature": 0.0,
+  "num_iterations": 200,
+  "max_depth": 42,
+  "c_param": 1.4,
+  "forced_check_depth": 0
+}

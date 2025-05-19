@@ -20,11 +20,63 @@ try:
     import pygame
 except ImportError:  # pragma: no cover - allow headless use
     pygame = None
+try:
+    import torch
+except Exception:  # pragma: no cover - torch optional
+    torch = None
 
 from mcts.Mcts import MCTS
 from simple_games.connect_four import ConnectFour
 from simple_games.minimax_connect_four import MinimaxConnectFourPlayer
-from examples.c4_zero import ZeroC4Player, C4ZeroNet, load_weights
+from examples.c4_zero import (
+    ZeroC4Player,
+    C4ZeroNet,
+    load_weights,
+    encode_state,
+    HAS_TORCH,
+)
+
+
+class ZeroGuidedMCTS(MCTS):
+    """MCTS variant that uses a Zero network to guide simulations."""
+
+    def __init__(self, game: ConnectFour, net: C4ZeroNet, perspective_player: str, temperature: float = 0.0, **kwargs):
+        super().__init__(game=game, perspective_player=perspective_player, **kwargs)
+        if not HAS_TORCH:
+            raise RuntimeError("PyTorch is required for ZeroGuidedMCTS")
+        self.net = net
+        self.temperature = temperature
+
+    def _guided_action(self, state: dict) -> int:
+        tensor = encode_state(state, state["current_player"]).unsqueeze(0)
+        with torch.no_grad():
+            logits, _ = self.net(tensor)
+            probs = logits.softmax(1)[0].tolist()
+        legal = self.game.getLegalActions(state)
+        masked = [probs[a] if a in legal else 0.0 for a in range(self.game.COLS)]
+        if sum(masked) == 0:
+            return random.choice(legal)
+        if self.temperature > 0:
+            dist = [p ** (1.0 / self.temperature) for p in masked]
+            s = sum(dist)
+            dist = [p / s for p in dist]
+            return random.choices(range(self.game.COLS), dist)[0]
+        return max(legal, key=lambda a: masked[a])
+
+    def _simulate(self, state: dict) -> float:
+        temp_state = self.game.copyState(state)
+        depth = 0
+        while not self.game.isTerminal(temp_state) and depth < self.max_depth:
+            action = self._guided_action(temp_state)
+            temp_state = self.game.applyAction(temp_state, action)
+            depth += 1
+        outcome = self.game.getGameOutcome(temp_state)
+        if outcome == self.perspective_player:
+            return 1.0
+        if outcome == "Draw" or outcome is None:
+            return 0.0
+        return -1.0
+
 try:
     from simple_games.c4_visualizer import (
         init_display,
@@ -151,6 +203,22 @@ def play_one_game(
             load_weights(net, Path(cfg["weights"]))
             temp = float(cfg.get("temperature", 0.0))
             return ZeroC4Player(net, temperature=temp)
+        if cfg.get("type") == "mcts_zero":
+            net = C4ZeroNet()
+            load_weights(net, Path(cfg["weights"]))
+            temp = float(cfg.get("temperature", 0.0))
+            params = {
+                k: v
+                for k, v in cfg.items()
+                if k not in {"type", "weights", "temperature"}
+            }
+            return ZeroGuidedMCTS(
+                game=game,
+                net=net,
+                perspective_player=role,
+                temperature=temp,
+                **params,
+            )
         return MCTS(game=game, perspective_player=role, **cfg)
 
     mcts_x = make_player(params_x, "X")
@@ -297,6 +365,15 @@ def init_players() -> None:
         "minimax_6": {"type": "minimax", "depth": 6},
         "hybrid_4": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 4 },
         "hybrid_6": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 6 },
+        "mcts_zero": {
+            "type": "mcts_zero",
+            "weights": "c4_weights/weights.pth",
+            "num_iterations": 200,
+            "max_depth": 42,
+            "c_param": 1.4,
+            "forced_check_depth": 0,
+            "temperature": 0.0,
+        },
     }
     for name, cfg in samples.items():
         path = PLAYERS_DIR / f"{name}.json"
