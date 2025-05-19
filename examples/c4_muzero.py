@@ -182,9 +182,17 @@ def mcts(game: ConnectFour, net: MuZeroNet, root_state: dict, sims: int, dev: st
             n.value_sum += value
             n.visit_count += 1
 
-    visits = np.array([child.visit_count for child in root.children.values()], dtype=np.float32)
-    probs = visits / visits.sum() if visits.sum() > 0 else visits
-    best_action = int(visits.argmax()) if visits.sum() > 0 else random.choice(game.getLegalActions(root_state))
+    visit_counts = np.zeros(game.COLS, dtype=np.float32)
+    for a, child in root.children.items():
+        visit_counts[a] = child.visit_count
+
+    if visit_counts.sum() > 0:
+        probs = visit_counts / visit_counts.sum()
+        best_action = int(visit_counts.argmax())
+    else:
+        probs = visit_counts
+        best_action = random.choice(game.getLegalActions(root_state))
+
     return best_action, probs
 
 
