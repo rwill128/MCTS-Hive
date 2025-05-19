@@ -2,10 +2,11 @@
 """Minimal AlphaGo-style self-play training for Connect Four.
 
 This script implements a small convolutional network and a short
-self-play loop so unit tests can run quickly. Training data will be
-stored in ``c4_data/`` and network weights in ``c4_weights/`` relative to
-the project root. The :class:`ZeroC4Player` class wraps a trained network
-for use in ``c4_tournament.py``.
+self-play loop so unit tests can run quickly. The network size can be
+adjusted if additional capacity is required. Training data will be stored
+in ``c4_data/`` and network weights in ``c4_weights/`` relative to the
+project root. The :class:`ZeroC4Player` class wraps a trained network for
+use in ``c4_tournament.py``.
 """
 
 from __future__ import annotations
@@ -55,14 +56,15 @@ def encode_state(state: dict, perspective: str) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 if HAS_TORCH:
     class C4ZeroNet(nn.Module):
-        """Tiny policy/value network for Connect Four."""
+        """Policy/value network for Connect Four with adjustable size."""
 
-        def __init__(self, channels: int = 32):
+        def __init__(self, channels: int = 32, layers: int = 2):
             super().__init__()
-            self.conv = nn.Sequential(
-                nn.Conv2d(3, channels, 3, padding=1), nn.ReLU(),
-                nn.Conv2d(channels, channels, 3, padding=1), nn.ReLU(),
-            )
+            conv_layers = [nn.Conv2d(3, channels, 3, padding=1), nn.ReLU()]
+            for _ in range(layers - 1):
+                conv_layers.append(nn.Conv2d(channels, channels, 3, padding=1))
+                conv_layers.append(nn.ReLU())
+            self.conv = nn.Sequential(*conv_layers)
             self.policy = nn.Sequential(
                 nn.Flatten(),
                 nn.Linear(channels * BOARD_H * BOARD_W, 64),
@@ -225,12 +227,13 @@ def run(
     forever: bool = True,
     data_path: Path = DATA_DIR / "data.pth",
     weights_path: Path = WEIGHTS_DIR / "weights.pth",
+    channels: int = 64,
 ) -> None:
     """Run self-play training and persist data/weights.
 
     The function will automatically resume from existing ``data_path`` and
-    ``weights_path`` if those files are present. Training continues indefinitely
-    until interrupted.
+    ``weights_path`` if those files are present. ``channels`` controls the size
+    of the neural network. Training continues indefinitely until interrupted.
     """
     if not HAS_TORCH:
         raise RuntimeError("PyTorch is required for training")
@@ -238,7 +241,7 @@ def run(
     DATA_DIR.mkdir(exist_ok=True)
     WEIGHTS_DIR.mkdir(exist_ok=True)
 
-    net = C4ZeroNet()
+    net = C4ZeroNet(channels=channels)
     if Path(weights_path).exists():
         load_weights(net, Path(weights_path))
     opt = torch.optim.Adam(net.parameters(), lr=1e-2)
@@ -269,4 +272,5 @@ def run(
 
 
 if __name__ == "__main__":
-    run()
+    # Use a larger network by default for better learning
+    run(channels=64)
