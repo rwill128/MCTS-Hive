@@ -228,12 +228,17 @@ def run(
     data_path: Path = DATA_DIR / "data.pth",
     weights_path: Path = WEIGHTS_DIR / "weights.pth",
     channels: int = 64,
+    lr: float = 1e-4,
+    lr_step_size: int = 50,
+    lr_gamma: float = 0.95,
 ) -> None:
     """Run self-play training and persist data/weights.
 
     The function will automatically resume from existing ``data_path`` and
     ``weights_path`` if those files are present. ``channels`` controls the size
-    of the neural network. Training continues indefinitely until interrupted.
+    of the neural network. ``lr_step_size`` and ``lr_gamma`` configure a
+    learning rate schedule applied after each self-play loop. Training continues
+    indefinitely until interrupted.
     """
     if not HAS_TORCH:
         raise RuntimeError("PyTorch is required for training")
@@ -241,10 +246,11 @@ def run(
     DATA_DIR.mkdir(exist_ok=True)
     WEIGHTS_DIR.mkdir(exist_ok=True)
 
-    net = C4ZeroNet()
+    net = C4ZeroNet(channels=channels)
     if Path(weights_path).exists():
         load_weights(net, Path(weights_path))
-    opt = torch.optim.Adam(net.parameters(), lr=1e-4)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=lr_step_size, gamma=lr_gamma)
     buffer = []
     if Path(data_path).exists():
         buffer = load_dataset(Path(data_path))
@@ -259,6 +265,9 @@ def run(
             for _ in range(epochs):
                 batch_data = random.sample(buffer, min(len(buffer), batch))
                 train_step(net, batch_data, opt)
+            scheduler.step()
+            current_lr = scheduler.get_last_lr()[0]
+            print(f"Learning rate: {current_lr:.6f}")
             loss_after = evaluate_loss(net, buffer)
             print(f"Loop {loop}: Loss {loss_before:.3f} -> {loss_after:.3f}")
             save_dataset(buffer, Path(data_path))

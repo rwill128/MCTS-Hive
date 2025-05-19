@@ -7,7 +7,7 @@ This repository contains a Monte-Carlo Tree Search implementation along with a c
 - `mcts/` – Core MCTS algorithms.
 - `HivePocket/` – Simplified Hive board game implementation.
 - `simple_games/` – Minimal games such as Tic-Tac-Toe, Connect Four and Chess.
-- `examples/` – Scripts and experiments demonstrating usage of the library.
+- `examples/` – Scripts and experiments demonstrating usage of the library. The `examples/c4_zero.py` training script now applies a simple learning rate schedule during self-play training.
 - `tests/` – Unit tests.
 - `docs/` – Additional documentation including [`connect_four_board.md`](docs/connect_four_board.md)
   , [`hive_board_representation.md`](docs/hive_board_representation.md)
