@@ -24,6 +24,38 @@ class TestConnectFourWinDetection(unittest.TestCase):
         self.assertEqual(next_state["board"][3][3], "X")
         self.assertEqual(game.getGameOutcome(next_state), "X")
 
+    def test_horizontal_win_detection(self):
+        game = ConnectFour()
+        state = game.getInitialState()
+        board = state["board"]
+        # Place three X pieces in a row along the bottom.
+        board[0][0] = "X"
+        board[0][1] = "X"
+        board[0][2] = "X"
+        state["current_player"] = "X"
+        # No win has occurred yet.
+        self.assertIsNone(game.getGameOutcome(state))
+        # Dropping in column 3 should complete the horizontal line.
+        next_state = game.applyAction(state, 3)
+        self.assertEqual(next_state["board"][0][3], "X")
+        self.assertEqual(game.getGameOutcome(next_state), "X")
+
+    def test_vertical_win_detection(self):
+        game = ConnectFour()
+        state = game.getInitialState()
+        board = state["board"]
+        # Stack three X pieces in the first column.
+        board[0][0] = "X"
+        board[1][0] = "X"
+        board[2][0] = "X"
+        state["current_player"] = "X"
+        # The board is not yet a winning state for X.
+        self.assertIsNone(game.getGameOutcome(state))
+        # Dropping in column 0 should complete the vertical line.
+        next_state = game.applyAction(state, 0)
+        self.assertEqual(next_state["board"][3][0], "X")
+        self.assertEqual(game.getGameOutcome(next_state), "X")
+
 
 if __name__ == "__main__":
     unittest.main()
