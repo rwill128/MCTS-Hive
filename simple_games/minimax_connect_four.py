@@ -98,6 +98,8 @@ class MinimaxConnectFourPlayer:
                 ser = self._serialize(next_state)
                 score = self._minimax(ser, next_state["current_player"], self.depth - 1)
             scores[action] = score
+            if value_callback is not None:
+                value_callback(dict(scores))
 
         if winning_actions:
             best_actions = winning_actions

@@ -4,8 +4,9 @@
 This tool lets you edit a board position, choose the side to move,
 provide MCTS or minimax parameters as JSON and then run a search.
 Instead of applying the best move it simply reports the column the
-agent chose. While MCTS is running a heatmap overlay shows the current
-value estimate for each column and updates after every playout.
+agent chose. While MCTS or minimax is running a heatmap overlay shows
+the current value estimate for each column and updates as the search
+progresses.
 """
 
 import json
