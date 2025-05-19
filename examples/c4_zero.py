@@ -58,7 +58,7 @@ if HAS_TORCH:
     class C4ZeroNet(nn.Module):
         """Policy/value network for Connect Four with adjustable size."""
 
-        def __init__(self, channels: int = 32, layers: int = 2):
+        def __init__(self, channels: int = 32, layers: int = 4):
             super().__init__()
             conv_layers = [nn.Conv2d(3, channels, 3, padding=1), nn.ReLU()]
             for _ in range(layers - 1):
@@ -221,9 +221,9 @@ WEIGHTS_DIR = Path("c4_weights")
 
 
 def run(
-    games: int = 10,
-    epochs: int = 10,
-    batch: int = 32,
+    games: int = 100,
+    epochs: int = 100,
+    batch: int = 64,
     forever: bool = True,
     data_path: Path = DATA_DIR / "data.pth",
     weights_path: Path = WEIGHTS_DIR / "weights.pth",
@@ -241,10 +241,10 @@ def run(
     DATA_DIR.mkdir(exist_ok=True)
     WEIGHTS_DIR.mkdir(exist_ok=True)
 
-    net = C4ZeroNet(channels=channels)
+    net = C4ZeroNet()
     if Path(weights_path).exists():
         load_weights(net, Path(weights_path))
-    opt = torch.optim.Adam(net.parameters(), lr=1e-2)
+    opt = torch.optim.Adam(net.parameters(), lr=1e-4)
     buffer = []
     if Path(data_path).exists():
         buffer = load_dataset(Path(data_path))
@@ -273,4 +273,4 @@ def run(
 
 if __name__ == "__main__":
     # Use a larger network by default for better learning
-    run(channels=64)
+    run()
