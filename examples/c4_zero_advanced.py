@@ -203,7 +203,10 @@ def train_step(net: AdvancedC4ZeroNet, batch, opt, dev: str) -> float:
     loss_v = F.mse_loss(V_pred.squeeze(), V_tgt)
     entropy = -(P_pred * logP).sum(1).mean()
     loss = loss_p + loss_v - ENT_BETA * entropy
-    opt.zero_grad(); loss.backward(); opt.step()
+    opt.zero_grad()
+    loss.backward()
+    nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+    opt.step()
     return float(loss.item())
 
 
