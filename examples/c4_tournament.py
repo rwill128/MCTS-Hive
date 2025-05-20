@@ -16,6 +16,8 @@ import random
 from pathlib import Path
 from typing import Dict, Tuple, List
 
+from mcts.alpha_zero_mcts import AlphaZeroMCTS
+
 try:
     import pygame
 except ImportError:  # pragma: no cover - allow headless use
