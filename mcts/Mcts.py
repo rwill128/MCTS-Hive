@@ -157,12 +157,31 @@ class MCTS:
             "Perspective player mismatch: the root state's current player must "
             "match the MCTS agent's perspective.")
 
+        # -------------------------------------------------------------
+        # 1) Optional minimax pre-search to find the set of best moves
+        # -------------------------------------------------------------
+        restricted_actions = None  # type: Optional[list]
+        if self.minimax_depth > 0:
+            best_actions, _ = self._minimax_search(root_state, self.minimax_depth)
+            # If minimax produced a single clearly best move, return it directly.
+            if len(best_actions) == 1:
+                return best_actions[0]
+            # Otherwise we'll use MCTS as a tie-breaker among these moves only.
+            restricted_actions = best_actions
+
+        # -------------------------------------------------------------
+        # 2) Regular MCTS search (optionally restricted to ties)
+        # -------------------------------------------------------------
         root = MCTSNode(root_state, None, self.forced_check_depth)
         if self.cache:
             key = repr(self.game.canonical_state_key(root_state))
             cached = self.cache.get(key)
             if cached:
                 root.visit_count, root.total_value = cached
+        # If minimax yielded multiple equally good moves, limit the root to them
+        if restricted_actions is not None:
+            root.prune_to_actions(restricted_actions)
+
         start_visits = root.visit_count
 
         for i in range(self.num_iterations):
@@ -197,10 +216,8 @@ class MCTS:
         if self.cache:
             self.cache.save()
 
+        # Choose the most visited move from the (possibly restricted) root.
         best_action = self._best_action(root)
-        if self.minimax_depth > 0:
-            mm_action, _ = self._minimax_search(root_state, self.minimax_depth)
-            return mm_action
         return best_action
 
     # -------------------------------------------------------------
@@ -337,7 +354,8 @@ class MCTS:
                 best_actions = [action]
             elif score == best_score:
                 best_actions.append(action)
-        return random.choice(best_actions), best_score
+        # Return the full list of equally best actions along with the score.
+        return best_actions, best_score
 
     # -------------------------------------------------------------
     # Misc convenience --------------------------------------------

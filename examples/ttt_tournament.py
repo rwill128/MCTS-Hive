@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - allow headless use
 from mcts.Mcts import MCTS
 from simple_games.tic_tac_toe import TicTacToe
 from simple_games.perfect_tic_tac_toe import PerfectTicTacToePlayer
+
 try:
     from simple_games.ttt_visualizer import init_display, draw_board
 except Exception:  # pragma: no cover - pygame optional
@@ -112,13 +113,14 @@ def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
 
 
 def play_one_game(
-    game: TicTacToe,
-    params_x: dict,
-    params_o: dict,
-    seed: int,
-    screen=None,
+        game: TicTacToe,
+        params_x: dict,
+        params_o: dict,
+        seed: int,
+        screen=None,
 ) -> int:
     random.seed(seed)
+
     def make_player(cfg, role):
         if cfg.get("type") == "perfect":
             return PerfectTicTacToePlayer(game, perspective_player=role)
@@ -170,7 +172,7 @@ def run(display: bool = True) -> None:
                 game,
                 players[x_name],
                 players[o_name],
-                seed=random.randint(0, 2**32 - 1),
+                seed=random.randint(0, 2 ** 32 - 1),
                 screen=screen,
             )
 
@@ -192,8 +194,8 @@ def run(display: bool = True) -> None:
                 score_a = 0.0
                 print("  O wins")
 
-            ra = data["ratings"][x_name]
-            rb = data["ratings"][o_name]
+            ra = data["ratings"].setdefault(x_name, 1500.0)
+            rb = data["ratings"].setdefault(o_name, 1500.0)
             ea = expected(ra, rb)
             eb = expected(rb, ra)
             data["ratings"][x_name] = update(ra, score_a, ea)
@@ -220,35 +222,6 @@ def run(display: bool = True) -> None:
             pygame.quit()
 
 
-def init_players() -> None:
-    PLAYERS_DIR.mkdir(exist_ok=True)
-    samples = {
-        "iter20":  {"num_iterations": 20,  "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter50":  {"num_iterations": 50,  "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter100": {"num_iterations": 100, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter150": {"num_iterations": 150, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter200": {"num_iterations": 200, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter300": {"num_iterations": 300, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter400": {"num_iterations": 400, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter600": {"num_iterations": 600, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter6000": {"num_iterations": 6000, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "iter1000": {"num_iterations": 1000, "max_depth": 9, "c_param": 1.4, "forced_check_depth": 0},
-        "c1":      {"num_iterations": 200, "max_depth": 9, "c_param": 1.0, "forced_check_depth": 0},
-        "c2":      {"num_iterations": 200, "max_depth": 9, "c_param": 2.0, "forced_check_depth": 0},
-        "c3":      {"num_iterations": 200, "max_depth": 9, "c_param": 3.0, "forced_check_depth": 0},
-        "perfect": {"type": "perfect"},
-        "hybrid_4": {"num_iterations": 0, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 4 },
-        "hybrid_6": {"num_iterations": 0, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 6 },
-        "hybrid_9": {"num_iterations": 0, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 9 },
-    }
-    for name, cfg in samples.items():
-        path = PLAYERS_DIR / f"{name}.json"
-        if not path.exists():
-            with path.open("w") as f:
-                json.dump(cfg, f, indent=2)
-            print("wrote", path)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -263,7 +236,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if args.init_players:
-        init_players()
-    else:
-        run(display=True)
+    run(display=True)
