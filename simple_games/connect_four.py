@@ -101,6 +101,9 @@ class ConnectFour:
     def isTerminal(self, state):
         return self.getGameOutcome(state) is not None
 
+    def get_action_size(self):
+        return self.COLS
+
     def simulateRandomPlayout(self, state, perspectivePlayer, max_depth=42, eval_func=None, weights=None):
         temp_state = self.copyState(state)
         depth = 0
