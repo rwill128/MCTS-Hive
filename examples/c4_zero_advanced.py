@@ -477,9 +477,12 @@ def run(parsed_cli_args=None) -> None:
                     mcts_simulations=args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
                     debug_mode=args_global.debug_single_loop )
                 
-                add_method = buf.add if isinstance(buf, PrioritizedReplayBuffer) else buf.extend
-                if isinstance(buf, PrioritizedReplayBuffer): for exp in game_hist: add_method(exp)
-                else: add_method(game_hist)
+                if isinstance(buf, PrioritizedReplayBuffer):
+                    for exp in game_hist:
+                        buf.add(exp)
+                else: # It's a deque
+                    buf.extend(game_hist)
+                
                 net.train() 
                 if args_global.debug_single_loop or (g+1) % args_global.save_buffer_every == 0:
                     print(f"  Bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_hist)} states) → buffer {len(buf)}", flush=True)
@@ -498,9 +501,11 @@ def run(parsed_cli_args=None) -> None:
                 mcts_simulations=args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
                 debug_mode=args_global.debug_single_loop )
             
-            add_method = buf.add if isinstance(buf, PrioritizedReplayBuffer) else buf.extend
-            if isinstance(buf, PrioritizedReplayBuffer): for exp in game_hist: add_method(exp)
-            else: add_method(game_hist)
+            if isinstance(buf, PrioritizedReplayBuffer):
+                for exp in game_hist:
+                    buf.add(exp)
+            else: # It's a deque
+                buf.extend(game_hist)
             net.train() 
 
             current_min_train_fill = args_global.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
@@ -639,7 +644,7 @@ def parser() -> argparse.ArgumentParser:
     g_mgmt = p.add_argument_group("Checkpointing & Logging (Connect Four)")
     g_mgmt.add_argument("--ckpt-dir", default="c4_checkpoints_az", help="Directory for model checkpoints.") # C4 specific
     g_mgmt.add_argument("--ckpt-every", type=int, default=100, help="Save checkpoint every N epochs.")
-    g_mgmt.add_argument("--log-every", type=int, default=10, help="Log training stats every N epochs.")
+    g_mgmt.add_argument("--log-every", type=int, default=1, help="Log training stats every N epochs.")
     g_mgmt.add_argument("--resume-weights", metavar="PATH", help="Path to load network weights.")
     g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state.")
     

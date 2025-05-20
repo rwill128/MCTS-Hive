@@ -46,6 +46,118 @@ try:
 except Exception:  # pragma: no cover – advanced network optional
     C4AdvZeroNet = None
 
+# Import new style network from c4_zero_advanced for new models
+from examples.c4_zero_advanced import AdvancedC4ZeroNet as AdvancedC4ZeroNet_NewStyle
+from examples.c4_zero_advanced import ConnectFourAdapter as C4Adapter_NewStyle # Renaming for clarity
+from examples.c4_zero_advanced import encode_c4_state # Using this encoding
+from examples.ttt_zero_advanced import torch, nn, F, np # Common torch/np imports
+
+# --- BEGIN Definition of Old Sequential Network Architecture ---
+if torch is not None:
+    class ResidualBlock_Old(nn.Module):
+        def __init__(self, ch: int):
+            super().__init__()
+            self.c1 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
+            self.b1 = nn.BatchNorm2d(ch)
+            self.c2 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
+            self.b2 = nn.BatchNorm2d(ch)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            y = F.relu(self.b1(self.c1(x)))
+            y = self.b2(self.c2(y))
+            return F.relu(x + y)
+
+    class AdvancedC4ZeroNet_OldSequential(nn.Module):
+        def __init__(self, ch: int = 128, blocks: int = 10):
+            super().__init__()
+            # Constants for C4 board dimensions, assuming they are available globally or passed
+            # For safety, let's define them here if not already present from other imports
+            BOARD_H_C4 = 6 # ConnectFour.ROWS
+            BOARD_W_C4 = 7 # ConnectFour.COLS
+
+            self.stem = nn.Sequential(
+                nn.Conv2d(3, ch, 3, padding=1, bias=False),
+                nn.BatchNorm2d(ch), nn.ReLU(),
+            )
+            self.res = nn.Sequential(*[ResidualBlock_Old(ch) for _ in range(blocks)])
+            self.policy = nn.Sequential(
+                nn.Conv2d(ch, 2, 1, bias=True), # Original might have had bias=True here
+                nn.BatchNorm2d(2), 
+                nn.ReLU(),
+                nn.Flatten(), 
+                nn.Linear(2 * BOARD_H_C4 * BOARD_W_C4, BOARD_W_C4)
+            )
+            self.value = nn.Sequential(
+                nn.Conv2d(ch, 1, 1, bias=True), # Original might have had bias=True here
+                nn.BatchNorm2d(1), 
+                nn.ReLU(),
+                nn.Flatten(), 
+                nn.Linear(BOARD_H_C4 * BOARD_W_C4, 64), 
+                nn.ReLU(),
+                nn.Linear(64, 1), 
+                nn.Tanh()
+            )
+
+        def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            x = self.res(self.stem(x))
+            return self.policy(x), self.value(x).squeeze(1)
+else:
+    class AdvancedC4ZeroNet_OldSequential: pass # Placeholder if torch not found
+# --- END Definition of Old Sequential Network Architecture ---
+
+
+# --- AlphaZero Player for Connect Four (using new style by default) ---
+class AlphaZeroC4Player:
+    def __init__(self, game_instance: ConnectFour, perspective_player: str, 
+                 model_path: str, device: str = "cpu",
+                 mcts_simulations: int = 50, c_puct: float = 1.41, 
+                 dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.0, # Epsilon 0 for eval
+                 nn_channels: int = 128, nn_blocks: int = 10, architecture: str = "new_style"):
+        if torch is None: raise ImportError("PyTorch required")
+
+        self.game_adapter = C4Adapter_NewStyle(game_instance) 
+        self.perspective_player = perspective_player
+        self.device = torch.device(device)
+        self.architecture = architecture
+
+        if self.architecture == "old_sequential":
+            self.net = AdvancedC4ZeroNet_OldSequential(ch=nn_channels, blocks=nn_blocks).to(self.device)
+            print(f"Loading AlphaZeroC4Player with OLD SEQUENTIAL architecture for model: {model_path}")
+        else: # Default to new style
+            self.net = AdvancedC4ZeroNet_NewStyle(ch=nn_channels, blocks=nn_blocks).to(self.device)
+            print(f"Loading AlphaZeroC4Player with NEW STYLE architecture for model: {model_path}")
+        
+        try:
+            # General loading, hoping the state_dict matches the chosen architecture
+            state_dict = torch.load(model_path, map_location=self.device)
+            if "net" in state_dict and isinstance(state_dict["net"], dict): # From full training state
+                self.net.load_state_dict(state_dict["net"])
+            elif isinstance(state_dict, dict): # Just the model state_dict
+                self.net.load_state_dict(state_dict)
+            else:
+                raise ValueError("Checkpoint format not recognized for chosen architecture.")
+            print(f"Successfully loaded model weights: {model_path}")
+        except Exception as e:
+            raise IOError(f"Failed to load model {model_path} with {self.architecture} arch: {e}")
+        self.net.eval()
+
+        def mcts_model_fn(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            with torch.no_grad():
+                policy_logits, value_estimates = self.net(encoded_state_batch)
+            return policy_logits, value_estimates.unsqueeze(-1)
+
+        self.mcts_instance = AlphaZeroMCTS(
+            game_interface=self.game_adapter, model_fn=mcts_model_fn, device=self.device,
+            c_puct=c_puct, dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon
+        )
+        self.mcts_simulations = mcts_simulations
+
+    def search(self, state: dict) -> int: # Returns column index for C4
+        int_action, _ = self.mcts_instance.get_action_policy(
+            root_state=state, num_simulations=self.mcts_simulations, temperature=0.0)
+        return int_action # C4 actions are already integers
+# --- End AlphaZeroC4Player ---
+
 
 class ZeroGuidedMCTS(MCTS):
     """MCTS variant that uses a Zero network to guide simulations."""
@@ -202,67 +314,68 @@ def play_one_game(
     params_o: dict,
     seed: int,
     screen=None,
+    display_moves: bool = False
 ) -> int:
     random.seed(seed)
-    def make_player(cfg, role):
-        if cfg.get("type") == "minimax":
-            depth = int(cfg.get("depth", 4))
-            return MinimaxConnectFourPlayer(game, perspective_player=role, depth=depth)
 
-        # ------------------------------------------------------------------
-        # Helper – load either the *basic* or *advanced* Zero network depending
-        # on the supplied weights file.  We first try the basic architecture
-        # and fall back to the advanced one if the shapes do not match or the
-        # config explicitly requests it via ``"arch": "advanced"``.
-        # ------------------------------------------------------------------
-        def _load_zero_net(cfg):
-            weights_path = Path(cfg["weights"])
+    def make_player(cfg, role, game_instance):
+        player_type = cfg.get("type", "mcts") 
 
-            # If the config explicitly asks for the advanced model, honour it.
-            if cfg.get("arch") == "advanced" and C4AdvZeroNet is not None:
-                net_adv = C4AdvZeroNet()
-                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
-                return net_adv
+        if player_type == "human":
+            raise NotImplementedError("Human player for C4 tournament not implemented yet.")
+        
+        # Handle our new AlphaZero player and adapt old "zero" types to it
+        elif player_type in {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}:
+            model_path = cfg.get("model_path") or cfg.get("weights") # Accept old "weights" key
+            if not model_path:
+                raise ValueError(f"Player type {player_type} config must specify 'model_path' or 'weights'.")
+            
+            # Determine architecture: default to new, but allow override for old sequential or old basic C4ZeroNet
+            architecture = cfg.get("architecture", "new_style") # For AlphaZeroC4Player
+            if cfg.get("arch") == "advanced" and architecture == "new_style": # From old mcts_zero_adv
+                architecture = "old_sequential" # Assume old advanced means old sequential for our player
+            elif player_type in {"zero", "mcts_zero"} and not cfg.get("arch"):
+                # This implies it might be the very basic C4ZeroNet from c4_zero.py
+                # Our AlphaZeroC4Player is not designed for that one directly.
+                # For now, let's assume if it's a zero type, it implies an AdvancedNet structure.
+                # If a C4ZeroNet (basic) is to be used, it needs its own player class or different handling.
+                # Defaulting to new_style for these if not specified, which might fail if state_dict differs too much.
+                # A more robust solution would be specific player classes or more arch flags.
+                print(f"Warning: player type {player_type} without specific 'arch' or 'architecture' might assume incompatible network for AlphaZeroC4Player.")
 
-            # Otherwise, attempt the basic network first.
-            net_basic = C4ZeroNet()
-            try:
-                load_weights(net_basic, weights_path)
-                return net_basic
-            except Exception:
-                # Shape mismatch – try the advanced architecture as a fallback.
-                if C4AdvZeroNet is None:
-                    raise  # Cannot satisfy the request
-                net_adv = C4AdvZeroNet()
-                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
-                return net_adv
-
-        if cfg.get("type") in {"zero", "zero_adv"}:
-            net = _load_zero_net(cfg)
-            temp = float(cfg.get("temperature", 0.0))
-            return ZeroC4Player(net, temperature=temp)
-
-        if cfg.get("type") in {"mcts_zero", "mcts_zero_adv"}:
-            net = _load_zero_net(cfg)
-            temp = float(cfg.get("temperature", 0.0))
-            params = {
-                k: v
-                for k, v in cfg.items()
-                if k not in {"type", "weights", "temperature", "arch"}
-            }
-            return ZeroGuidedMCTS(
-                game=game,
-                net=net,
-                perspective_player=role,
-                temperature=temp,
-                **params,
+            return AlphaZeroC4Player(
+                game_instance=game_instance, 
+                perspective_player=role, 
+                model_path=model_path,
+                device=cfg.get("device", "cpu"),
+                mcts_simulations=cfg.get("mcts_simulations") or cfg.get("num_iterations", 100), # Accept old num_iterations
+                c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)), # Accept old c_param
+                dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
+                dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0), # Noise off for eval
+                nn_channels=cfg.get("nn_channels", 128), 
+                nn_blocks=cfg.get("nn_blocks", 10),
+                architecture=architecture
             )
+        elif player_type == "minimax": # Explicitly handle minimax
+            depth = int(cfg.get("depth", 4))
+            return MinimaxConnectFourPlayer(game_instance, perspective_player=role, depth=depth)
+        
+        else: # Fallback to original MCTS player from mcts.Mcts
+            # Filter out keys specific to Zero/AlphaZero players before passing to old MCTS
+            known_az_keys = {'type', 'model_path', 'weights', 'architecture', 'arch', 'device', 
+                             'nn_channels', 'nn_blocks', 'mcts_simulations', 'dirichlet_alpha', 
+                             'dirichlet_epsilon', 'c_puct', 'temperature'}
+            
+            # Also filter keys that might be in cfg but not used by old MCTS
+            # The old MCTS directly takes: num_iterations, max_depth, c_param, forced_check_depth, minimax_depth etc.
+            # We will pass all remaining keys from cfg. If a key is genuinely unexpected by old MCTS, it will error.
+            # The goal is to avoid passing clearly incompatible keys like 'model_path'.
+            mcts_params = {k: v for k, v in cfg.items() if k not in known_az_keys}
+            print(f"Fallback to original MCTS for player type: {player_type} with params: {mcts_params}")
+            return MCTS(game=game_instance, perspective_player=role, **mcts_params)
 
-        # Default: plain MCTS with supplied parameters.
-        return MCTS(game=game, perspective_player=role, **cfg)
-
-    mcts_x = make_player(params_x, "X")
-    mcts_o = make_player(params_o, "O")
+    mcts_x = make_player(params_x, "X", game)
+    mcts_o = make_player(params_o, "O", game)
     state = game.getInitialState()
     if screen is not None:
         draw_board(screen, state["board"])
@@ -317,6 +430,7 @@ def play_one_game(
             draw_board(screen, state["board"])
             pygame.event.pump()
             pygame.time.delay(300)
+        if display_moves: game.printState(state); print("-----")
     outcome = game.getGameOutcome(state)
     return 1 if outcome == "X" else -1 if outcome == "O" else 0
 
@@ -348,6 +462,7 @@ def run(display: bool = True) -> None:
                 players[o_name],
                 seed=random.randint(0, 2**32 - 1),
                 screen=screen,
+                display_moves=args.display_moves
             )
 
             # Record results with the X player first so that each orientation
@@ -443,16 +558,13 @@ def init_players() -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Connect Four MCTS Tournament")
+    parser.add_argument("--no-display", action="store_true", help="Run tournament without pygame visualizer.")
+    parser.add_argument("--display-moves", action="store_true", help="Print board state to console after each move.")
     parser.add_argument(
         "--init-players",
         action="store_true",
         help="create sample configs in c4_players/",
-    )
-    parser.add_argument(
-        "--no-display",
-        action="store_true",
-        help="run tournament without the pygame visualizer",
     )
     args = parser.parse_args()
 
