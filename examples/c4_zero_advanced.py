@@ -32,6 +32,11 @@ except Exception:  # pragma: no cover - torch optional
     nn = None
     F = None
 
+
+print(torch.cuda.is_available())
+print(torch.cuda.current_device())
+print(torch.cuda.get_device_name(0))
+
 from simple_games.connect_four import ConnectFour
 
 BOARD_H = ConnectFour.ROWS
@@ -76,7 +81,15 @@ if torch is not None:
 
 
     class AdvancedC4ZeroNet(nn.Module):
-        """Residual policy/value network for Connect Four."""
+        """Residual policy/value network for Connect Four.
+
+        Parameters
+        ----------
+        ch : int, optional
+            Number of channels in each convolutional layer (default 64).
+        blocks : int, optional
+            How many residual blocks to stack (default 4).
+        """
 
         def __init__(self, ch: int = 64, blocks: int = 4):
             super().__init__()
@@ -148,7 +161,7 @@ def play_one_game(net: AdvancedC4ZeroNet, T: float = 1.0, max_moves: int = 42) -
     move_no = 0
 
     while not game.isTerminal(st) and move_no < max_moves:
-        x = encode_state(st, st["current_player"]).unsqueeze(0)
+        x = encode_state(st, st["current_player"]).unsqueeze(0).to(next(net.parameters()).device)
         with torch.no_grad():
             logits, _ = net(x)
             logits = logits.squeeze(0).cpu().numpy()
@@ -259,8 +272,8 @@ def run(args=None) -> None:
     # If no such state exists we fall back to the legacy behaviour of
     # restoring only the network weights (via --resume or latest checkpoint).
     # --------------------------------------------------------------
-    net = AdvancedC4ZeroNet().to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=1e-3)
+    net = AdvancedC4ZeroNet(ch=args.channels, blocks=args.blocks).to(dev)
+    opt = torch.optim.Adam(net.parameters(), lr=args.lr)
 
     state_path = ckdir / "train_state.pt"
     start_ep = 1
@@ -328,16 +341,19 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     p.add_argument("--gpu", action="store_true")
     p.add_argument("--games", type=int, default=20)
-    p.add_argument("--epochs", type=int, default=1000)
+    p.add_argument("--epochs", type=int, default=10000)
     p.add_argument("--buffer", type=int, default=50000)
     p.add_argument("--batch", type=int, default=256)
     p.add_argument("--temp", type=float, default=1.0)
     p.add_argument("--ckpt-dir", default="c4_checkpoints")
-    p.add_argument("--ckpt-every", type=int, default=1000)
+    p.add_argument("--ckpt-every", type=int, default=100)
     p.add_argument("--log-every", type=int, default=10)
     p.add_argument("--resume", metavar="PATH", help="checkpoint to load before training")
     p.add_argument("--skip-bootstrap", action="store_true",
                    help="start training immediately (no fresh bootstrap games)")
+    p.add_argument("--channels", type=int, default=128, help="channels per conv layer")
+    p.add_argument("--blocks", type=int, default=8, help="number of residual blocks")
+    p.add_argument("--lr", type=float, default=3e-4, help="initial learning rate")
     return p
 
 

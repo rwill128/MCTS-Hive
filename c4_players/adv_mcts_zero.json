@@ -1,0 +1,10 @@
+{
+  "type": "mcts_zero_adv",
+  "arch": "advanced",
+  "weights": "c4_checkpoints/last.pt",
+  "num_iterations": 10,
+  "max_depth": 42,
+  "c_param": 1.4,
+  "forced_check_depth": 0,
+  "temperature": 0.0
+}

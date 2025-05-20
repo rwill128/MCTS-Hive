@@ -60,25 +60,74 @@ class MinimaxConnectFourPlayer:
         player = self.perspective
         opp = self.game.getOpponent(player)
         score = 0.0
+        # Pre-compute playability: the first empty row in each column
+        next_empty_row = [self.game.ROWS] * self.game.COLS
+        for c in range(self.game.COLS):
+            for r in range(self.game.ROWS):
+                if board[r][c] is None:
+                    next_empty_row[c] = r
+                    break
+
+        def line_playable(line):
+            for rr, cc in line:
+                if board[rr][cc] is None and next_empty_row[cc] == rr:
+                    return True
+            return False
+
+        DOUBLE_THREAT_BONUS = 5000.0
+
         for r in range(self.game.ROWS):
             for c in range(self.game.COLS):
                 for dr, dc in ((1, 0), (0, 1), (1, 1), (1, -1)):
-                    cells = []
+                    line = []
                     for i in range(4):
                         rr = r + dr * i
                         cc = c + dc * i
                         if 0 <= rr < self.game.ROWS and 0 <= cc < self.game.COLS:
-                            cells.append(board[rr][cc])
+                            line.append((rr, cc))
                         else:
                             break
-                    if len(cells) != 4:
+                    if len(line) != 4:
                         continue
-                    if opp not in cells:
+                    cells = [board[x][y] for x, y in line]
+                    if opp not in cells and any(cells):
                         count = cells.count(player)
+                        if count == 0:
+                            continue
                         score += pow(10.0, count - 1)
-                    elif player not in cells:
+                    elif player not in cells and any(cells):
                         count = cells.count(opp)
+                        if count == 0:
+                            continue
                         score -= pow(10.0, count - 1)
+
+        # Double-threat detection
+        for c in range(self.game.COLS):
+            r = next_empty_row[c]
+            if r >= self.game.ROWS:
+                continue
+            threat_lines = 0
+            for dr, dc in ((1,0), (0,1), (1,1), (1,-1)):
+                line = []
+                for i in range(-3,1):
+                    rr = r + dr*i
+                    cc = c + dc*i
+                    segment = []
+                    for j in range(4):
+                        rrr = rr + dr*j
+                        ccc = cc + dc*j
+                        if 0 <= rrr < self.game.ROWS and 0 <= ccc < self.game.COLS:
+                            segment.append((rrr, ccc))
+                    if len(segment) != 4 or (r,c) not in segment:
+                        continue
+                    cells = [board[x][y] for x,y in segment]
+                    if opp in cells:
+                        continue
+                    if cells.count(player)==3:
+                        threat_lines +=1
+            if threat_lines >=2:
+                score += DOUBLE_THREAT_BONUS
+
         # Clamp score to [-1, 1] for safety
         if score > 0:
             return min(1.0, score / 10000.0)
