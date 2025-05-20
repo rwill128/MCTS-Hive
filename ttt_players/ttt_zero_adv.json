@@ -1,0 +1,6 @@
+{
+  "type": "alphazero_mcts",
+  "model_path": "ttt_checkpoints_az/last_ttt_model.pt",
+  "mcts_simulations": 50,
+  "c_puct": 1.0
+}

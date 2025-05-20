@@ -22,8 +22,13 @@ except ImportError:  # pragma: no cover - allow headless use
     pygame = None
 
 from mcts.Mcts import MCTS
+from mcts.alpha_zero_mcts import AlphaZeroMCTS
 from simple_games.tic_tac_toe import TicTacToe
 from simple_games.perfect_tic_tac_toe import PerfectTicTacToePlayer
+
+# Import necessary components from ttt_zero_advanced for the new player
+# We need the network definition, the adapter, and the state encoding
+from examples.ttt_zero_advanced import AdvancedTTTZeroNet, TicTacToeAdapter, encode_ttt_state, torch
 
 try:
     from simple_games.ttt_visualizer import init_display, draw_board
@@ -33,6 +38,64 @@ except Exception:  # pragma: no cover - pygame optional
 PLAYERS_DIR = Path("../ttt_players")
 RESULTS_FILE = Path("ttt_results.json")
 K_FACTOR = 16
+
+
+# --- Define AlphaZeroTTTPlayer class here ---
+class AlphaZeroTTTPlayer:
+    def __init__(self, game_instance: TicTacToe, perspective_player: str, 
+                 model_path: str, device: str = "cpu",
+                 mcts_simulations: int = 50, c_puct: float = 1.0, 
+                 dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.25,
+                 nn_channels: int = 32, nn_blocks: int = 2): # NN arch params
+        if torch is None: # Check if torch was successfully imported earlier
+            raise ImportError("PyTorch is required for AlphaZeroTTTPlayer but was not imported.")
+
+        self.game_adapter = TicTacToeAdapter(game_instance) # Use the same adapter
+        self.perspective_player = perspective_player
+        self.device = torch.device(device)
+
+        # Load the trained neural network
+        self.net = AdvancedTTTZeroNet(ch=nn_channels, blocks=nn_blocks).to(self.device)
+        try:
+            state_dict = torch.load(model_path, map_location=self.device, weights_only=True)
+            self.net.load_state_dict(state_dict)
+        except Exception:
+            try:
+                state_dict_full = torch.load(model_path, map_location=self.device)
+                if "net" in state_dict_full and isinstance(state_dict_full["net"], dict):
+                    self.net.load_state_dict(state_dict_full["net"])
+                elif isinstance(state_dict_full, dict):
+                    self.net.load_state_dict(state_dict_full)
+                else:
+                    raise ValueError("Could not determine how to load model weights from checkpoint.")
+            except Exception as e:
+                raise IOError(f"Failed to load model from {model_path}: {e}")
+        self.net.eval()
+
+        # MCTS model function
+        def mcts_model_fn(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            with torch.no_grad():
+                policy_logits, value_estimates = self.net(encoded_state_batch)
+            return policy_logits, value_estimates.unsqueeze(-1)
+
+        self.mcts_instance = AlphaZeroMCTS(
+            game_interface=self.game_adapter,
+            model_fn=mcts_model_fn,
+            device=self.device,
+            c_puct=c_puct,
+            dirichlet_alpha=dirichlet_alpha,
+            dirichlet_epsilon=dirichlet_epsilon
+        )
+        self.mcts_simulations = mcts_simulations
+
+    def search(self, state: dict) -> Tuple[int,int]: 
+        int_action, _ = self.mcts_instance.get_action_policy(
+            root_state=state, 
+            num_simulations=self.mcts_simulations, 
+            temperature=0.0 
+        )
+        return self.game_adapter._int_to_action(int_action)
+# --- End AlphaZeroTTTPlayer class definition ---
 
 
 def expected(r_a: float, r_b: float) -> float:
@@ -122,9 +185,33 @@ def play_one_game(
     random.seed(seed)
 
     def make_player(cfg, role):
-        if cfg.get("type") == "perfect":
+        player_type = cfg.get("type", "mcts") # Default to original MCTS if type not specified
+        if player_type == "perfect":
             return PerfectTicTacToePlayer(game, perspective_player=role)
-        return MCTS(game=game, perspective_player=role, **cfg)
+        elif player_type == "alphazero_mcts": # Our new player type
+            # Extract necessary params from cfg for AlphaZeroTTTPlayer
+            # Ensure model_path is absolute or relative to a known location if needed
+            # For now, assume model_path in JSON is findable.
+            model_path = cfg.get("model_path")
+            if not model_path:
+                raise ValueError("AlphaZero player config must specify 'model_path'.")
+            
+            # Pass through relevant MCTS and NN architecture parameters from JSON
+            return AlphaZeroTTTPlayer(
+                game_instance=game, 
+                perspective_player=role, 
+                model_path=model_path,
+                device=cfg.get("device", "cpu"), # Allow device config in JSON
+                mcts_simulations=cfg.get("mcts_simulations", 50),
+                c_puct=cfg.get("c_puct", 1.0),
+                dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3), # Noise usually off for eval
+                dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0), # Turn off noise for eval by default
+                nn_channels=cfg.get("nn_channels", 32), # Match defaults from ttt_zero_advanced
+                nn_blocks=cfg.get("nn_blocks", 2)
+            )
+        else: # Fallback to original MCTS player
+            # The original MCTS takes **cfg directly for its own params
+            return MCTS(game=game, perspective_player=role, **cfg)
 
     mcts_x = make_player(params_x, "X")
     mcts_o = make_player(params_o, "O")
