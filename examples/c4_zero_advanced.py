@@ -64,6 +64,30 @@ def encode_state(state: dict, perspective: str) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
+# Data Augmentation
+# ---------------------------------------------------------------------------
+def reflect_state_policy(state_dict: Dict, policy_vector: np.ndarray, board_width: int) -> Tuple[Dict, np.ndarray]:
+    """Reflects a Connect Four board state and its policy vector horizontally."""
+    if np is None:
+        raise RuntimeError("NumPy is required for reflect_state_policy")
+
+    # Reflect board
+    reflected_board = [row[::-1] for row in state_dict["board"]]
+    reflected_state_dict = {
+        "board": reflected_board,
+        "current_player": state_dict["current_player"] # Player perspective doesn't change
+    }
+
+    # Reflect policy vector
+    # Actions in ConnectFour are column indices. Reflection means action `c` becomes `board_width - 1 - c`.
+    reflected_policy_vector = np.zeros_like(policy_vector)
+    for i in range(board_width):
+        reflected_policy_vector[i] = policy_vector[board_width - 1 - i]
+    
+    return reflected_state_dict, reflected_policy_vector
+
+
+# ---------------------------------------------------------------------------
 # Game Adapter for MCTS
 # ---------------------------------------------------------------------------
 class ConnectFourAdapter:
@@ -262,23 +286,35 @@ def play_one_game(
 # Training helpers
 # ---------------------------------------------------------------------------
 
-def batch_tensors(batch: List[Tuple[dict, np.ndarray, int]], dev: str, game_adapter: ConnectFourAdapter):
+def batch_tensors(batch: List[Tuple[dict, np.ndarray, int]], dev: str, game_adapter: ConnectFourAdapter, augment_prob: float = 0.5):
     if np is None or torch is None:
         raise RuntimeError("NumPy and PyTorch are required for batch_tensors")
     
     S_list = []
-    for s_dict, _, _ in batch:
-        player_perspective = game_adapter.getCurrentPlayer(s_dict)
-        S_list.append(game_adapter.encode_state(s_dict, player_perspective))
+    P_tgt_list = [] # Store as list of numpy arrays first
+
+    for s_dict_orig, p_tgt_orig, _ in batch:
+        s_dict_to_encode = s_dict_orig
+        p_tgt_to_use = p_tgt_orig
+
+        if random.random() < augment_prob:
+            s_dict_reflected, p_tgt_reflected = reflect_state_policy(s_dict_orig, p_tgt_orig, game_adapter.get_action_size())
+            s_dict_to_encode = s_dict_reflected
+            p_tgt_to_use = p_tgt_reflected
+
+        player_perspective = game_adapter.getCurrentPlayer(s_dict_to_encode)
+        S_list.append(game_adapter.encode_state(s_dict_to_encode, player_perspective))
+        P_tgt_list.append(p_tgt_to_use)
         
     S = torch.stack(S_list).to(dev)
-    P_tgt = torch.tensor(np.array([p for _, p, _ in batch]), dtype=torch.float32, device=dev)
-    V_tgt = torch.tensor([v for _, _, v in batch], dtype=torch.float32, device=dev)
+    P_tgt = torch.tensor(np.array(P_tgt_list), dtype=torch.float32, device=dev)
+    V_tgt = torch.tensor([v for _, _, v in batch], dtype=torch.float32, device=dev) # Values (z) are not affected by reflection
     return S, P_tgt, V_tgt
 
 
-def train_step(net: AdvancedC4ZeroNet, batch, opt, dev: str, game_adapter: ConnectFourAdapter) -> float:
-    S, P_tgt, V_tgt = batch_tensors(batch, dev, game_adapter)
+def train_step(net: AdvancedC4ZeroNet, batch, opt, dev: str, game_adapter: ConnectFourAdapter, augment_prob: float) -> float:
+    # Pass augment_prob to batch_tensors
+    S, P_tgt, V_tgt = batch_tensors(batch, dev, game_adapter, augment_prob)
     logits, V_pred = net(S)
     
     logP_pred = F.log_softmax(logits, dim=1)
@@ -338,6 +374,20 @@ def run(args=None) -> None:
     net = AdvancedC4ZeroNet(ch=args.channels, blocks=args.blocks).to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
 
+    # --- LR Scheduler ---
+    scheduler = None
+    if args.lr_scheduler == "cosine":
+        # If T_max is not specified or 0, use total epochs
+        t_max_epochs = args.lr_t_max if args.lr_t_max > 0 else args.epochs
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args.lr_eta_min)
+        print(f"Using CosineAnnealingLR scheduler with T_max={t_max_epochs}, eta_min={args.lr_eta_min}")
+    elif args.lr_scheduler == "step":
+        # Example: scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=args.lr_step_size, gamma=args.lr_gamma)
+        print("StepLR not fully implemented yet. Add --lr-step-size and --lr-gamma arguments if needed.")
+        pass # Placeholder for StepLR
+    else:
+        print("No LR scheduler selected.")
+
     def mcts_model_fn(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         net.eval()
         with torch.no_grad():
@@ -359,10 +409,29 @@ def run(args=None) -> None:
 
     if args.resume_full_state and state_path.exists():
         print("Resuming full training state from", state_path)
-        st_checkpoint = torch.load(state_path, map_location=dev) 
+        st_checkpoint = torch.load(state_path, map_location=dev)
         net.load_state_dict(st_checkpoint["net"])
         opt.load_state_dict(st_checkpoint["opt"])
         start_ep = int(st_checkpoint.get("epoch", 1)) + 1
+        if scheduler and "scheduler" in st_checkpoint and st_checkpoint["scheduler"] is not None:
+            try:
+                scheduler.load_state_dict(st_checkpoint["scheduler"])
+                print("Resumed LR scheduler state.")
+            except Exception as e:
+                print(f"Could not load scheduler state: {e}. Reinitializing scheduler.")
+        # Adjust T_max for cosine scheduler if resuming and T_max was based on total epochs
+        if args.lr_scheduler == "cosine" and scheduler is not None:
+            # If original T_max was args.epochs, and we are resuming, 
+            # T_max should ideally be remaining_epochs. PyTorch CosineAnnealingLR 
+            # takes T_max as total cycles. It will complete its cycle from last_epoch to T_max.
+            # If start_ep > t_max_epochs, scheduler might behave unexpectedly or finish early.
+            # For simplicity, we often just set T_max to total epochs and let it run.
+            # If precise remaining epochs logic is needed, T_max might need dynamic adjustment or
+            # scheduler re-initialization with T_max = args.epochs - start_ep + 1.
+            # Current CosineAnnealingLR handles last_epoch correctly, so T_max=args.epochs is usually fine.
+            if start_ep > scheduler.T_max:
+                 print(f"Warning: Starting epoch {start_ep} is beyond scheduler T_max {scheduler.T_max}. Scheduler might be at eta_min.")
+
     elif args.resume_weights:
         print("Resuming weights from", args.resume_weights)
         net.load_state_dict(torch.load(args.resume_weights, map_location=dev))
@@ -416,10 +485,14 @@ def run(args=None) -> None:
                 if ep % args.ckpt_every == 0:
                     save_buffer(buf, buffer_actual_path)
             else:
+                # Sample batch for training
                 batch = random.sample(list(buf), min(args.batch_size, len(buf)))
-                loss = train_step(net, batch, opt, dev, game_adapter)
+                loss = train_step(net, batch, opt, dev, game_adapter, args.augment_prob) # Pass augment_prob
                 if ep % args.log_every == 0:
                     print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}", flush=True)
+            
+            if scheduler:
+                scheduler.step()
             
             if ep % args.ckpt_every == 0:
                 chkpt_path = ckdir / f"chkpt_ep{ep:06d}.pt"
@@ -430,6 +503,7 @@ def run(args=None) -> None:
                     "net": net.state_dict(),
                     "opt": opt.state_dict(),
                     "epoch": current_epoch_to_save,
+                    "scheduler": scheduler.state_dict() if scheduler else None, # Save scheduler state
                 }
                 torch.save(full_state_to_save, state_path)
                 print(f"Saved checkpoint: {chkpt_path} and full state: {state_path}", flush=True)
@@ -455,6 +529,7 @@ def run(args=None) -> None:
             "net": net.state_dict(),
             "opt": opt.state_dict(),
             "epoch": current_epoch_to_save,
+            "scheduler": scheduler.state_dict() if scheduler else None, # Save scheduler state
         }
         torch.save(full_state_to_save, state_path)
         print(f"Final model saved to {final_model_path}, buffer to {buffer_actual_path}, and full state to {state_path}")
@@ -483,6 +558,12 @@ def parser() -> argparse.ArgumentParser:
     g_train.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate for Adam optimizer.")
     g_train.add_argument("--batch-size", type=int, default=256, help="Batch size for training.")
     g_train.add_argument("--ent-beta", type=float, default=1e-3, help="Entropy regularization coefficient.")
+    # LR Scheduler Args
+    g_train.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"], help="Type of LR scheduler.")
+    g_train.add_argument("--lr-t-max", type=int, default=10000, help="T_max for CosineAnnealingLR (usually total epochs).")
+    g_train.add_argument("--lr-eta-min", type=float, default=1e-6, help="Minimum LR for CosineAnnealingLR.")
+    g_train.add_argument("--augment-prob", type=float, default=0.5, help="Probability of applying horizontal reflection augmentation.")
+    # TODO: Add args for StepLR if chosen: --lr-step-size, --lr-gamma
 
 
     g_buffer = p.add_argument_group("Replay Buffer")
