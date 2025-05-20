@@ -212,20 +212,30 @@ class AlphaZeroMCTS:
         action_probs: Dict[Any, float] = {}
         legal_root_actions = self.game.getLegalActions(root_state)
         if not root_node.children: 
+            # Root was not expanded (e.g. terminal or 0 simulations that didn't even run once)
             if not self.game.isTerminal(root_state) and legal_root_actions:
                 uniform_prob = 1.0 / len(legal_root_actions)
                 for action_key in legal_root_actions: action_probs[action_key] = uniform_prob
-            if debug_mcts: print(f"[MCTS] Root has no children after sims. Legal: {legal_root_actions}. Returning uniform/empty: {action_probs}")
+            if debug_mcts: print(f"[MCTS] Root has no children. Legal: {legal_root_actions}. Returning uniform/empty: {action_probs}")
         else:
-            total_visits_for_policy = sum(child.visit_count for child in root_node.children.values()) # Should be root_node.visit_count if expanded
+            # Policy is visit counts of children, normalized
+            # total_visits_for_policy should be the sum of visits to all actions taken from the root.
+            total_visits_for_policy = sum(child.visit_count for child in root_node.children.values())
+            
             if total_visits_for_policy > 0 :
                  for action_int, child_node in root_node.children.items():
-                    if action_int in legal_root_actions: 
+                    if action_int in legal_root_actions: # Ensure action is legal for current root
                         action_probs[action_int] = child_node.visit_count / total_visits_for_policy
-            else: 
-                if legal_root_actions: uniform_prob = 1.0 / len(legal_root_actions)
-                for action_key in legal_root_actions: action_probs[action_key] = uniform_prob
-            if debug_mcts: print(f"[MCTS] Final action_probs from root: {action_probs}")
+                    # If a child exists for an action no longer legal (e.g. due to game rules not caught by MCTS state alone, rare for TTT)
+                    # it won't be included in action_probs here if not in legal_root_actions.
+            else: # No child was visited (can happen if num_simulations is very low, e.g., 0 or 1 before full expansion)
+                if legal_root_actions:
+                    uniform_prob = 1.0 / len(legal_root_actions)
+                    for action_key in legal_root_actions: 
+                        action_probs[action_key] = uniform_prob
+                if debug_mcts: print(f"[MCTS] No child visits from root (total_visits_for_policy=0). Legal: {legal_root_actions}. Returning uniform: {action_probs}")
+            
+            if debug_mcts: print(f"[MCTS] Final action_probs from root (sum={sum(action_probs.values()):.2f}): {action_probs}")
 
         mcts_value_of_root = root_node.Q_value 
         if debug_mcts: print(f"[MCTS] MCTS estimated value of root: {mcts_value_of_root:.3f}")

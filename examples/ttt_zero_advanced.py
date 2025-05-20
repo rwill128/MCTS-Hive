@@ -395,12 +395,98 @@ def load_experiences_to_buffer(target_buffer: PrioritizedReplayBuffer | deque, p
 
 args_global = None # To store parsed args
 
+# --- Definition of evaluate_model_policy needs to be before run() ---
+def evaluate_model_policy(model_path: str, game_adapter: TicTacToeAdapter, device_str: str, num_mcts_sims_for_eval: int = 100):
+    """Loads a trained model and prints its policy for a few sample states."""
+    if torch is None or np is None: raise RuntimeError("PyTorch/NumPy needed")
+    print(f"\n--- Evaluating Model Policy from: {model_path} ---")
+    device = torch.device(device_str)
+
+    nn_ch = args_global.channels if args_global else 32
+    nn_bl = args_global.blocks if args_global else 2
+    net = AdvancedTTTZeroNet(ch=nn_ch, blocks=nn_bl).to(device)
+    try:
+        state_dict = torch.load(model_path, map_location=device)
+        if "net" in state_dict and isinstance(state_dict["net"], dict):
+            net.load_state_dict(state_dict["net"])
+            print(f"Loaded model weights from 'net' key in checkpoint: {model_path}")
+        elif isinstance(state_dict, dict):
+            net.load_state_dict(state_dict)
+            print(f"Loaded model weights directly from checkpoint: {model_path}")
+        else:
+            raise ValueError("Checkpoint format not recognized.")
+    except Exception as e:
+        print(f"Error loading model {model_path}: {e}")
+        return
+    net.eval()
+
+    def mcts_model_fn(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        with torch.no_grad(): policy_logits, value_estimates = net(encoded_state_batch)
+        return policy_logits, value_estimates.unsqueeze(-1)
+
+    mcts_eval = AlphaZeroMCTS(
+        game_interface=game_adapter, model_fn=mcts_model_fn, device=device,
+        c_puct=args_global.c_puct if args_global else 1.0, 
+        dirichlet_alpha=0, dirichlet_epsilon=0 
+    )
+
+    sample_states = [
+        (game_adapter.ttt_game.getInitialState(), "Empty Board (X to play)"),
+        ({"board": [['X',None,None],[None,None,None],[None,None,None]], "current_player": "O"}, "X in corner (0,0), O to play"),
+        ({"board": [[None,None,None],[None,'X',None],[None,None,None]], "current_player": "O"}, "X in center (1,1), O to play"),
+        ({"board": [['X','O','X'],['O','X',None],[None,None,'O']], "current_player": "X"}, "Complex state, X to play for win/draw"),
+    ]
+
+    for state_dict, desc in sample_states:
+        print(f"\n--- Evaluating State: {desc} ---")
+        current_player = game_adapter.getCurrentPlayer(state_dict)
+        board_str = "\n".join([str(row) for row in state_dict["board"]])
+        print(f"Board:\n{board_str}\nPlayer to move: {current_player}")
+
+        encoded_s = game_adapter.encode_state(state_dict, current_player).unsqueeze(0).to(device)
+        with torch.no_grad():
+            raw_logits, raw_value = net(encoded_s)
+        raw_policy_probs = F.softmax(raw_logits.squeeze(0), dim=0).cpu().numpy()
+        print(f"  Direct Net Value: {raw_value.item():.3f}")
+        print(f"  Direct Net Policy (probs for actions 0-8):\n  {[f'{p:.3f}' for p in raw_policy_probs]}")
+        legal_actions_int = game_adapter.getLegalActions(state_dict)
+        print(f"  Legal actions (int): {legal_actions_int}")
+        print(f"  Direct Net Policy for Legal Actions:")
+        for la in legal_actions_int:
+            r,c = game_adapter._int_to_action(la)
+            print(f"    Action ({r},{c}) [{la}]: {raw_policy_probs[la]:.3f}")
+
+        if not game_adapter.isTerminal(state_dict):
+            _, mcts_policy = mcts_eval.get_action_policy(state_dict, num_mcts_sims_for_eval, temperature=0.0)
+            print(f"  MCTS ({num_mcts_sims_for_eval} sims) Policy (probs for actions 0-8):\n  {[f'{mcts_policy.get(i, 0.0):.3f}' for i in range(ACTION_SIZE)]}")
+            print(f"  MCTS Policy for Legal Actions:")
+            if mcts_policy: # Check if mcts_policy is not empty
+                for la_int in sorted(mcts_policy.keys()):
+                    r,c = game_adapter._int_to_action(la_int)
+                    print(f"    Action ({r},{c}) [{la_int}]: {mcts_policy[la_int]:.3f}")
+            else:
+                print("    MCTS policy dictionary is empty.")
+        else:
+            print("  State is terminal, skipping MCTS.")
+    print("\n--- Model Policy Evaluation END ---")
+# --- End definition of evaluate_model_policy ---
+
 # ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
 def run(parsed_cli_args=None) -> None:
     global args_global 
     args_global = parsed_cli_args if parsed_cli_args is not None else parser().parse_args()
+
+    if args_global.eval_model_path:
+        if torch is None: raise RuntimeError("PyTorch needed for model evaluation.")
+        # Ensure game_adapter is created before being passed to evaluate_model_policy
+        ttt_game_eval = TicTacToe()
+        game_adapter_eval = TicTacToeAdapter(ttt_game_eval)
+        evaluate_model_policy(args_global.eval_model_path, game_adapter_eval, 
+                              "cuda" if args_global.gpu and torch.cuda.is_available() else "cpu",
+                              args_global.mcts_simulations)
+        return
 
     if args_global.debug_single_loop:
         print("!!!!!!!!!!!!!!!!! DEBUG SINGLE LOOP MODE ENABLED !!!!!!!!!!!!!!!!!")
@@ -644,6 +730,7 @@ def run(parsed_cli_args=None) -> None:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="AlphaZero-style training for Tic-Tac-Toe.")
     p.add_argument("--debug-single-loop", action="store_true", help="Run for one minimal loop with extensive debugging prints.")
+    p.add_argument("--eval-model-path", type=str, default=None, help="Path to a .pt model file to evaluate its policy on sample states.")
     p.add_argument("--gpu", action="store_true", help="Use GPU if available.")
     p.add_argument("--bootstrap-games", type=int, default=50, help="Initial games to fill buffer.")
     p.add_argument("--skip-bootstrap", action="store_true", help="Skip bootstrap if buffer meets min fill.")
