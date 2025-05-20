@@ -221,7 +221,7 @@ def play_one_game(
             # If the config explicitly asks for the advanced model, honour it.
             if cfg.get("arch") == "advanced" and C4AdvZeroNet is not None:
                 net_adv = C4AdvZeroNet()
-                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu"))
+                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
                 return net_adv
 
             # Otherwise, attempt the basic network first.
@@ -234,7 +234,7 @@ def play_one_game(
                 if C4AdvZeroNet is None:
                     raise  # Cannot satisfy the request
                 net_adv = C4AdvZeroNet()
-                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu"))
+                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
                 return net_adv
 
         if cfg.get("type") in {"zero", "zero_adv"}:
@@ -420,10 +420,10 @@ def init_players() -> None:
         "minimax_6": {"type": "minimax", "depth": 6},
         "hybrid_4": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 4 },
         "hybrid_6": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 6 },
-        "mcts_zero": { "type": "mcts_zero", "weights": "c4_weights/weights.pth", "num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0, "temperature": 0.0, },
+        # "mcts_zero": { "type": "mcts_zero", "weights": "c4_weights/weights.pth", "num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0, "temperature": 0.0, },
         # Example player using the *advanced* Zero network – adjust the
         # weights path to point at your checkpoint from c4_zero_advanced.py
-        "adv_mcts_zero": {
+        "adv_mcts_zero_2": {
             "type": "mcts_zero_adv",
             "arch": "advanced",
             "weights": "c4_checkpoints/last.pt",

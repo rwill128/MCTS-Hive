@@ -86,12 +86,12 @@ if torch is not None:
         Parameters
         ----------
         ch : int, optional
-            Number of channels in each convolutional layer (default 64).
+            Number of channels in each convolutional layer (default 128).
         blocks : int, optional
-            How many residual blocks to stack (default 4).
+            How many residual blocks to stack (default 10).
         """
 
-        def __init__(self, ch: int = 64, blocks: int = 4):
+        def __init__(self, ch: int = 128, blocks: int = 10):
             super().__init__()
             self.stem = nn.Sequential(
                 nn.Conv2d(3, ch, 3, padding=1, bias=False),
@@ -280,13 +280,13 @@ def run(args=None) -> None:
 
     if state_path.exists():
         print("Resuming full training state from", state_path)
-        st = torch.load(state_path, map_location=dev)
+        st = torch.load(state_path, map_location=dev, weights_only=True)
         net.load_state_dict(st["net"])
         opt.load_state_dict(st["opt"])
         start_ep = int(st.get("epoch", 1))
     elif args.resume:
         print("Resuming weights from", args.resume)
-        net.load_state_dict(torch.load(args.resume, map_location=dev))
+        net.load_state_dict(torch.load(args.resume, map_location=dev, weights_only=True))
 
     buf: deque
     if BUFFER_PATH.exists():
@@ -352,7 +352,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-bootstrap", action="store_true",
                    help="start training immediately (no fresh bootstrap games)")
     p.add_argument("--channels", type=int, default=128, help="channels per conv layer")
-    p.add_argument("--blocks", type=int, default=8, help="number of residual blocks")
+    p.add_argument("--blocks", type=int, default=10, help="number of residual blocks")
     p.add_argument("--lr", type=float, default=3e-4, help="initial learning rate")
     return p
 
