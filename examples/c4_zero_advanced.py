@@ -39,6 +39,7 @@ print(torch.cuda.get_device_name(0))
 
 from simple_games.connect_four import ConnectFour
 from mcts.alpha_zero_mcts import AlphaZeroMCTS
+from mcts.replay_buffer import PrioritizedReplayBuffer
 
 BOARD_H = ConnectFour.ROWS
 BOARD_W = ConnectFour.COLS
@@ -312,53 +313,123 @@ def batch_tensors(batch: List[Tuple[dict, np.ndarray, int]], dev: str, game_adap
     return S, P_tgt, V_tgt
 
 
-def train_step(net: AdvancedC4ZeroNet, batch, opt, dev: str, game_adapter: ConnectFourAdapter, augment_prob: float) -> float:
-    # Pass augment_prob to batch_tensors
-    S, P_tgt, V_tgt = batch_tensors(batch, dev, game_adapter, augment_prob)
-    logits, V_pred = net(S)
+def train_step(net: AdvancedC4ZeroNet, batch_experiences: list, is_weights: np.ndarray, 
+               opt: torch.optim.Optimizer, dev: str, game_adapter: ConnectFourAdapter, augment_prob: float) -> Tuple[float, np.ndarray]:
+    # Experiences are already processed (potentially augmented) and are lists of (state_dict, policy_target_vector, value_for_state_player)
+    # We need to re-encode them here for the batch tensor creation.
     
+    S_list = []
+    P_tgt_list = []
+    V_tgt_list = []
+
+    for s_dict_orig, p_tgt_orig, v_tgt_orig in batch_experiences:
+        s_dict_to_encode = s_dict_orig
+        p_tgt_to_use = p_tgt_orig
+
+        if random.random() < augment_prob: # Apply augmentation just before encoding for this training step
+            s_dict_reflected, p_tgt_reflected = reflect_state_policy(s_dict_orig, p_tgt_orig, game_adapter.get_action_size())
+            s_dict_to_encode = s_dict_reflected
+            p_tgt_to_use = p_tgt_reflected
+        
+        player_perspective = game_adapter.getCurrentPlayer(s_dict_to_encode)
+        S_list.append(game_adapter.encode_state(s_dict_to_encode, player_perspective))
+        P_tgt_list.append(p_tgt_to_use)
+        V_tgt_list.append(v_tgt_orig) # v_tgt_orig is already from the correct perspective
+
+    S = torch.stack(S_list).to(dev)
+    P_tgt = torch.tensor(np.array(P_tgt_list), dtype=torch.float32, device=dev)
+    V_tgt = torch.tensor(V_tgt_list, dtype=torch.float32, device=dev)
+    is_weights_tensor = torch.tensor(is_weights, dtype=torch.float32, device=dev).unsqueeze(1)
+
+    logits, V_pred = net(S) 
     logP_pred = F.log_softmax(logits, dim=1)
-    loss_p = F.kl_div(logP_pred, P_tgt, reduction="batchmean")
+    loss_p = F.kl_div(logP_pred, P_tgt, reduction="none").sum(dim=1) # Get per-sample policy loss
     
-    loss_v = F.mse_loss(V_pred.squeeze(), V_tgt)
+    # Value loss: MSE, per-sample
+    # V_pred is (batch_size), V_tgt is (batch_size). Ensure V_pred is squeezed if it has an extra dim.
+    loss_v_per_sample = F.mse_loss(V_pred.squeeze(), V_tgt, reduction="none")
+    
+    # Weighted losses
+    weighted_loss_p = (loss_p * is_weights_tensor.squeeze()).mean()
+    weighted_loss_v = (loss_v_per_sample * is_weights_tensor.squeeze()).mean()
     
     P_pred_dist = torch.exp(logP_pred)
     entropy = -(P_pred_dist * logP_pred).sum(dim=1).mean()
 
-    loss = loss_p + loss_v - ENT_BETA * entropy
+    total_loss = weighted_loss_p + weighted_loss_v - ENT_BETA * entropy # Use ENT_BETA
     opt.zero_grad()
-    loss.backward()
+    total_loss.backward()
     nn.utils.clip_grad_norm_(net.parameters(), 1.0)
     opt.step()
-    return float(loss.item())
+    
+    # Calculate TD errors for priority updates: |V_target - V_predicted|
+    td_errors = np.abs(V_tgt.cpu().detach().numpy() - V_pred.squeeze().cpu().detach().numpy())
+    return float(total_loss.item()), td_errors
 
 
-def save_buffer(buf: deque, path: Path) -> None:
-    """Persist the replay buffer to ``path``."""
+def save_buffer_experiences(buf: PrioritizedReplayBuffer | deque, path: Path) -> None: # Allow saving deque too for non-PER legacy
     if torch is None:
         raise RuntimeError("PyTorch is required for save_buffer")
-    torch.save(list(buf), path)
+    if isinstance(buf, PrioritizedReplayBuffer):
+        # For PER, save the internal data_buffer (list of experiences)
+        # The SumTree state is harder to serialize simply; on load, we'd re-add.
+        torch.save(list(buf.data_buffer[:len(buf)]), path) # Save only filled part
+        print(f"Saved {len(buf)} experiences from PER buffer to {path}")
+    elif isinstance(buf, deque):
+        torch.save(list(buf), path)
+        print(f"Saved {len(buf)} experiences from deque buffer to {path}")
+    else:
+        print(f"Warning: Unknown buffer type {type(buf)} for saving.")
 
 
-def load_buffer(path: Path, maxlen: int) -> deque:
-    """Load a replay buffer from ``path`` if it exists."""
+def load_experiences_to_buffer(target_buffer: PrioritizedReplayBuffer | deque, path: Path, maxlen: int) -> None:
     if torch is None:
         raise RuntimeError("PyTorch is required for load_buffer")
+    if not path.exists():
+        print(f"Buffer file {path} not found. Starting with an empty buffer.")
+        return
+
     try:
-        data = torch.load(path, weights_only=False)
+        # Load raw experiences (list of tuples)
+        data = torch.load(path, weights_only=False) 
     except TypeError:
         data = torch.load(path)
-    return deque(data, maxlen=maxlen)
+    except Exception as e:
+        print(f"Error loading buffer from {path}: {e}. Starting with an empty buffer.")
+        return
+
+    num_loaded = 0
+    if isinstance(target_buffer, PrioritizedReplayBuffer):
+        # Add loaded experiences to PER buffer one by one
+        # This will assign them initial max priority.
+        for exp in data:
+            if len(target_buffer) < target_buffer.capacity: # Ensure not to overfill beyond initial capacity logic
+                target_buffer.add(exp)
+                num_loaded +=1
+            else:
+                break # Should be handled by PER buffer's own capacity if its internal list is not prealloc with None
+        print(f"Loaded {num_loaded} experiences into PER buffer from {path}. Buffer size: {len(target_buffer)}")
+    elif isinstance(target_buffer, deque):
+        # For deque, can extend directly up to maxlen
+        target_buffer.extend(data)
+        num_loaded = len(data)
+        # Deque handles its own maxlen, so this is fine.
+        print(f"Loaded {num_loaded} experiences into deque buffer from {path}. Buffer size: {len(target_buffer)}")
+    else:
+        print(f"Warning: Unknown buffer type {type(target_buffer)} for loading experiences.")
 
 
 # ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
 
-def run(args=None) -> None:
+def run(parsed_args=None) -> None:
     """Run the advanced self-play loop with optional ``args``."""
-    if args is None:
+    global args # Allow run to modify the global args
+    if parsed_args is None:
         args = parser().parse_args()
+    else:
+        args = parsed_args # Use provided args (e.g. from test or direct call)
 
     if torch is None or np is None:
         raise RuntimeError("PyTorch and NumPy are required for training")
@@ -437,57 +508,94 @@ def run(args=None) -> None:
         net.load_state_dict(torch.load(args.resume_weights, map_location=dev))
 
 
-    buf: deque
-    buffer_actual_path = Path(args.buffer_path)
-    if buffer_actual_path.exists():
-        buf = load_buffer(buffer_actual_path, args.buffer_size)
-        print(f"Loaded buffer with {len(buf)} samples from {buffer_actual_path}")
+    # --- Replay Buffer ---
+    buf: PrioritizedReplayBuffer # Type hint for PER buffer
+    if args.use_per:
+        buf = PrioritizedReplayBuffer(
+            capacity=args.buffer_size,
+            alpha=args.per_alpha,
+            beta_start=args.per_beta_start,
+            beta_epochs=args.per_beta_epochs,
+            epsilon=args.per_epsilon
+        )
+        print(f"Using PrioritizedReplayBuffer with alpha={args.per_alpha}, beta_start={args.per_beta_start}")
     else:
         buf = deque(maxlen=args.buffer_size)
-        print(f"No buffer found at {buffer_actual_path}, starting new.")
+        print(f"Using standard deque replay buffer.")
+
+    buffer_actual_path = Path(args.buffer_path)
+    # Load experiences into the buffer if file exists
+    load_experiences_to_buffer(buf, buffer_actual_path, args.buffer_size)
 
     temp_schedule = [
         (args.temp_decay_moves, 1.0),
         (float('inf'), args.final_temp)
     ]
 
-    if not args.skip_bootstrap:
-        print(f"Bootstrapping {args.bootstrap_games} games …", flush=True)
-        for g in range(args.bootstrap_games):
-            net.eval()
+    if not args.skip_bootstrap and (not isinstance(buf, PrioritizedReplayBuffer) or len(buf) < args.min_buffer_fill_for_per_bootstrap):
+        # Determine number of games to play for bootstrap
+        games_to_play_bootstrap = args.bootstrap_games
+        if isinstance(buf, PrioritizedReplayBuffer) and len(buf) < args.min_buffer_fill_for_per_bootstrap:
+            # If PER buffer is below its specific min fill, ensure enough games are played
+            # Estimate states per game to calculate needed games (e.g., 30 states/game)
+            avg_states_per_game = 30 
+            needed_states = args.min_buffer_fill_for_per_bootstrap - len(buf)
+            needed_games = (needed_states + avg_states_per_game -1) // avg_states_per_game # ceil division
+            games_to_play_bootstrap = max(games_to_play_bootstrap, needed_games)
+            print(f"PER buffer below min fill ({len(buf)}/{args.min_buffer_fill_for_per_bootstrap}). Will play at least {needed_games} bootstrap games.")
+        
+        print(f"Bootstrapping {games_to_play_bootstrap} games …", flush=True)
+        for g in range(games_to_play_bootstrap):
+            net.eval() 
             game_history = play_one_game(
                 net, game_adapter, mcts, temp_schedule, 
                 mcts_simulations=args.mcts_simulations,
                 max_moves=BOARD_H * BOARD_W
             )
-            buf.extend(game_history)
-            net.train()
-            print(f"  bootstrap game {g+1}/{args.bootstrap_games} ({len(game_history)} states) → buffer {len(buf)}", flush=True)
-            if len(buf) > 0 and (g + 1) % args.save_buffer_every == 0 :
-                 save_buffer(buf, buffer_actual_path)
+            for experience in game_history: # Add one by one for PER
+                buf.add(experience)
+            net.train() 
+            print(f"  bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_history)} states) → buffer {len(buf)}", flush=True)
+            if len(buf) > 0 and (g + 1) % args.save_buffer_every == 0 : 
+                 save_buffer_experiences(buf, buffer_actual_path)
                  print(f"Saved replay buffer during bootstrap at game {g+1}")
 
 
     print(f"Starting training from epoch {start_ep} for {args.epochs} epochs.")
     try:
         for ep in range(start_ep, args.epochs + 1):
-            net.eval()
+            net.eval() 
             game_history = play_one_game(
                 net, game_adapter, mcts, temp_schedule, 
                 mcts_simulations=args.mcts_simulations,
                 max_moves=BOARD_H * BOARD_W
             )
-            buf.extend(game_history)
-            net.train()
+            for experience in game_history: # Add one by one for PER
+                buf.add(experience)
+            net.train() 
 
-            if len(buf) < args.min_buffer_fill:
-                print(f"Epoch {ep} | Buffer size {len(buf)} < min fill {args.min_buffer_fill}. Skipping training. Game states: {len(game_history)}", flush=True)
-                if ep % args.ckpt_every == 0:
-                    save_buffer(buf, buffer_actual_path)
+            current_min_buffer_fill = args.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args.min_buffer_fill_standard
+            if len(buf) < current_min_buffer_fill:
+                print(f"Epoch {ep} | Buffer size {len(buf)} < min fill {current_min_buffer_fill}. Skipping training. Game states: {len(game_history)}", flush=True)
+                if ep % args.ckpt_every == 0: 
+                    save_buffer_experiences(buf, buffer_actual_path) 
             else:
-                # Sample batch for training
-                batch = random.sample(list(buf), min(args.batch_size, len(buf)))
-                loss = train_step(net, batch, opt, dev, game_adapter, args.augment_prob) # Pass augment_prob
+                if isinstance(buf, PrioritizedReplayBuffer):
+                    sampled_data = buf.sample(args.batch_size)
+                    if sampled_data is None:
+                        print(f"Epoch {ep} | PER buffer sample returned None (not enough data or zero sum). Skipping training step.", flush=True)
+                        continue # Skip training if sample failed
+                    batch_experiences, is_weights, data_indices = sampled_data
+                else: # Standard deque buffer
+                    batch_experiences = random.sample(list(buf), min(args.batch_size, len(buf)))
+                    is_weights = np.ones(len(batch_experiences), dtype=np.float32) # Uniform weights for non-PER
+                    # data_indices are not used for non-PER updates
+
+                loss, td_errors = train_step(net, batch_experiences, is_weights, opt, dev, game_adapter, args.augment_prob)
+                
+                if isinstance(buf, PrioritizedReplayBuffer):
+                    buf.update_priorities(data_indices, td_errors)
+
                 if ep % args.log_every == 0:
                     print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}", flush=True)
             
@@ -509,8 +617,11 @@ def run(args=None) -> None:
                 print(f"Saved checkpoint: {chkpt_path} and full state: {state_path}", flush=True)
 
             if ep % args.save_buffer_every == 0 and len(buf) > 0:
-                 save_buffer(buf, buffer_actual_path)
+                 save_buffer_experiences(buf, buffer_actual_path)
                  print(f"Saved replay buffer at epoch {ep}")
+            
+            if isinstance(buf, PrioritizedReplayBuffer):
+                buf.advance_epoch_for_beta_anneal() # Anneal beta after each epoch
 
     except KeyboardInterrupt:
         print("\nTraining interrupted by user. Saving final state...")
@@ -518,8 +629,8 @@ def run(args=None) -> None:
         print("Saving final model and buffer...")
         final_model_path = ckdir / "last_model.pt"
         torch.save(net.state_dict(), final_model_path)
-        if buf:
-            save_buffer(buf, buffer_actual_path)
+        if len(buf) > 0: # Check if buffer is not empty
+            save_buffer_experiences(buf, buffer_actual_path)
         
         current_epoch_to_save = ep if 'ep' in locals() and ep > start_ep else start_ep -1
         if 'ep' not in locals() or ep < start_ep :
@@ -568,9 +679,16 @@ def parser() -> argparse.ArgumentParser:
 
     g_buffer = p.add_argument_group("Replay Buffer")
     g_buffer.add_argument("--buffer-size", type=int, default=50000, help="Maximum size of the replay buffer.")
-    g_buffer.add_argument("--min-buffer-fill", type=int, default=1000, help="Minimum samples in buffer before starting training updates.")
-    g_buffer.add_argument("--buffer-path", type=str, default="c4_adv_mcts_buffer.pth", help="Path to save/load the replay buffer.")
+    g_buffer.add_argument("--min-buffer-fill-standard", type=int, default=1000, help="Min samples in standard buffer before training.")
+    g_buffer.add_argument("--min-buffer-fill-for-per-training", type=int, default=10000, help="Min samples in PER buffer before training (usually larger).")
+    g_buffer.add_argument("--min-buffer-fill-for-per-bootstrap", type=int, default=1000, help="Min samples in PER buffer to target during initial bootstrap if buffer is empty.")
+    g_buffer.add_argument("--buffer-path", type=str, default="c4_adv_mcts_buffer.pth", help="Path to save/load the replay buffer experiences.")
     g_buffer.add_argument("--save-buffer-every", type=int, default=50, help="Save replay buffer every N epochs/bootstrap games.")
+    g_buffer.add_argument("--use-per", action="store_true", help="Use Prioritized Experience Replay.")
+    g_buffer.add_argument("--per-alpha", type=float, default=0.6, help="Alpha exponent for PER (0=uniform, 1=full priority).")
+    g_buffer.add_argument("--per-beta-start", type=float, default=0.4, help="Initial beta for PER IS weights.")
+    g_buffer.add_argument("--per-beta-epochs", type=int, default=0, help="Epochs to anneal beta to 1.0 (0 for constant beta_start).")
+    g_buffer.add_argument("--per-epsilon", type=float, default=1e-5, help="Epsilon for PER priorities (|td_error| + epsilon).")
 
 
     g_nn = p.add_argument_group("Neural Network")
@@ -588,4 +706,5 @@ def parser() -> argparse.ArgumentParser:
 
 
 if __name__ == "__main__":
-    run()
+    # Parse args once at the beginning of run()
+    run() # args will be parsed inside run and assigned to global args
