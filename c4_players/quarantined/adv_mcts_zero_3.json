@@ -1,7 +1,7 @@
 {
   "type": "mcts_zero_adv",
   "arch": "advanced",
-  "weights": "c4_checkpoints_az/last_model.pt",
+  "weights": "c4_checkpoints_az\\chkpt_ep000200.pt",
   "num_iterations": 100,
   "max_depth": 42,
   "c_param": 1.4,
