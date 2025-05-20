@@ -426,7 +426,7 @@ def init_players() -> None:
         "adv_mcts_zero_2": {
             "type": "mcts_zero_adv",
             "arch": "advanced",
-            "weights": "c4_checkpoints/last.pt",
+            "weights": "c4_checkpoints_az/last_model.pt",
             "num_iterations": 200,
             "max_depth": 42,
             "c_param": 1.4,

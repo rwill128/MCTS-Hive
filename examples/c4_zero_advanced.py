@@ -549,11 +549,14 @@ def run(parsed_args=None) -> None:
             net.eval() 
             game_history = play_one_game(
                 net, game_adapter, mcts, temp_schedule, 
-                mcts_simulations=args.mcts_simulations,
+                mcts_simulations=args.mcts_simulations, 
                 max_moves=BOARD_H * BOARD_W
             )
-            for experience in game_history: # Add one by one for PER
-                buf.add(experience)
+            if isinstance(buf, PrioritizedReplayBuffer):
+                for experience in game_history:
+                    buf.add(experience)
+            else: # It's a deque
+                buf.extend(game_history) # Deque can extend directly
             net.train() 
             print(f"  bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_history)} states) → buffer {len(buf)}", flush=True)
             if len(buf) > 0 and (g + 1) % args.save_buffer_every == 0 : 
@@ -567,11 +570,14 @@ def run(parsed_args=None) -> None:
             net.eval() 
             game_history = play_one_game(
                 net, game_adapter, mcts, temp_schedule, 
-                mcts_simulations=args.mcts_simulations,
+                mcts_simulations=args.mcts_simulations, 
                 max_moves=BOARD_H * BOARD_W
             )
-            for experience in game_history: # Add one by one for PER
-                buf.add(experience)
+            if isinstance(buf, PrioritizedReplayBuffer):
+                for experience in game_history: 
+                    buf.add(experience)
+            else: # It's a deque
+                buf.extend(game_history) # Deque can extend directly
             net.train() 
 
             current_min_buffer_fill = args.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args.min_buffer_fill_standard
@@ -673,7 +679,7 @@ def parser() -> argparse.ArgumentParser:
     g_train.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"], help="Type of LR scheduler.")
     g_train.add_argument("--lr-t-max", type=int, default=10000, help="T_max for CosineAnnealingLR (usually total epochs).")
     g_train.add_argument("--lr-eta-min", type=float, default=1e-6, help="Minimum LR for CosineAnnealingLR.")
-    g_train.add_argument("--augment-prob", type=float, default=0.5, help="Probability of applying horizontal reflection augmentation.")
+    g_train.add_argument("--augment-prob", type=float, default=1, help="Probability of applying horizontal reflection augmentation.")
     # TODO: Add args for StepLR if chosen: --lr-step-size, --lr-gamma
 
 
@@ -698,7 +704,7 @@ def parser() -> argparse.ArgumentParser:
     g_mgmt = p.add_argument_group("Checkpointing & Logging")
     g_mgmt.add_argument("--ckpt-dir", default="c4_checkpoints_az", help="Directory to save model checkpoints.")
     g_mgmt.add_argument("--ckpt-every", type=int, default=100, help="Save model checkpoint every N epochs.")
-    g_mgmt.add_argument("--log-every", type=int, default=10, help="Log training stats every N epochs.")
+    g_mgmt.add_argument("--log-every", type=int, default=1, help="Log training stats every N epochs.")
     g_mgmt.add_argument("--resume-weights", metavar="PATH", help="Path to checkpoint file to load network weights before training.")
     g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state (net, optimizer, epoch) from ckpt_dir/train_state.pt.")
     
