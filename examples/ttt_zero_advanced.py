@@ -424,10 +424,15 @@ def evaluate_model_policy(model_path: str, game_adapter: TicTacToeAdapter, devic
         with torch.no_grad(): policy_logits, value_estimates = net(encoded_state_batch)
         return policy_logits, value_estimates.unsqueeze(-1)
 
+    # Use a small positive value for dirichlet_alpha, but epsilon=0 will disable noise effect
+    default_dirichlet_alpha = 0.3 # A typical value, though it won't be used if epsilon is 0
+    eval_dirichlet_alpha = args_global.dirichlet_alpha if args_global and args_global.dirichlet_alpha > 0 else default_dirichlet_alpha
+
     mcts_eval = AlphaZeroMCTS(
         game_interface=game_adapter, model_fn=mcts_model_fn, device=device,
         c_puct=args_global.c_puct if args_global else 1.0, 
-        dirichlet_alpha=0, dirichlet_epsilon=0 
+        dirichlet_alpha=eval_dirichlet_alpha, # Use a valid alpha
+        dirichlet_epsilon=0.0                 # Epsilon = 0 effectively disables noise
     )
 
     sample_states = [
@@ -741,7 +746,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--temp-decay-moves", type=int, default=4, help="Moves to use T=1 for exploration.")
     p.add_argument("--final-temp", type=float, default=0.05, help="Temp after decay (0 for deterministic).")
     p.add_argument("--epochs", type=int, default=1000, help="Total training epochs.")
-    p.add_argument("--lr", type=float, default=5e-4, help="Initial learning rate.")
+    p.add_argument("--lr", type=float, default=1e-5, help="Initial learning rate.")
     p.add_argument("--batch-size", type=int, default=64, help="Batch size for training.")
     p.add_argument("--ent-beta", type=float, default=1e-2, help="Entropy regularization coefficient.")
     p.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"])

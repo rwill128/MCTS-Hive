@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Advanced self-play training loop for Connect Four.
 
-This script adapts the techniques used in ``hive_zero.py`` to a Connect
-Four environment.  Key features include
-
-    • residual convolutional network
-    • KL-divergence policy loss with entropy regularisation
-    • Dirichlet noise on the initial policy
-    • temperature decay after move 10
-    • replay-buffer training and periodic checkpoints
+This script adapts the techniques used in AlphaZero to a Connect
+Four environment. Key features include:
+    - Residual convolutional network
+    - MCTS-driven self-play
+    - KL-divergence policy loss with entropy regularisation
+    - Dirichlet noise on the initial policy
+    - Temperature decay for action selection
+    - Replay buffer (standard or Prioritized Experience Replay)
+    - Optional learning rate scheduling and data augmentation
+    - Periodic checkpoints and full training state resumption
 """
 
 from __future__ import annotations
@@ -32,87 +34,79 @@ except Exception:  # pragma: no cover - torch optional
     nn = None
     F = None
 
-
-print(torch.cuda.is_available())
-print(torch.cuda.current_device())
-print(torch.cuda.get_device_name(0))
+if torch:
+    print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"Current CUDA device: {torch.cuda.current_device()}")
+        print(f"Device name: {torch.cuda.get_device_name(0)}")
 
 from simple_games.connect_four import ConnectFour
 from mcts.alpha_zero_mcts import AlphaZeroMCTS
-from mcts.replay_buffer import PrioritizedReplayBuffer
+from mcts.replay_buffer import PrioritizedReplayBuffer # Added for PER
 
 BOARD_H = ConnectFour.ROWS
 BOARD_W = ConnectFour.COLS
-
+ACTION_SIZE = BOARD_W # In ConnectFour, action is the column index
 
 # ---------------------------------------------------------------------------
-# State encoding
+# State encoding (ConnectFour specific)
 # ---------------------------------------------------------------------------
-def encode_state(state: dict, perspective: str) -> torch.Tensor:
-    """Return a 3×6×7 tensor representing ``state`` from ``perspective``."""
-    if torch is None:
-        raise RuntimeError("PyTorch is required for encode_state")
+def encode_c4_state(state: dict, perspective: str) -> torch.Tensor: # Renamed for clarity
+    """Return a 3xHxW tensor representing C4 `state` from `perspective`."""
+    if torch is None: raise RuntimeError("PyTorch is required")
     t = torch.zeros(3, BOARD_H, BOARD_W)
     for r in range(BOARD_H):
         for c in range(BOARD_W):
             piece = state["board"][r][c]
             if piece == perspective:
                 t[0, r, c] = 1.0
-            elif piece is not None:
+            elif piece is not None: # Opponent's piece
                 t[1, r, c] = 1.0
-    t[2].fill_(1.0 if state["current_player"] == perspective else 0.0)
+    # Channel 2: Player turn (all 1s if current player is perspective, else 0s)
+    if state["current_player"] == perspective:
+        t[2].fill_(1.0)
     return t
 
-
 # ---------------------------------------------------------------------------
-# Data Augmentation
+# Data Augmentation (ConnectFour specific - horizontal reflection)
 # ---------------------------------------------------------------------------
-def reflect_state_policy(state_dict: Dict, policy_vector: np.ndarray, board_width: int) -> Tuple[Dict, np.ndarray]:
-    """Reflects a Connect Four board state and its policy vector horizontally."""
-    if np is None:
-        raise RuntimeError("NumPy is required for reflect_state_policy")
+def reflect_c4_state_policy(state_dict: Dict, policy_vector: np.ndarray) -> Tuple[Dict, np.ndarray]:
+    if np is None: raise RuntimeError("NumPy is required")
 
-    # Reflect board
     reflected_board = [row[::-1] for row in state_dict["board"]]
     reflected_state_dict = {
         "board": reflected_board,
-        "current_player": state_dict["current_player"] # Player perspective doesn't change
+        "current_player": state_dict["current_player"]
     }
-
-    # Reflect policy vector
-    # Actions in ConnectFour are column indices. Reflection means action `c` becomes `board_width - 1 - c`.
-    reflected_policy_vector = np.zeros_like(policy_vector)
-    for i in range(board_width):
-        reflected_policy_vector[i] = policy_vector[board_width - 1 - i]
-    
+    # Policy for C4 is BOARD_W wide
+    reflected_policy_vector = policy_vector[::-1].copy() # Simple reversal for C4 policy
     return reflected_state_dict, reflected_policy_vector
 
-
 # ---------------------------------------------------------------------------
-# Game Adapter for MCTS
+# Game Adapter for ConnectFour MCTS
 # ---------------------------------------------------------------------------
-class ConnectFourAdapter:
+class ConnectFourAdapter: # Kept name, but logic mirrors TTT adapter
     def __init__(self, c4_game: ConnectFour):
         self.c4_game = c4_game
-        self.action_size = self.c4_game.get_action_size()
+        self.action_size = self.c4_game.get_action_size() # This is BOARD_W
 
     def getCurrentPlayer(self, state: Dict) -> str:
         return self.c4_game.getCurrentPlayer(state)
 
-    def getLegalActions(self, state: Dict) -> List[int]:
+    def getLegalActions(self, state: Dict) -> List[int]: # Actions are already ints (column indices)
         return self.c4_game.getLegalActions(state)
 
-    def applyAction(self, state: Dict, action: int) -> Dict:
-        return self.c4_game.applyAction(state, action)
+    def applyAction(self, state: Dict, action_int: int) -> Dict: # Action is already int
+        return self.c4_game.applyAction(state, action_int)
 
     def isTerminal(self, state: Dict) -> bool:
         return self.c4_game.isTerminal(state)
 
-    def getGameOutcome(self, state: Dict) -> str:
+    def getGameOutcome(self, state: Dict) -> str: 
         return self.c4_game.getGameOutcome(state)
 
     def encode_state(self, state: Dict, player_perspective: str) -> torch.Tensor:
-        return encode_state(state, player_perspective)
+        return encode_c4_state(state, player_perspective) # Use C4 specific encoding
 
     def copyState(self, state: Dict) -> Dict:
         return self.c4_game.copyState(state)
@@ -120,12 +114,11 @@ class ConnectFourAdapter:
     def get_action_size(self) -> int:
         return self.action_size
 
-
 # ---------------------------------------------------------------------------
-# Neural network
+# Neural network (ConnectFour specific)
 # ---------------------------------------------------------------------------
 if torch is not None:
-    class ResidualBlock(nn.Module):
+    class ResidualBlockC4(nn.Module): # Renamed for clarity
         def __init__(self, ch: int):
             super().__init__()
             self.c1 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
@@ -138,579 +131,519 @@ if torch is not None:
             y = self.b2(self.c2(y))
             return F.relu(x + y)
 
-
     class AdvancedC4ZeroNet(nn.Module):
-        """Residual policy/value network for Connect Four.
-
-        Parameters
-        ----------
-        ch : int, optional
-            Number of channels in each convolutional layer (default 128).
-        blocks : int, optional
-            How many residual blocks to stack (default 10).
-        """
-
-        def __init__(self, ch: int = 128, blocks: int = 10):
+        def __init__(self, ch: int = 128, blocks: int = 10): # Default C4 size
             super().__init__()
             self.stem = nn.Sequential(
-                nn.Conv2d(3, ch, 3, padding=1, bias=False),
+                nn.Conv2d(3, ch, 3, padding=1, bias=False), # 3 input channels
                 nn.BatchNorm2d(ch), nn.ReLU(),
             )
-            self.res = nn.Sequential(*[ResidualBlock(ch) for _ in range(blocks)])
-            self.policy = nn.Sequential(
-                nn.Conv2d(ch, 2, 1), nn.BatchNorm2d(2), nn.ReLU(),
-                nn.Flatten(), nn.Linear(2 * BOARD_H * BOARD_W, BOARD_W)
-            )
-            self.value = nn.Sequential(
-                nn.Conv2d(ch, 1, 1), nn.BatchNorm2d(1), nn.ReLU(),
-                nn.Flatten(), nn.Linear(BOARD_H * BOARD_W, 64), nn.ReLU(),
-                nn.Linear(64, 1), nn.Tanh()
-            )
+            self.res = nn.Sequential(*[ResidualBlockC4(ch) for _ in range(blocks)])
+            
+            self.policy_conv = nn.Conv2d(ch, 2, kernel_size=1)
+            self.policy_bn = nn.BatchNorm2d(2)
+            self.policy_flatten = nn.Flatten()
+            # Input to policy_linear: 2 * BOARD_H * BOARD_W
+            self.policy_linear = nn.Linear(2 * BOARD_H * BOARD_W, ACTION_SIZE)
+
+            self.value_conv = nn.Conv2d(ch, 1, kernel_size=1)
+            self.value_bn = nn.BatchNorm2d(1)
+            self.value_flatten = nn.Flatten()
+            # Input to value_linear1: 1 * BOARD_H * BOARD_W
+            self.value_linear1 = nn.Linear(1 * BOARD_H * BOARD_W, 64) 
+            self.value_linear2 = nn.Linear(64, 1)
 
         def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-            x = self.res(self.stem(x))
-            return self.policy(x), self.value(x).squeeze(1)
-else:  # pragma: no cover - torch not installed
-    class ResidualBlock:
-        def __init__(self, *a, **k) -> None:
-            raise RuntimeError("PyTorch not available")
-
-    class AdvancedC4ZeroNet:
-        def __init__(self, *a, **k) -> None:
-            raise RuntimeError("PyTorch not available")
-
+            x_stem = self.stem(x)
+            x_res = self.res(x_stem)
+            
+            p = F.relu(self.policy_bn(self.policy_conv(x_res)))
+            policy_logits = self.policy_linear(self.policy_flatten(p))
+            
+            v = F.relu(self.value_bn(self.value_conv(x_res)))
+            v = F.relu(self.value_linear1(self.value_flatten(v)))
+            value = torch.tanh(self.value_linear2(v))
+            
+            return policy_logits, value.squeeze(1)
+else: 
+    class ResidualBlockC4: pass
+    class AdvancedC4ZeroNet: pass
 
 # ---------------------------------------------------------------------------
-# Self-play helpers
+# Self-play helpers (aligned with ttt_zero_advanced.py)
 # ---------------------------------------------------------------------------
-ROOT_NOISE_FRAC = 0.25
-DIR_ALPHA = 0.3
-ENT_BETA = 1e-3
-
-# Default file used to persist the replay buffer between runs
-BUFFER_PATH = Path("c4_adv_buffer.pth")
-
-
-def softmax_T(x: np.ndarray, T: float) -> np.ndarray:
-    if np is None:
-        raise RuntimeError("NumPy is required for softmax_T")
-    z = np.exp((x - x.max()) / T)
-    return z / z.sum()
-
-
-def mask_illegal(pri: np.ndarray, legal: List[int]) -> np.ndarray:
-    if np is None:
-        raise RuntimeError("NumPy is required for mask_illegal")
-    mask = np.zeros_like(pri)
-    for a in legal:
-        mask[a] = 1.0
-    if mask.sum() == 0:
-        return pri * 0
-    pri = pri * mask
-    pri /= pri.sum()
-    return pri
-
+# BUFFER_PATH defined in parser now
 
 def play_one_game(
-    net: AdvancedC4ZeroNet,
-    game_adapter: ConnectFourAdapter,
-    mcts_instance: AlphaZeroMCTS,
-    temp_schedule: List[Tuple[int, float]],
+    net: AdvancedC4ZeroNet, 
+    game_adapter: ConnectFourAdapter, 
+    mcts_instance: AlphaZeroMCTS,     
+    temp_schedule: List[Tuple[int, float]], 
     mcts_simulations: int,
-    max_moves: int = 42
+    max_moves: int = BOARD_H * BOARD_W, # Max moves in C4
+    debug_mode: bool = False
 ) -> List[Tuple[dict, np.ndarray, int]]:
-    if torch is None or np is None:
-        raise RuntimeError("PyTorch and NumPy are required for play_one_game")
-
-    st = game_adapter.c4_game.getInitialState()
-    hist: List[Tuple[dict, np.ndarray, int]] = []
+    if torch is None or np is None: raise RuntimeError("PyTorch and NumPy are required")
+    st = game_adapter.c4_game.getInitialState() 
+    hist: List[Tuple[dict, np.ndarray, int]] = [] 
     move_no = 0
-    
     current_temp = 1.0
 
+    if debug_mode: print("\n--- play_one_game START (Connect Four) ---")
+
     while not game_adapter.isTerminal(st) and move_no < max_moves:
+        if debug_mode:
+            print(f"\n[play_one_game C4] Move: {move_no}")
+            board_str = "\n".join([str(row) for row in st["board"]])
+            print(f"[play_one_game C4] Current state (player {st['current_player']}):\n{board_str}")
+
         for threshold_moves, temp_val in temp_schedule:
-            if move_no < threshold_moves:
-                current_temp = temp_val
-                break
+            if move_no < threshold_moves: current_temp = temp_val; break
         
         player_perspective = game_adapter.getCurrentPlayer(st)
-
-        chosen_action, mcts_policy_dict = mcts_instance.get_action_policy(
-            root_state=st,
-            num_simulations=mcts_simulations,
-            temperature=current_temp
+        if debug_mode: print(f"[play_one_game C4] MCTS sims: {mcts_simulations}, Temp: {current_temp}, Perspective: {player_perspective}")
+        
+        chosen_action_int, mcts_policy_dict = mcts_instance.get_action_policy(
+            root_state=st, num_simulations=mcts_simulations, temperature=current_temp,
+            debug_mcts=debug_mode 
         )
+        if debug_mode: print(f"[play_one_game C4] MCTS chosen_action_int: {chosen_action_int}")
+        if debug_mode: print(f"[play_one_game C4] MCTS policy_dict: {mcts_policy_dict}")
         
         policy_target_vector = np.zeros(game_adapter.get_action_size(), dtype=np.float32)
-        for action_idx, prob in mcts_policy_dict.items():
-            if 0 <= action_idx < game_adapter.get_action_size():
-                policy_target_vector[action_idx] = prob
-            else:
-                print(f"Warning: MCTS returned action {action_idx} out of bounds for policy vector.")
-
-        if policy_target_vector.sum() > 0 :
-             policy_target_vector /= policy_target_vector.sum()
-        else:
+        if mcts_policy_dict:
+            for action_idx_int, prob in mcts_policy_dict.items():
+                if 0 <= action_idx_int < game_adapter.get_action_size(): policy_target_vector[action_idx_int] = prob
+        
+        current_sum = policy_target_vector.sum()
+        if abs(current_sum - 1.0) > 1e-5 and current_sum > 1e-5:
+             policy_target_vector /= current_sum
+        elif current_sum < 1e-5: # Fallback if sum is zero (e.g. no legal moves from MCTS policy for some reason)
             if not game_adapter.isTerminal(st):
-                legal_actions_for_fallback = game_adapter.getLegalActions(st)
-                if legal_actions_for_fallback:
-                    uniform_prob = 1.0 / len(legal_actions_for_fallback)
-                    for la in legal_actions_for_fallback:
-                        policy_target_vector[la] = uniform_prob
+                legal_actions = game_adapter.getLegalActions(st)
+                if legal_actions: 
+                    uniform_prob = 1.0 / len(legal_actions)
+                    for la_int in legal_actions: policy_target_vector[la_int] = uniform_prob
+        if debug_mode: print(f"[play_one_game C4] Policy target vector (sum={policy_target_vector.sum()}): {policy_target_vector}")
 
-
-        hist.append((game_adapter.copyState(st), policy_target_vector, 0))
-
-        st = game_adapter.applyAction(st, chosen_action)
+        current_state_copy = game_adapter.copyState(st)
+        hist.append((current_state_copy, policy_target_vector, 0))
+        if debug_mode: print(f"[play_one_game C4] Appended to history. Player: {current_state_copy['current_player']}")
+        
+        st = game_adapter.applyAction(st, chosen_action_int)
         move_no += 1
 
     winner = game_adapter.getGameOutcome(st)
     z = 0
-    if winner == "Draw":
-        z = 0
-    elif winner == "X":
-        z = 1
-    elif winner == "O":
-        z = -1
+    if winner == "Draw": z = 0
+    elif winner == "X": z = 1 # Assuming X is P1
+    elif winner == "O": z = -1 # Assuming O is P2
+    
+    if debug_mode:
+        print(f"\n[play_one_game C4] Game Over. Winner: {winner}, z (X's perspective): {z}")
+        board_str_final = "\n".join([str(row) for row in st["board"]])
+        print(f"[play_one_game C4] Final board state (player {st['current_player']}):\n{board_str_final}")
 
     final_history = []
-    for recorded_state, policy, _ in hist:
+    for idx, (recorded_state, policy, _) in enumerate(hist):
         player_at_state = game_adapter.getCurrentPlayer(recorded_state)
         value_for_state_player = z if player_at_state == "X" else -z
         final_history.append((recorded_state, policy, value_for_state_player))
-        
+        if debug_mode: print(f"[play_one_game C4] final_hist item {idx}: Player: {player_at_state}, Val: {value_for_state_player}, Policy sum: {np.sum(policy) if policy is not None else 'N/A'}")
+    
+    if debug_mode: print("--- play_one_game END (Connect Four) ---")
     return final_history
 
-
 # ---------------------------------------------------------------------------
-# Training helpers
+# Training helpers (aligned with ttt_zero_advanced.py)
 # ---------------------------------------------------------------------------
-
-def batch_tensors(batch: List[Tuple[dict, np.ndarray, int]], dev: str, game_adapter: ConnectFourAdapter, augment_prob: float = 0.5):
-    if np is None or torch is None:
-        raise RuntimeError("NumPy and PyTorch are required for batch_tensors")
-    
-    S_list = []
-    P_tgt_list = [] # Store as list of numpy arrays first
-
-    for s_dict_orig, p_tgt_orig, _ in batch:
-        s_dict_to_encode = s_dict_orig
-        p_tgt_to_use = p_tgt_orig
-
-        if random.random() < augment_prob:
-            s_dict_reflected, p_tgt_reflected = reflect_state_policy(s_dict_orig, p_tgt_orig, game_adapter.get_action_size())
-            s_dict_to_encode = s_dict_reflected
-            p_tgt_to_use = p_tgt_reflected
-
-        player_perspective = game_adapter.getCurrentPlayer(s_dict_to_encode)
-        S_list.append(game_adapter.encode_state(s_dict_to_encode, player_perspective))
-        P_tgt_list.append(p_tgt_to_use)
-        
-    S = torch.stack(S_list).to(dev)
-    P_tgt = torch.tensor(np.array(P_tgt_list), dtype=torch.float32, device=dev)
-    V_tgt = torch.tensor([v for _, _, v in batch], dtype=torch.float32, device=dev) # Values (z) are not affected by reflection
-    return S, P_tgt, V_tgt
-
-
 def train_step(net: AdvancedC4ZeroNet, batch_experiences: list, is_weights: np.ndarray, 
-               opt: torch.optim.Optimizer, dev: str, game_adapter: ConnectFourAdapter, augment_prob: float) -> Tuple[float, np.ndarray]:
-    # Experiences are already processed (potentially augmented) and are lists of (state_dict, policy_target_vector, value_for_state_player)
-    # We need to re-encode them here for the batch tensor creation.
-    
-    S_list = []
-    P_tgt_list = []
-    V_tgt_list = []
+               opt: torch.optim.Optimizer, dev: str, game_adapter: ConnectFourAdapter, 
+               augment_prob: float, ent_beta_val: float, debug_mode: bool = False) -> Tuple[float, np.ndarray]:
+    if debug_mode: print("\n--- train_step START (Connect Four) ---")
+    if debug_mode: print(f"[train_step C4] Batch size: {len(batch_experiences)}, Augment: {augment_prob}, EntBeta: {ent_beta_val}")
 
-    for s_dict_orig, p_tgt_orig, v_tgt_orig in batch_experiences:
-        s_dict_to_encode = s_dict_orig
-        p_tgt_to_use = p_tgt_orig
+    S_list, P_tgt_list, V_tgt_list = [], [], []
+    if not batch_experiences: 
+        if debug_mode: print("[train_step C4] Batch empty.")
+        return 0.0, np.array([])
 
-        if random.random() < augment_prob: # Apply augmentation just before encoding for this training step
-            s_dict_reflected, p_tgt_reflected = reflect_state_policy(s_dict_orig, p_tgt_orig, game_adapter.get_action_size())
-            s_dict_to_encode = s_dict_reflected
-            p_tgt_to_use = p_tgt_reflected
+    for i, (s_dict_orig, p_tgt_orig, v_tgt_orig) in enumerate(batch_experiences):
+        s_to_enc, p_to_use = s_dict_orig, p_tgt_orig
+        augmented = False
+        if random.random() < augment_prob:
+            s_to_enc, p_to_use = reflect_c4_state_policy(s_dict_orig, p_tgt_orig) # Use C4 reflection
+            augmented = True
         
-        player_perspective = game_adapter.getCurrentPlayer(s_dict_to_encode)
-        S_list.append(game_adapter.encode_state(s_dict_to_encode, player_perspective))
-        P_tgt_list.append(p_tgt_to_use)
-        V_tgt_list.append(v_tgt_orig) # v_tgt_orig is already from the correct perspective
+        player_persp = game_adapter.getCurrentPlayer(s_to_enc)
+        S_list.append(game_adapter.encode_state(s_to_enc, player_persp))
+        P_tgt_list.append(p_to_use)
+        V_tgt_list.append(v_tgt_orig)
+        if debug_mode and i < 1: # Log first sample
+             print(f"  [train_step C4] Sample {i} Augmented: {augmented}, Player: {player_persp}, ValueTgt: {v_tgt_orig}")
+             print(f"  [train_step C4] PolicyTgt (sum {np.sum(p_to_use)}): {p_to_use[:4]}...")
+
 
     S = torch.stack(S_list).to(dev)
     P_tgt = torch.tensor(np.array(P_tgt_list), dtype=torch.float32, device=dev)
     V_tgt = torch.tensor(V_tgt_list, dtype=torch.float32, device=dev)
     is_weights_tensor = torch.tensor(is_weights, dtype=torch.float32, device=dev).unsqueeze(1)
 
-    logits, V_pred = net(S) 
+    if debug_mode:
+        print(f"[train_step C4] S: {S.shape}, P_tgt: {P_tgt.shape}, V_tgt: {V_tgt.shape}")
+        if S.numel() > 0: print(f"[train_step C4] S[0] sum: {S[0].sum().item()}") # Basic check
+
+    logits, V_pred = net(S)
+    if debug_mode and logits.numel() > 0: print(f"[train_step C4] Logits[0]: {logits[0][:4].cpu().detach().numpy()}... V_pred[0]: {V_pred[0].item() if V_pred.numel()>0 else 'N/A'}")
+
     logP_pred = F.log_softmax(logits, dim=1)
-    loss_p = F.kl_div(logP_pred, P_tgt, reduction="none").sum(dim=1) # Get per-sample policy loss
-    
-    # Value loss: MSE, per-sample
-    # V_pred is (batch_size), V_tgt is (batch_size). Ensure V_pred is squeezed if it has an extra dim.
+    loss_p_per_sample = F.kl_div(logP_pred, P_tgt, reduction="none").sum(dim=1)
     loss_v_per_sample = F.mse_loss(V_pred.squeeze(), V_tgt, reduction="none")
     
-    # Weighted losses
-    weighted_loss_p = (loss_p * is_weights_tensor.squeeze()).mean()
+    weighted_loss_p = (loss_p_per_sample * is_weights_tensor.squeeze()).mean()
     weighted_loss_v = (loss_v_per_sample * is_weights_tensor.squeeze()).mean()
     
     P_pred_dist = torch.exp(logP_pred)
     entropy = -(P_pred_dist * logP_pred).sum(dim=1).mean()
+    total_loss = weighted_loss_p + weighted_loss_v - ent_beta_val * entropy
 
-    total_loss = weighted_loss_p + weighted_loss_v - ENT_BETA * entropy # Use ENT_BETA
+    if debug_mode:
+        print(f"[train_step C4] Losses (p,v,ent,total): {weighted_loss_p.item():.4f}, {weighted_loss_v.item():.4f}, {entropy.item():.4f}, {total_loss.item():.4f}")
+
     opt.zero_grad()
     total_loss.backward()
     nn.utils.clip_grad_norm_(net.parameters(), 1.0)
     opt.step()
     
-    # Calculate TD errors for priority updates: |V_target - V_predicted|
     td_errors = np.abs(V_tgt.cpu().detach().numpy() - V_pred.squeeze().cpu().detach().numpy())
+    if debug_mode and len(td_errors)>0: print(f"[train_step C4] TD errors (first 4): {td_errors[:4]}")
+    if debug_mode: print("--- train_step END (Connect Four) ---")
     return float(total_loss.item()), td_errors
 
+# Aligned with ttt_zero_advanced.py
+def save_buffer_experiences(buf: PrioritizedReplayBuffer | deque, path: Path) -> None:
+    if torch is None: raise RuntimeError("PyTorch is required")
+    data_to_save = list(buf.data_buffer[:len(buf)]) if isinstance(buf, PrioritizedReplayBuffer) else list(buf)
+    torch.save(data_to_save, path)
+    print(f"Saved {len(data_to_save)} experiences from buffer to {path}")
 
-def save_buffer_experiences(buf: PrioritizedReplayBuffer | deque, path: Path) -> None: # Allow saving deque too for non-PER legacy
-    if torch is None:
-        raise RuntimeError("PyTorch is required for save_buffer")
-    if isinstance(buf, PrioritizedReplayBuffer):
-        # For PER, save the internal data_buffer (list of experiences)
-        # The SumTree state is harder to serialize simply; on load, we'd re-add.
-        torch.save(list(buf.data_buffer[:len(buf)]), path) # Save only filled part
-        print(f"Saved {len(buf)} experiences from PER buffer to {path}")
-    elif isinstance(buf, deque):
-        torch.save(list(buf), path)
-        print(f"Saved {len(buf)} experiences from deque buffer to {path}")
-    else:
-        print(f"Warning: Unknown buffer type {type(buf)} for saving.")
-
-
-def load_experiences_to_buffer(target_buffer: PrioritizedReplayBuffer | deque, path: Path, maxlen: int) -> None:
-    if torch is None:
-        raise RuntimeError("PyTorch is required for load_buffer")
+# Aligned with ttt_zero_advanced.py
+def load_experiences_to_buffer(target_buffer: PrioritizedReplayBuffer | deque, path: Path) -> None:
+    if torch is None: raise RuntimeError("PyTorch is required")
     if not path.exists():
-        print(f"Buffer file {path} not found. Starting with an empty buffer.")
+        print(f"Buffer file {path} not found. Starting empty.")
         return
-
     try:
-        # Load raw experiences (list of tuples)
         data = torch.load(path, weights_only=False) 
-    except TypeError:
-        data = torch.load(path)
     except Exception as e:
-        print(f"Error loading buffer from {path}: {e}. Starting with an empty buffer.")
+        print(f"Error loading buffer from {path}: {e}. Starting empty.")
         return
 
     num_loaded = 0
     if isinstance(target_buffer, PrioritizedReplayBuffer):
-        # Add loaded experiences to PER buffer one by one
-        # This will assign them initial max priority.
         for exp in data:
-            if len(target_buffer) < target_buffer.capacity: # Ensure not to overfill beyond initial capacity logic
+            if len(target_buffer) < target_buffer.capacity: 
                 target_buffer.add(exp)
                 num_loaded +=1
-            else:
-                break # Should be handled by PER buffer's own capacity if its internal list is not prealloc with None
-        print(f"Loaded {num_loaded} experiences into PER buffer from {path}. Buffer size: {len(target_buffer)}")
+        print(f"Loaded {num_loaded} exp into PER buffer. Size: {len(target_buffer)}")
     elif isinstance(target_buffer, deque):
-        # For deque, can extend directly up to maxlen
         target_buffer.extend(data)
-        num_loaded = len(data)
-        # Deque handles its own maxlen, so this is fine.
-        print(f"Loaded {num_loaded} experiences into deque buffer from {path}. Buffer size: {len(target_buffer)}")
-    else:
-        print(f"Warning: Unknown buffer type {type(target_buffer)} for loading experiences.")
+        print(f"Loaded {len(data)} exp into deque. Size: {len(target_buffer)}")
 
+args_global = None # For global access to parsed args
 
 # ---------------------------------------------------------------------------
-# Training loop
+# Training loop (aligned with ttt_zero_advanced.py structure)
 # ---------------------------------------------------------------------------
+def run(parsed_cli_args=None) -> None:
+    global args_global 
+    args_global = parsed_cli_args if parsed_cli_args is not None else parser().parse_args()
 
-def run(parsed_args=None) -> None:
-    """Run the advanced self-play loop with optional ``args``."""
-    global args # Allow run to modify the global args
-    if parsed_args is None:
-        args = parser().parse_args()
-    else:
-        args = parsed_args # Use provided args (e.g. from test or direct call)
+    if args_global.debug_single_loop:
+        print("!!!!!!!!!!!!!!!!! DEBUG SINGLE LOOP MODE ENABLED (Connect Four) !!!!!!!!!!!!!!!!!")
+        args_global.epochs = 1
+        args_global.bootstrap_games = 1 
+        args_global.mcts_simulations = 10 # C4 MCTS is slower, keep debug sims lower than TTT's debug
+        args_global.batch_size = 8 
+        args_global.min_buffer_fill_standard = 1 
+        args_global.min_buffer_fill_for_per_training = 1
+        args_global.min_buffer_fill_for_per_bootstrap = 1
+        args_global.log_every = 1
+        args_global.ckpt_every = 1 
+        args_global.save_buffer_every = 1
+        args_global.skip_bootstrap = False
+    
+    if args_global.use_per and args_global.per_beta_epochs <= 0:
+        args_global.per_beta_epochs = args_global.epochs
+        if not args_global.debug_single_loop: 
+            print(f"PER: Beta annealing epochs set to total epochs: {args_global.per_beta_epochs}")
 
-    if torch is None or np is None:
-        raise RuntimeError("PyTorch and NumPy are required for training")
-    dev = "cuda" if args.gpu and torch.cuda.is_available() else "cpu"
+    if torch is None or np is None: raise RuntimeError("PyTorch and NumPy are required")
+    dev = "cuda" if args_global.gpu and torch.cuda.is_available() else "cpu"
     print(f"Using device: {dev}")
 
-    ckdir = Path(args.ckpt_dir)
-    ckdir.mkdir(exist_ok=True)
+    ckdir = Path(args_global.ckpt_dir)
+    ckdir.mkdir(exist_ok=True, parents=True)
     
-    connect_four_game = ConnectFour()
-    game_adapter = ConnectFourAdapter(connect_four_game)
+    c4_game_instance = ConnectFour()
+    game_adapter = ConnectFourAdapter(c4_game_instance)
 
-    net = AdvancedC4ZeroNet(ch=args.channels, blocks=args.blocks).to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=args.lr)
-
-    # --- LR Scheduler ---
+    net = AdvancedC4ZeroNet(ch=args_global.channels, blocks=args_global.blocks).to(dev)
+    opt = torch.optim.Adam(net.parameters(), lr=args_global.lr)
+    
     scheduler = None
-    if args.lr_scheduler == "cosine":
-        # If T_max is not specified or 0, use total epochs
-        t_max_epochs = args.lr_t_max if args.lr_t_max > 0 else args.epochs
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args.lr_eta_min)
-        print(f"Using CosineAnnealingLR scheduler with T_max={t_max_epochs}, eta_min={args.lr_eta_min}")
-    elif args.lr_scheduler == "step":
-        # Example: scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=args.lr_step_size, gamma=args.lr_gamma)
-        print("StepLR not fully implemented yet. Add --lr-step-size and --lr-gamma arguments if needed.")
-        pass # Placeholder for StepLR
-    else:
-        print("No LR scheduler selected.")
-
-    def mcts_model_fn(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        net.eval()
-        with torch.no_grad():
-            policy_logits, value_estimates = net(encoded_state_batch)
-        net.train()
+    if args_global.lr_scheduler == "cosine":
+        t_max_epochs = args_global.lr_t_max if args_global.lr_t_max > 0 else args_global.epochs
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args_global.lr_eta_min)
+        if not args_global.debug_single_loop: print(f"Using CosineAnnealingLR: T_max={t_max_epochs}, eta_min={args_global.lr_eta_min}")
+    
+    def mcts_model_fn_wrapper(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        net.eval() 
+        with torch.no_grad(): policy_logits, value_estimates = net(encoded_state_batch)
+        net.train() 
         return policy_logits, value_estimates.unsqueeze(-1)
 
     mcts = AlphaZeroMCTS(
-        game_interface=game_adapter,
-        model_fn=mcts_model_fn,
-        device=torch.device(dev),
-        c_puct=args.c_puct,
-        dirichlet_alpha=args.dirichlet_alpha,
-        dirichlet_epsilon=args.dirichlet_epsilon
+        game_interface=game_adapter, model_fn=mcts_model_fn_wrapper, device=torch.device(dev),
+        c_puct=args_global.c_puct, dirichlet_alpha=args_global.dirichlet_alpha,
+        dirichlet_epsilon=args_global.dirichlet_epsilon
     )
 
-    state_path = ckdir / "train_state.pt"
+    state_path = ckdir / "train_state_c4.pt" # Path for C4
     start_ep = 1
-
-    if args.resume_full_state and state_path.exists():
+    if args_global.resume_full_state and state_path.exists() and not args_global.debug_single_loop:
         print("Resuming full training state from", state_path)
-        st_checkpoint = torch.load(state_path, map_location=dev)
+        st_checkpoint = torch.load(state_path, map_location=dev) 
         net.load_state_dict(st_checkpoint["net"])
         opt.load_state_dict(st_checkpoint["opt"])
         start_ep = int(st_checkpoint.get("epoch", 1)) + 1
-        if scheduler and "scheduler" in st_checkpoint and st_checkpoint["scheduler"] is not None:
-            try:
-                scheduler.load_state_dict(st_checkpoint["scheduler"])
-                print("Resumed LR scheduler state.")
-            except Exception as e:
-                print(f"Could not load scheduler state: {e}. Reinitializing scheduler.")
-        # Adjust T_max for cosine scheduler if resuming and T_max was based on total epochs
-        if args.lr_scheduler == "cosine" and scheduler is not None:
-            # If original T_max was args.epochs, and we are resuming, 
-            # T_max should ideally be remaining_epochs. PyTorch CosineAnnealingLR 
-            # takes T_max as total cycles. It will complete its cycle from last_epoch to T_max.
-            # If start_ep > t_max_epochs, scheduler might behave unexpectedly or finish early.
-            # For simplicity, we often just set T_max to total epochs and let it run.
-            # If precise remaining epochs logic is needed, T_max might need dynamic adjustment or
-            # scheduler re-initialization with T_max = args.epochs - start_ep + 1.
-            # Current CosineAnnealingLR handles last_epoch correctly, so T_max=args.epochs is usually fine.
-            if start_ep > scheduler.T_max:
-                 print(f"Warning: Starting epoch {start_ep} is beyond scheduler T_max {scheduler.T_max}. Scheduler might be at eta_min.")
+        if scheduler and "scheduler" in st_checkpoint and st_checkpoint["scheduler"]:
+            try: scheduler.load_state_dict(st_checkpoint["scheduler"]); print("Resumed LR scheduler.")
+            except: print("Could not load scheduler state.")
+        if args_global.lr_scheduler == "cosine" and scheduler and start_ep > scheduler.T_max: # Fixed quote
+             print(f"Warning: Resumed epoch {start_ep} > scheduler T_max {scheduler.T_max}.")
+    elif args_global.resume_weights and not args_global.debug_single_loop:
+        print("Resuming weights from", args_global.resume_weights)
+        net.load_state_dict(torch.load(args_global.resume_weights, map_location=dev))
 
-    elif args.resume_weights:
-        print("Resuming weights from", args.resume_weights)
-        net.load_state_dict(torch.load(args.resume_weights, map_location=dev))
-
-
-    # --- Replay Buffer ---
-    buf: PrioritizedReplayBuffer # Type hint for PER buffer
-    if args.use_per:
+    buf: PrioritizedReplayBuffer | deque
+    if args_global.use_per:
+        debug_capacity = args_global.batch_size if args_global.debug_single_loop else args_global.buffer_size
+        if args_global.debug_single_loop and debug_capacity == 0: debug_capacity = 8 
         buf = PrioritizedReplayBuffer(
-            capacity=args.buffer_size,
-            alpha=args.per_alpha,
-            beta_start=args.per_beta_start,
-            beta_epochs=args.per_beta_epochs,
-            epsilon=args.per_epsilon
-        )
-        print(f"Using PrioritizedReplayBuffer with alpha={args.per_alpha}, beta_start={args.per_beta_start}")
+            capacity=debug_capacity, alpha=args_global.per_alpha,
+            beta_start=args_global.per_beta_start, beta_epochs=args_global.per_beta_epochs,
+            epsilon=args_global.per_epsilon )
+        print(f"Using PrioritizedReplayBuffer (capacity: {buf.capacity}).")
     else:
-        buf = deque(maxlen=args.buffer_size)
-        print(f"Using standard deque replay buffer.")
+        debug_maxlen = args_global.batch_size if args_global.debug_single_loop else args_global.buffer_size
+        if args_global.debug_single_loop and debug_maxlen == 0: debug_maxlen = 8
+        buf = deque(maxlen=debug_maxlen)
+        print(f"Using standard deque replay buffer (maxlen: {buf.maxlen}).")
 
-    buffer_actual_path = Path(args.buffer_path)
-    # Load experiences into the buffer if file exists
-    load_experiences_to_buffer(buf, buffer_actual_path, args.buffer_size)
+    buffer_file_path = Path(args_global.buffer_path)
+    if not args_global.debug_single_loop:
+        load_experiences_to_buffer(buf, buffer_file_path)
+    elif args_global.debug_single_loop:
+        print("[run DEBUG C4] Skipping buffer load for debug_single_loop.")
+    
+    temp_schedule = [(args_global.temp_decay_moves, 1.0), (float('inf'), args_global.final_temp)]
+    
+    if args_global.debug_single_loop:
+        print(f"[run DEBUG C4] Initialized. MCTS sims: {args_global.mcts_simulations}, Batch: {args_global.batch_size}, Epochs: {args_global.epochs}")
+        print(f"[run DEBUG C4] Buffer type: {'PER' if args_global.use_per else 'Deque'}, Initial len(buf): {len(buf)}")
 
-    temp_schedule = [
-        (args.temp_decay_moves, 1.0),
-        (float('inf'), args.final_temp)
-    ]
-
-    if not args.skip_bootstrap and (not isinstance(buf, PrioritizedReplayBuffer) or len(buf) < args.min_buffer_fill_for_per_bootstrap):
-        # Determine number of games to play for bootstrap
-        games_to_play_bootstrap = args.bootstrap_games
-        if isinstance(buf, PrioritizedReplayBuffer) and len(buf) < args.min_buffer_fill_for_per_bootstrap:
-            # If PER buffer is below its specific min fill, ensure enough games are played
-            # Estimate states per game to calculate needed games (e.g., 30 states/game)
-            avg_states_per_game = 30 
-            needed_states = args.min_buffer_fill_for_per_bootstrap - len(buf)
-            needed_games = (needed_states + avg_states_per_game -1) // avg_states_per_game # ceil division
+    min_fill_for_bootstrap = args_global.min_buffer_fill_for_per_bootstrap if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
+    if args_global.debug_single_loop: min_fill_for_bootstrap = 1
+    
+    games_to_play_bootstrap = 0
+    if not args_global.skip_bootstrap and len(buf) < min_fill_for_bootstrap:
+        games_to_play_bootstrap = args_global.bootstrap_games 
+        if len(buf) < min_fill_for_bootstrap and not args_global.debug_single_loop:
+            avg_states_per_game = 30 # Connect four average states
+            needed_states = min_fill_for_bootstrap - len(buf)
+            needed_games = (needed_states + avg_states_per_game -1) // avg_states_per_game
             games_to_play_bootstrap = max(games_to_play_bootstrap, needed_games)
-            print(f"PER buffer below min fill ({len(buf)}/{args.min_buffer_fill_for_per_bootstrap}). Will play at least {needed_games} bootstrap games.")
+            print(f"Buffer below min fill ({len(buf)}/{min_fill_for_bootstrap}). Playing {games_to_play_bootstrap} bootstrap games.")
+        elif args_global.debug_single_loop:
+            print(f"[run DEBUG C4] Bootstrap: Will play {games_to_play_bootstrap} game(s) as len(buf)={len(buf)} < min_fill={min_fill_for_bootstrap}")
         
-        print(f"Bootstrapping {games_to_play_bootstrap} games …", flush=True)
-        for g in range(games_to_play_bootstrap):
-            net.eval() 
-            game_history = play_one_game(
-                net, game_adapter, mcts, temp_schedule, 
-                mcts_simulations=args.mcts_simulations, 
-                max_moves=BOARD_H * BOARD_W
-            )
-            if isinstance(buf, PrioritizedReplayBuffer):
-                for experience in game_history:
-                    buf.add(experience)
-            else: # It's a deque
-                buf.extend(game_history) # Deque can extend directly
-            net.train() 
-            print(f"  bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_history)} states) → buffer {len(buf)}", flush=True)
-            if len(buf) > 0 and (g + 1) % args.save_buffer_every == 0 : 
-                 save_buffer_experiences(buf, buffer_actual_path)
-                 print(f"Saved replay buffer during bootstrap at game {g+1}")
-
-
-    print(f"Starting training from epoch {start_ep} for {args.epochs} epochs.")
-    try:
-        for ep in range(start_ep, args.epochs + 1):
-            net.eval() 
-            game_history = play_one_game(
-                net, game_adapter, mcts, temp_schedule, 
-                mcts_simulations=args.mcts_simulations, 
-                max_moves=BOARD_H * BOARD_W
-            )
-            if isinstance(buf, PrioritizedReplayBuffer):
-                for experience in game_history: 
-                    buf.add(experience)
-            else: # It's a deque
-                buf.extend(game_history) # Deque can extend directly
-            net.train() 
-
-            current_min_buffer_fill = args.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args.min_buffer_fill_standard
-            if len(buf) < current_min_buffer_fill:
-                print(f"Epoch {ep} | Buffer size {len(buf)} < min fill {current_min_buffer_fill}. Skipping training. Game states: {len(game_history)}", flush=True)
-                if ep % args.ckpt_every == 0: 
-                    save_buffer_experiences(buf, buffer_actual_path) 
-            else:
-                if isinstance(buf, PrioritizedReplayBuffer):
-                    sampled_data = buf.sample(args.batch_size)
-                    if sampled_data is None:
-                        print(f"Epoch {ep} | PER buffer sample returned None (not enough data or zero sum). Skipping training step.", flush=True)
-                        continue # Skip training if sample failed
-                    batch_experiences, is_weights, data_indices = sampled_data
-                else: # Standard deque buffer
-                    batch_experiences = random.sample(list(buf), min(args.batch_size, len(buf)))
-                    is_weights = np.ones(len(batch_experiences), dtype=np.float32) # Uniform weights for non-PER
-                    # data_indices are not used for non-PER updates
-
-                loss, td_errors = train_step(net, batch_experiences, is_weights, opt, dev, game_adapter, args.augment_prob)
+        if games_to_play_bootstrap > 0:
+            if not args_global.debug_single_loop: print(f"Bootstrapping {games_to_play_bootstrap} games …", flush=True)
+            for g in range(games_to_play_bootstrap):
+                net.eval() 
+                game_hist = play_one_game(
+                    net, game_adapter, mcts, temp_schedule, 
+                    mcts_simulations=args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
+                    debug_mode=args_global.debug_single_loop )
                 
+                add_method = buf.add if isinstance(buf, PrioritizedReplayBuffer) else buf.extend
+                if isinstance(buf, PrioritizedReplayBuffer): for exp in game_hist: add_method(exp)
+                else: add_method(game_hist)
+                net.train() 
+                if args_global.debug_single_loop or (g+1) % args_global.save_buffer_every == 0:
+                    print(f"  Bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_hist)} states) → buffer {len(buf)}", flush=True)
+                    if not args_global.debug_single_loop : save_buffer_experiences(buf, buffer_file_path)
+
+    if not args_global.debug_single_loop: print(f"Starting training from epoch {start_ep} for {args_global.epochs} epochs.")
+    try:
+        for ep in range(start_ep, args_global.epochs + 1):
+            if args_global.debug_single_loop:
+                _debug_flag = True # Ensure block starts with an assignment
+                print(f"\n--- [DEBUG] Epoch {ep} START (Connect Four) ---")
+            
+            net.eval() 
+            game_hist = play_one_game(
+                net, game_adapter, mcts, temp_schedule, 
+                mcts_simulations=args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
+                debug_mode=args_global.debug_single_loop )
+            
+            add_method = buf.add if isinstance(buf, PrioritizedReplayBuffer) else buf.extend
+            if isinstance(buf, PrioritizedReplayBuffer): for exp in game_hist: add_method(exp)
+            else: add_method(game_hist)
+            net.train() 
+
+            current_min_train_fill = args_global.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
+            if args_global.debug_single_loop: current_min_train_fill = 1
+
+            if len(buf) < current_min_train_fill:
+                if ep % args_global.log_every == 0: 
+                    print(f"Epoch {ep} | Buffer {len(buf)} < min {current_min_train_fill}. Skip train. LR {opt.param_groups[0]['lr']:.2e}", flush=True)
+                if ep % args_global.ckpt_every == 0 and not args_global.debug_single_loop: save_buffer_experiences(buf, buffer_file_path) 
+            else:
+                if args_global.debug_single_loop:
+                    _debug_flag = True # Ensure block starts with an assignment
+                    print(f"\n[run DEBUG C4] Buffer ready. len(buf): {len(buf)}, batch: {args_global.batch_size}")
+                
+                batch_experiences, is_weights, data_indices = None, None, None
+                actual_batch_size = min(args_global.batch_size, len(buf))
+
+                if actual_batch_size == 0:
+                    if ep % args_global.log_every == 0: print(f"Epoch {ep} | Buffer empty or batch zero. Skip train.", flush=True)
+                    if scheduler: scheduler.step()
+                    continue
+
                 if isinstance(buf, PrioritizedReplayBuffer):
+                    sampled_data = buf.sample(actual_batch_size)
+                    if sampled_data is None:
+                        if ep % args_global.log_every == 0: print(f"Epoch {ep} | PER sample failed. Skip train. LR {opt.param_groups[0]['lr']:.2e}", flush=True)
+                        if scheduler: scheduler.step() 
+                        continue 
+                    batch_experiences, is_weights, data_indices = sampled_data
+                    if args_global.debug_single_loop and batch_experiences is not None:
+                        print(f"[run DEBUG C4] PER Sampled {len(batch_experiences)} experiences.")
+                        if len(batch_experiences) > 0 and batch_experiences[0] and batch_experiences[0][0] and 'board' in batch_experiences[0][0] and batch_experiences[0][0]['board']:
+                            print(f"[run DEBUG C4] First PER exp state board: {batch_experiences[0][0]['board'][0]}...")
+                        print(f"[run DEBUG C4] PER IS weights (first 4): {is_weights[:min(4, len(is_weights))] if len(is_weights) > 0 else '[]'}")
+                        print(f"[run DEBUG C4] PER data_indices (first 4): {data_indices[:min(4, len(data_indices))] if len(data_indices) > 0 else '[]'}")
+                else: 
+                    batch_experiences = random.sample(list(buf), actual_batch_size)
+                    is_weights = np.ones(len(batch_experiences), dtype=np.float32)
+                    if args_global.debug_single_loop and batch_experiences is not None:
+                        print(f"[run DEBUG C4] Standard Sampled {len(batch_experiences)} experiences.")
+                        if len(batch_experiences) > 0 and batch_experiences[0] and batch_experiences[0][0] and 'board' in batch_experiences[0][0] and batch_experiences[0][0]['board']:
+                            print(f"[run DEBUG C4] First standard exp state board: {batch_experiences[0][0]['board'][0]}...")
+                
+                loss, td_errors = train_step(net, batch_experiences, is_weights, opt, dev, game_adapter, 
+                                             args_global.augment_prob, args_global.ent_beta, 
+                                             debug_mode=args_global.debug_single_loop)
+                
+                if isinstance(buf, PrioritizedReplayBuffer) and data_indices is not None and len(data_indices) > 0:
+                    if args_global.debug_single_loop: print(f"[run DEBUG C4] Updating PER priorities for {len(data_indices)} indices.")
                     buf.update_priorities(data_indices, td_errors)
 
-                if ep % args.log_every == 0:
+                if ep % args_global.log_every == 0:
                     print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}", flush=True)
             
-            if scheduler:
-                scheduler.step()
+            if scheduler: scheduler.step()
             
-            if ep % args.ckpt_every == 0:
-                chkpt_path = ckdir / f"chkpt_ep{ep:06d}.pt"
-                torch.save(net.state_dict(), chkpt_path)
-                
-                current_epoch_to_save = ep if 'ep' in locals() else start_ep -1
+            if ep % args_global.ckpt_every == 0:
+                chkpt_path = ckdir / f"c4_chkpt_ep{ep:06d}.pt" # Path for C4
+                if not args_global.debug_single_loop: torch.save(net.state_dict(), chkpt_path)
                 full_state_to_save = {
-                    "net": net.state_dict(),
-                    "opt": opt.state_dict(),
-                    "epoch": current_epoch_to_save,
-                    "scheduler": scheduler.state_dict() if scheduler else None, # Save scheduler state
+                    "net": net.state_dict(), "opt": opt.state_dict(),
+                    "epoch": ep, "scheduler": scheduler.state_dict() if scheduler else None,
                 }
-                torch.save(full_state_to_save, state_path)
-                print(f"Saved checkpoint: {chkpt_path} and full state: {state_path}", flush=True)
+                if not args_global.debug_single_loop: torch.save(full_state_to_save, state_path)
+                print(f"Saved: {str(chkpt_path)} and {str(state_path)}", flush=True)
 
-            if ep % args.save_buffer_every == 0 and len(buf) > 0:
-                 save_buffer_experiences(buf, buffer_actual_path)
+            if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop:
+                 save_buffer_experiences(buf, buffer_file_path)
                  print(f"Saved replay buffer at epoch {ep}")
             
             if isinstance(buf, PrioritizedReplayBuffer):
-                buf.advance_epoch_for_beta_anneal() # Anneal beta after each epoch
-
-    except KeyboardInterrupt:
-        print("\nTraining interrupted by user. Saving final state...")
+                buf.advance_epoch_for_beta_anneal()
+            if args_global.debug_single_loop: 
+                _debug_flag = True # Ensure block starts with an assignment
+                print(f"--- [DEBUG] Epoch {ep} END (Connect Four) ---") 
+    except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
-        print("Saving final model and buffer...")
-        final_model_path = ckdir / "last_model.pt"
+        print("Saving final model and buffer (Connect Four)...")
+        final_model_path = ckdir / "last_c4_model.pt" # Path for C4
         torch.save(net.state_dict(), final_model_path)
-        if len(buf) > 0: # Check if buffer is not empty
-            save_buffer_experiences(buf, buffer_actual_path)
-        
-        current_epoch_to_save = ep if 'ep' in locals() and ep > start_ep else start_ep -1
-        if 'ep' not in locals() or ep < start_ep :
-             current_epoch_to_save = start_ep -1
-        
+        if len(buf) > 0: save_buffer_experiences(buf, buffer_file_path)
+        ep_to_save = ep if 'ep' in locals() and 'start_ep' in locals() and ep >= start_ep else start_ep - 1
         full_state_to_save = {
-            "net": net.state_dict(),
-            "opt": opt.state_dict(),
-            "epoch": current_epoch_to_save,
-            "scheduler": scheduler.state_dict() if scheduler else None, # Save scheduler state
-        }
+            "net": net.state_dict(), "opt": opt.state_dict(), "epoch": ep_to_save,
+            "scheduler": scheduler.state_dict() if scheduler else None, }
         torch.save(full_state_to_save, state_path)
-        print(f"Final model saved to {final_model_path}, buffer to {buffer_actual_path}, and full state to {state_path}")
-
+        print(f"Final C4 model: {str(final_model_path)}, Buffer: {str(buffer_file_path)}, State: {str(state_path)}")
 
 # ---------------------------------------------------------------------------
-# CLI parser
+# CLI parser (aligned with ttt_zero_advanced.py, defaults adjusted for C4)
 # ---------------------------------------------------------------------------
-
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="AlphaZero-style training for Connect Four with MCTS.")
+    p = argparse.ArgumentParser(description="AlphaZero-style training for Connect Four.")
+    p.add_argument("--debug-single-loop", action="store_true", help="Run for one minimal loop with extensive debugging prints.")
+    # No --eval-model-path for c4 script for now, can be added if needed
+
     p.add_argument("--gpu", action="store_true", help="Use GPU if available.")
     
-    g_play = p.add_argument_group("Self-Play & MCTS")
-    g_play.add_argument("--bootstrap-games", type=int, default=100, help="Number of initial games to fill buffer before training.")
-    g_play.add_argument("--skip-bootstrap", action="store_true", help="Skip initial bootstrap games if buffer exists and is sufficient.")
-    g_play.add_argument("--mcts-simulations", type=int, default=50, help="Number of MCTS simulations per move.")
-    g_play.add_argument("--c-puct", type=float, default=1.41, help="PUCT exploration constant for MCTS.")
-    g_play.add_argument("--dirichlet-alpha", type=float, default=0.3, help="Alpha for Dirichlet noise at MCTS root.")
-    g_play.add_argument("--dirichlet-epsilon", type=float, default=0.25, help="Epsilon for mixing Dirichlet noise.")
-    g_play.add_argument("--temp-decay-moves", type=int, default=10, help="Number of moves to use temperature=1.0 for exploration.")
-    g_play.add_argument("--final-temp", type=float, default=0.1, help="Temperature for action selection after temp_decay_moves (0 for deterministic).")
+    g_play = p.add_argument_group("Self-Play & MCTS (Connect Four)")
+    g_play.add_argument("--bootstrap-games", type=int, default=20, help="Initial games to fill buffer.") # C4 default
+    g_play.add_argument("--skip-bootstrap", action="store_true", help="Skip bootstrap if buffer meets min fill.")
+    g_play.add_argument("--mcts-simulations", type=int, default=50, help="MCTS simulations per move.") # C4 default
+    g_play.add_argument("--c-puct", type=float, default=1.41, help="PUCT exploration constant.")
+    g_play.add_argument("--dirichlet-alpha", type=float, default=0.3, help="Alpha for Dirichlet noise.")
+    g_play.add_argument("--dirichlet-epsilon", type=float, default=0.25, help="Epsilon for Dirichlet noise.")
+    g_play.add_argument("--temp-decay-moves", type=int, default=10, help="Moves to use T=1 for exploration.") # C4 default
+    g_play.add_argument("--final-temp", type=float, default=0.1, help="Temp after decay (0 for deterministic).")
 
-    g_train = p.add_argument_group("Training")
-    g_train.add_argument("--epochs", type=int, default=10000, help="Total training epochs (1 epoch = 1 game + 1 train step).")
-    g_train.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate for Adam optimizer.")
+    g_train = p.add_argument_group("Training (Connect Four)")
+    g_train.add_argument("--epochs", type=int, default=10000, help="Total training epochs.")
+    g_train.add_argument("--lr", type=float, default=2e-4, help="Initial learning rate.") # C4 specific LR
     g_train.add_argument("--batch-size", type=int, default=256, help="Batch size for training.")
-    g_train.add_argument("--ent-beta", type=float, default=1e-3, help="Entropy regularization coefficient.")
-    # LR Scheduler Args
-    g_train.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"], help="Type of LR scheduler.")
-    g_train.add_argument("--lr-t-max", type=int, default=10000, help="T_max for CosineAnnealingLR (usually total epochs).")
-    g_train.add_argument("--lr-eta-min", type=float, default=1e-6, help="Minimum LR for CosineAnnealingLR.")
-    g_train.add_argument("--augment-prob", type=float, default=1, help="Probability of applying horizontal reflection augmentation.")
-    # TODO: Add args for StepLR if chosen: --lr-step-size, --lr-gamma
+    g_train.add_argument("--ent-beta", type=float, default=1e-3, help="Entropy regularization.")
+    g_train.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"])
+    g_train.add_argument("--lr-t-max", type=int, default=0, help="T_max for CosineLR (0 for args.epochs).")
+    g_train.add_argument("--lr-eta-min", type=float, default=1e-6, help="Min LR for CosineLR.")
+    g_train.add_argument("--augment-prob", type=float, default=0.5, help="Probability of reflection augmentation.")
 
-
-    g_buffer = p.add_argument_group("Replay Buffer")
-    g_buffer.add_argument("--buffer-size", type=int, default=50000, help="Maximum size of the replay buffer.")
-    g_buffer.add_argument("--min-buffer-fill-standard", type=int, default=1000, help="Min samples in standard buffer before training.")
-    g_buffer.add_argument("--min-buffer-fill-for-per-training", type=int, default=10000, help="Min samples in PER buffer before training (usually larger).")
-    g_buffer.add_argument("--min-buffer-fill-for-per-bootstrap", type=int, default=1000, help="Min samples in PER buffer to target during initial bootstrap if buffer is empty.")
-    g_buffer.add_argument("--buffer-path", type=str, default="c4_adv_mcts_buffer.pth", help="Path to save/load the replay buffer experiences.")
-    g_buffer.add_argument("--save-buffer-every", type=int, default=50, help="Save replay buffer every N epochs/bootstrap games.")
+    g_buffer = p.add_argument_group("Replay Buffer (Connect Four)")
+    g_buffer.add_argument("--buffer-size", type=int, default=50000, help="Max replay buffer size.")
+    g_buffer.add_argument("--min-buffer-fill-standard", type=int, default=1000, help="Min samples for standard buffer.")
+    g_buffer.add_argument("--min-buffer-fill-for-per-training", type=int, default=10000, help="Min samples for PER training.")
+    g_buffer.add_argument("--min-buffer-fill-for-per-bootstrap", type=int, default=1000, help="Min PER samples for bootstrap target.")
+    g_buffer.add_argument("--buffer-path", type=str, default="c4_adv_mcts_buffer.pth", help="Path to save/load buffer.")
+    g_buffer.add_argument("--save-buffer-every", type=int, default=50, help="Save buffer every N epochs.")
     g_buffer.add_argument("--use-per", action="store_true", help="Use Prioritized Experience Replay.")
-    g_buffer.add_argument("--per-alpha", type=float, default=0.6, help="Alpha exponent for PER (0=uniform, 1=full priority).")
-    g_buffer.add_argument("--per-beta-start", type=float, default=0.4, help="Initial beta for PER IS weights.")
-    g_buffer.add_argument("--per-beta-epochs", type=int, default=0, help="Epochs to anneal beta to 1.0 (0 for constant beta_start).")
-    g_buffer.add_argument("--per-epsilon", type=float, default=1e-5, help="Epsilon for PER priorities (|td_error| + epsilon).")
+    g_buffer.add_argument("--per-alpha", type=float, default=0.6, help="Alpha for PER.")
+    g_buffer.add_argument("--per-beta-start", type=float, default=0.4, help="Initial beta for PER.")
+    g_buffer.add_argument("--per-beta-epochs", type=int, default=0, help="Epochs to anneal beta (0 for const beta, or total epochs).")
+    g_buffer.add_argument("--per-epsilon", type=float, default=1e-5, help="Epsilon for PER priorities.")
 
+    g_nn = p.add_argument_group("Neural Network (Connect Four)")
+    g_nn.add_argument("--channels", type=int, default=128, help="Channels per conv layer.")
+    g_nn.add_argument("--blocks", type=int, default=10, help="Number of residual blocks.")
 
-    g_nn = p.add_argument_group("Neural Network")
-    g_nn.add_argument("--channels", type=int, default=128, help="Channels per conv layer in ResNet.")
-    g_nn.add_argument("--blocks", type=int, default=10, help="Number of residual blocks in ResNet.")
-
-    g_mgmt = p.add_argument_group("Checkpointing & Logging")
-    g_mgmt.add_argument("--ckpt-dir", default="c4_checkpoints_az", help="Directory to save model checkpoints.")
-    g_mgmt.add_argument("--ckpt-every", type=int, default=100, help="Save model checkpoint every N epochs.")
-    g_mgmt.add_argument("--log-every", type=int, default=1, help="Log training stats every N epochs.")
-    g_mgmt.add_argument("--resume-weights", metavar="PATH", help="Path to checkpoint file to load network weights before training.")
-    g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state (net, optimizer, epoch) from ckpt_dir/train_state.pt.")
+    g_mgmt = p.add_argument_group("Checkpointing & Logging (Connect Four)")
+    g_mgmt.add_argument("--ckpt-dir", default="c4_checkpoints_az", help="Directory for model checkpoints.") # C4 specific
+    g_mgmt.add_argument("--ckpt-every", type=int, default=100, help="Save checkpoint every N epochs.")
+    g_mgmt.add_argument("--log-every", type=int, default=10, help="Log training stats every N epochs.")
+    g_mgmt.add_argument("--resume-weights", metavar="PATH", help="Path to load network weights.")
+    g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state.")
     
     return p
 
-
 if __name__ == "__main__":
-    # Parse args once at the beginning of run()
-    run() # args will be parsed inside run and assigned to global args
+    run()
