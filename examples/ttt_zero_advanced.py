@@ -745,7 +745,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--dirichlet-epsilon", type=float, default=0.25, help="Epsilon for Dirichlet noise.")
     p.add_argument("--temp-decay-moves", type=int, default=4, help="Moves to use T=1 for exploration.")
     p.add_argument("--final-temp", type=float, default=0.05, help="Temp after decay (0 for deterministic).")
-    p.add_argument("--epochs", type=int, default=1000, help="Total training epochs.")
+    p.add_argument("--epochs", type=int, default=5000, help="Total training epochs.")
     p.add_argument("--lr", type=float, default=1e-5, help="Initial learning rate.")
     p.add_argument("--batch-size", type=int, default=64, help="Batch size for training.")
     p.add_argument("--ent-beta", type=float, default=1e-2, help="Entropy regularization coefficient.")
