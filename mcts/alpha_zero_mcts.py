@@ -110,57 +110,46 @@ class AlphaZeroMCTS:
     def _get_device(self) -> torch.device:
         return self.device
 
-    def run_simulations(self, root_state: Any, num_simulations: int, current_player_perspective: Any) -> Tuple[Dict[Any, float], float]:
-        """
-        Run MCTS simulations from the root_state.
+    def run_simulations(self, root_state: Any, num_simulations: int, 
+                        current_player_perspective: Any, debug_mcts: bool = False) -> Tuple[Dict[Any, float], float]:
+        if debug_mcts: print("\n--- MCTS run_simulations START ---")
+        if debug_mcts: print(f"[MCTS] Root state player: {self.game.getCurrentPlayer(root_state)}, Perspective: {current_player_perspective}, Sims: {num_simulations}")
 
-        Args:
-            root_state: The starting state for the MCTS.
-            num_simulations: The number of simulations to perform.
-            current_player_perspective: The player for whom we are evaluating the state (e.g. 'X' or 'O').
-                                       This is important for encoding the state for the network
-                                       and interpreting the network's value output.
-
-        Returns:
-            A tuple: (action_probabilities, estimated_value_of_root_state)
-            - action_probabilities: Dict[action, probability] based on visit counts.
-            - estimated_value_of_root_state: The MCTS-estimated value of the root_state.
-        """
         root_node = AlphaZeroMCTSNode(game_state=self.game.copyState(root_state))
-        self._apply_dirichlet_noise_to_root = True # Reset for each new search
+        self._apply_dirichlet_noise_to_root = True 
 
-        for _ in range(num_simulations):
+        for sim_idx in range(num_simulations):
+            if debug_mcts and sim_idx < 3: print(f"  [MCTS] Simulation {sim_idx + 1}/{num_simulations}")
             current_node = root_node
-            path = [current_node] # Path from root to leaf
+            path = [current_node]
 
-            # 1. Selection: Traverse the tree using PUCT until a leaf node is reached
+            # 1. Selection
             while not current_node.is_leaf() and not self.game.isTerminal(current_node.game_state):
-                current_node = current_node.select_child_puct(self.c_puct)
+                selected_child = current_node.select_child_puct(self.c_puct)
+                if debug_mcts and sim_idx < 1 and len(path) < 3: # Log first few selections in first sim
+                    print(f"    [MCTS Select] Parent V={current_node.visit_count}, Q={current_node.Q_value:.3f}")
+                    for act, child in current_node.children.items():
+                        print(f"      Child action {act}: V={child.visit_count}, Q={child.Q_value:.3f}, P={child.prior_probability:.3f}")
+                    print(f"    [MCTS Select] Chose action {selected_child.action_that_led_here} (Child V={selected_child.visit_count}, Q={selected_child.Q_value:.3f})")
+                current_node = selected_child
                 path.append(current_node)
             
             leaf_node = current_node
             leaf_state = leaf_node.game_state
+            value_from_net_for_leaf_player = 0.0
+            value_estimate_for_root_player = 0.0
             
-            value_from_net_for_leaf_player = 0.0 # Default for clarity if terminal
-            value_estimate_for_root_player = 0.0 # Value from perspective of root player
-            
+            # 2. Expansion & Evaluation
             if self.game.isTerminal(leaf_state):
                 game_outcome = self.game.getGameOutcome(leaf_state)
-                if game_outcome == "Draw":
-                    value_estimate_for_root_player = 0.0
-                elif game_outcome == current_player_perspective:
-                    value_estimate_for_root_player = 1.0
-                else: 
-                    value_estimate_for_root_player = -1.0
+                if debug_mcts and sim_idx < 3 : print(f"    [MCTS Eval] Leaf is terminal. Outcome: {game_outcome}")
+                if game_outcome == "Draw": value_estimate_for_root_player = 0.0
+                elif game_outcome == current_player_perspective: value_estimate_for_root_player = 1.0
+                else: value_estimate_for_root_player = -1.0
             else:
+                if debug_mcts and sim_idx < 3 : print(f"    [MCTS Eval] Leaf not terminal. Expanding state (player {self.game.getCurrentPlayer(leaf_state)})...")
                 encoded_state = self.game.encode_state(leaf_state, self.game.getCurrentPlayer(leaf_state))
-                if isinstance(encoded_state, np.ndarray):
-                    encoded_state_tensor = torch.from_numpy(encoded_state).unsqueeze(0)
-                else: 
-                    encoded_state_tensor = encoded_state.unsqueeze(0)
-                
-                # Use the stored device
-                encoded_state_tensor = encoded_state_tensor.to(self._get_device())
+                encoded_state_tensor = encoded_state.unsqueeze(0).to(self._get_device()) if isinstance(encoded_state, torch.Tensor) else torch.from_numpy(encoded_state).unsqueeze(0).to(self._get_device())
 
                 with torch.no_grad():
                     policy_logits, net_value_output = self.model_fn(encoded_state_tensor)
@@ -168,134 +157,122 @@ class AlphaZeroMCTS:
                 policy_logits = policy_logits.squeeze(0)
                 value_from_net_for_leaf_player = net_value_output.item()
                 leaf_node._value_from_network = value_from_net_for_leaf_player
+                if debug_mcts and sim_idx < 3 : print(f"    [MCTS Eval] Network raw policy logits (example): {policy_logits[:3]}... Value for leaf player: {value_from_net_for_leaf_player:.3f}")
 
                 if self.game.getCurrentPlayer(leaf_state) != current_player_perspective:
                     value_estimate_for_root_player = -value_from_net_for_leaf_player
                 else:
                     value_estimate_for_root_player = value_from_net_for_leaf_player
+                if debug_mcts and sim_idx < 3 : print(f"    [MCTS Eval] Value estimate for root player perspective: {value_estimate_for_root_player:.3f}")
 
                 legal_actions = self.game.getLegalActions(leaf_state)
-                if not legal_actions:
-                    pass 
-                else:
+                if legal_actions:
                     policy_priors_raw = torch.softmax(policy_logits, dim=0).cpu().numpy()
+                    if debug_mcts and sim_idx < 3 : print(f"    [MCTS Expand] Softmaxed priors (example): {policy_priors_raw[:3]}...")
                     masked_policy_priors = {action: policy_priors_raw[action] for action in legal_actions}
                     
                     if leaf_node == root_node and self._apply_dirichlet_noise_to_root and legal_actions:
+                        if debug_mcts and sim_idx < 3 : print(f"    [MCTS Expand] Applying Dirichlet noise (alpha={self.dirichlet_alpha}, eps={self.dirichlet_epsilon})")
                         num_legal = len(legal_actions)
                         dirichlet_noise = np.random.dirichlet([self.dirichlet_alpha] * num_legal)
-                        
                         for i, action in enumerate(legal_actions):
                             masked_policy_priors[action] = (1 - self.dirichlet_epsilon) * masked_policy_priors[action] + \
                                                              self.dirichlet_epsilon * dirichlet_noise[i]
+                        if debug_mcts and sim_idx < 3 : print(f"    [MCTS Expand] Priors after noise (first few legal): {[(k, v) for k,v in list(masked_policy_priors.items())[:3]]}")
                         self._apply_dirichlet_noise_to_root = False
 
-                    for action in legal_actions:
-                        prior_p = masked_policy_priors.get(action, 0.0) 
-                        child_game_state = self.game.applyAction(self.game.copyState(leaf_state), action)
+                    for action_int in legal_actions:
+                        prior_p = masked_policy_priors.get(action_int, 0.0)
+                        child_game_state = self.game.applyAction(self.game.copyState(leaf_state), action_int)
                         new_child_node = AlphaZeroMCTSNode(
-                            game_state=child_game_state,
-                            parent=leaf_node,
-                            action_that_led_here=action,
-                            prior_probability=float(prior_p)
-                        )
-                        leaf_node.children[action] = new_child_node
+                            game_state=child_game_state, parent=leaf_node,
+                            action_that_led_here=action_int, prior_probability=float(prior_p) )
+                        leaf_node.children[action_int] = new_child_node
+                        if debug_mcts and sim_idx < 1 and len(path)==1: # Only for root expansion in first sim
+                            print(f"      [MCTS Expand] Created child for action {action_int} with prior {prior_p:.3f}")
             
+            # 3. Backpropagation
+            if debug_mcts and sim_idx < 3 : print(f"    [MCTS Backprop] Path len: {len(path)}, Value for root: {value_estimate_for_root_player:.3f}")
             for node_in_path in reversed(path):
                 node_in_path.visit_count += 1
-                if self.game.getCurrentPlayer(node_in_path.game_state) == current_player_perspective:
-                    node_in_path.total_action_value += value_estimate_for_root_player
-                else:
-                    node_in_path.total_action_value -= value_estimate_for_root_player
+                # Correct perspective for total_action_value update
+                is_current_player_at_node_same_as_root_perspective = (self.game.getCurrentPlayer(node_in_path.game_state) == current_player_perspective)
+                if node_in_path.parent is not None: # For children, this Q is from parent's perspective
+                    # Value for root player must be negated if parent's turn was different from root player
+                    if self.game.getCurrentPlayer(node_in_path.parent.game_state) == current_player_perspective:
+                        node_in_path.total_action_value += value_estimate_for_root_player
+                    else:
+                        node_in_path.total_action_value -= value_estimate_for_root_player
+                elif node_in_path == root_node: # For root node, directly use value_estimate_for_root_player
+                     node_in_path.total_action_value += value_estimate_for_root_player
+                
+                if debug_mcts and sim_idx < 1 and len(path) - path.index(node_in_path) <=2 : # Log last few backprop steps
+                    print(f"      [MCTS Backprop] Node (player {self.game.getCurrentPlayer(node_in_path.game_state)}), V_count={node_in_path.visit_count}, TotalQ={node_in_path.total_action_value:.3f}, AvgQ={node_in_path.Q_value:.3f}")
         
-        action_probs: Dict[Any, float] = {action: 0.0 for action in self.game.getLegalActions(root_state)}
+        action_probs: Dict[Any, float] = {}
+        legal_root_actions = self.game.getLegalActions(root_state)
         if not root_node.children: 
-            if not self.game.isTerminal(root_state):
-                num_legal = len(action_probs)
-                if num_legal > 0:
-                    uniform_prob = 1.0 / num_legal
-                    for action_key in action_probs:
-                        action_probs[action_key] = uniform_prob
+            if not self.game.isTerminal(root_state) and legal_root_actions:
+                uniform_prob = 1.0 / len(legal_root_actions)
+                for action_key in legal_root_actions: action_probs[action_key] = uniform_prob
+            if debug_mcts: print(f"[MCTS] Root has no children after sims. Legal: {legal_root_actions}. Returning uniform/empty: {action_probs}")
         else:
-            total_visits_for_policy = root_node.visit_count
+            total_visits_for_policy = sum(child.visit_count for child in root_node.children.values()) # Should be root_node.visit_count if expanded
             if total_visits_for_policy > 0 :
-                 for action, child_node in root_node.children.items():
-                    if action in action_probs: 
-                        action_probs[action] = child_node.visit_count / total_visits_for_policy
+                 for action_int, child_node in root_node.children.items():
+                    if action_int in legal_root_actions: 
+                        action_probs[action_int] = child_node.visit_count / total_visits_for_policy
             else: 
-                num_legal = len(action_probs)
-                if num_legal > 0:
-                    uniform_prob = 1.0 / num_legal
-                    for action_key in action_probs:
-                        action_probs[action_key] = uniform_prob
+                if legal_root_actions: uniform_prob = 1.0 / len(legal_root_actions)
+                for action_key in legal_root_actions: action_probs[action_key] = uniform_prob
+            if debug_mcts: print(f"[MCTS] Final action_probs from root: {action_probs}")
 
         mcts_value_of_root = root_node.Q_value 
+        if debug_mcts: print(f"[MCTS] MCTS estimated value of root: {mcts_value_of_root:.3f}")
+        if debug_mcts: print("--- MCTS run_simulations END ---")
         return action_probs, mcts_value_of_root
 
-    def get_action_policy(self, root_state: Any, num_simulations: int, temperature: float = 1.0) -> Tuple[Any, Dict[Any, float]]:
-        """
-        Runs MCTS and returns the chosen action and the policy (visit counts).
-
-        Args:
-            root_state: The current game state.
-            num_simulations: Number of MCTS simulations.
-            temperature: Temperature parameter for action selection.
-                         High temperature -> more exploration. Low -> more exploitation.
-                         AlphaZero often uses T=1 for first N moves, then T->0.
-
-        Returns:
-            A tuple: (chosen_action, action_probabilities)
-            - chosen_action: The action selected by MCTS.
-            - action_probabilities: Dict[action, probability] based on visit counts (policy target).
-        """
-        
+    def get_action_policy(self, root_state: Any, num_simulations: int, temperature: float = 1.0, debug_mcts: bool = False) -> Tuple[Any, Dict[Any, float]]:
         current_player = self.game.getCurrentPlayer(root_state)
-        mcts_policy_dict, _ = self.run_simulations(root_state, num_simulations, current_player)
+        mcts_policy_dict, _ = self.run_simulations(root_state, num_simulations, current_player, debug_mcts)
         
         actions = list(mcts_policy_dict.keys())
-        policy_target_probs = np.array([mcts_policy_dict[action] for action in actions])
-
-        if not actions:
-            raise ValueError("No legal actions from root state in MCTS get_action_policy.")
-
-        if np.isclose(temperature, 0.0): 
-            chosen_action_idx = np.argmax(policy_target_probs) 
-            chosen_action = actions[chosen_action_idx]
+        if not actions: # No legal actions from MCTS policy (e.g. terminal state or error)
+            # Try to get legal actions directly from game as fallback if mcts_policy is empty but state not terminal
+            if not self.game.isTerminal(root_state):
+                actions = self.game.getLegalActions(root_state)
+                if not actions:
+                    raise ValueError("MCTS policy and game both give no legal actions from non-terminal root state.")
+                # If game gives actions, create a uniform policy for selection
+                mcts_policy_dict = {action: 1.0/len(actions) for action in actions}
+                policy_target_probs = np.array([mcts_policy_dict[action] for action in actions])
+                print(f"Warning: MCTS returned empty policy for non-terminal state. Using uniform over {actions}")
+            else: # Terminal state, no actions to choose
+                 raise ValueError("No legal actions from root state in MCTS get_action_policy, state is likely terminal.")
         else:
-            if len(actions) == 1: 
-                 chosen_action = actions[0]
-            # For temperature sampling, we need raw visit counts N(s,a)
-            # mcts_policy_dict currently stores pi(a|s) = N(s,a)/sum_N(s,b)
-            # We need to retrieve N(s,a) from the tree or have run_simulations return them.
-            # For now, let's assume T=1 action selection from probabilities if T is not 0.
-            # This is a simplification for now. A more correct implementation for T != 0 & T != 1
-            # would be to use N(s,a)^(1/T) / sum(N(s,b)^(1/T)).
+            policy_target_probs = np.array([mcts_policy_dict[action] for action in actions])
 
-            # Get raw visit counts for actions from root_node children
-            # This requires access to root_node after run_simulations or run_simulations returns it.
-            # For now, let's stick to sampling from probabilities if T=1 or using argmax if T=0
-            # and leave more complex temperature handling for later refinement if needed.
+        if not actions: # Should be caught above, but as a safeguard
+            raise ValueError("No legal actions available for selection.")
+
+        if np.isclose(temperature, 0.0) or len(actions) == 1: 
+            chosen_action_idx_in_list = np.argmax(policy_target_probs) 
+            chosen_action = actions[chosen_action_idx_in_list]
+        else:
+            # Temperature sampling based on policy probabilities (derived from visit counts)
+            # AlphaZero uses pi(a|s) = N(s,a)^(1/T) / sum_b N(s,b)^(1/T)
+            # Our mcts_policy_dict contains N(s,a)/sum_N. To use T, we should ideally work from N(s,a).
+            # For simplicity with current return, if T=1, sample from probs. If T != 1, this is an approximation.
+            # A more direct way would be to get N(s,a) counts from root_node.children after simulation.
             
-            # Simplified: if T=1, sample from policy_target_probs. If T !=0 and T!=1, it's an approximation.
-            # The original AlphaGo used N^(1/tau) for probabilities.
+            # Using probabilities directly with temperature (approximation if T!=1)
+            powered_probs = np.power(policy_target_probs, 1.0 / temperature)
+            final_probs_for_sampling = powered_probs / np.sum(powered_probs)
+            # Ensure it sums to 1 due to potential float issues
+            final_probs_for_sampling = final_probs_for_sampling / np.sum(final_probs_for_sampling)
             
-            # To implement N^(1/T) sampling correctly:
-            # 1. run_simulations needs to return the root_node or the dict of raw visit counts {action: N(s,a)}
-            # 2. Here, use those raw_visit_counts^(1/T), normalize, then sample.
-            # Current mcts_policy_dict has N(s,a)/N(s). So N(s,a) = mcts_policy_dict[a] * N(s)
-            # N(s) is root_node.visit_count after simulations.
-            # This change is a bit more involved. Let's ensure the device fix first.
-            # For now, if T is not 0, we sample proportionally to policy_target_probs (effectively T=1 sampling)
-            
-            prob_sum = np.sum(policy_target_probs)
-            if prob_sum > 0:
-                normalized_probs_for_sampling = policy_target_probs / prob_sum
-                chosen_action_idx = np.random.choice(len(actions), p=normalized_probs_for_sampling)
-                chosen_action = actions[chosen_action_idx]
-            else: # Should only happen if no legal actions, which is checked above, or all probs are zero somehow
-                # This path should ideally not be taken if legal actions exist.
-                # Fallback to random choice if all probabilities are zero but actions exist.
-                chosen_action = random.choice(actions) 
+            chosen_action_idx_in_list = np.random.choice(len(actions), p=final_probs_for_sampling)
+            chosen_action = actions[chosen_action_idx_in_list]
 
         return chosen_action, mcts_policy_dict
 
