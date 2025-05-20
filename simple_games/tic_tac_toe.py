@@ -79,6 +79,9 @@ class TicTacToe:
     def isTerminal(self, state):
         return self.getGameOutcome(state) is not None
 
+    def get_action_size(self) -> int:
+        return 9
+
     def simulateRandomPlayout(self, state, perspectivePlayer, max_depth=9, eval_func=None, weights=None):
         temp_state = self.copyState(state)
         depth = 0
