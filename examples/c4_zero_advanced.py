@@ -547,8 +547,10 @@ def run(parsed_cli_args=None) -> None:
                 learning_net.eval() 
                 game_hist = play_one_game(
                     learning_net, game_adapter, learning_mcts_instance, "self", None, None,
-                    temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
-                    debug_mode=args_global.debug_single_loop )
+                    temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations_opponent,
+                    max_moves=args_global.max_game_moves, 
+                    debug_mode=args_global.debug_single_loop
+                )
                 
                 if isinstance(buf, PrioritizedReplayBuffer):
                     for exp in game_hist:
@@ -574,8 +576,10 @@ def run(parsed_cli_args=None) -> None:
             learning_net.eval() 
             game_hist = play_one_game(
                 learning_net, game_adapter, learning_mcts_instance, "self", None, None,
-                temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
-                debug_mode=args_global.debug_single_loop )
+                temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations_opponent,
+                max_moves=args_global.max_game_moves, 
+                debug_mode=args_global.debug_single_loop
+            )
             
             if isinstance(buf, PrioritizedReplayBuffer):
                 for exp in game_hist:
@@ -763,39 +767,37 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 # --- Worker function for parallel self-play data generation ---
-def play_one_game_for_buffer_worker(
+def self_play_actor_worker(
     worker_id: int, 
     current_learning_net_state_dict_path: str, 
-    game_adapter_game_class_name: str, 
+    game_class_name: str, 
+    nn_arch_config: Dict, 
     mcts_config_learning: Dict, 
-    opponent_type: str, 
-    opponent_checkpoint_path_str: str | None,
-    opponent_mcts_config: Dict, 
+    opponent_config: Dict, 
+    opponent_pool_checkpoint_paths: List[str],
+    experience_save_dir: str, 
     temp_schedule_list: List[Tuple[int, float]],
-    mcts_sims_learning: int,
-    mcts_sims_opponent: int,
     max_game_moves: int,
-    nn_ch: int, nn_bl: int,
     worker_dev_str: str,
     seed: int,
     debug_mode: bool = False 
-) -> Tuple[str | None, int, int]: # Returns (filepath_of_saved_game, num_states_generated, worker_id)
+) -> Tuple[str | None, int, int]:
     """Plays one game in a worker process, saves history, returns filepath and stats."""
     
-    if debug_mode: print(f"[ACTOR {worker_id} PID {os.getpid()}] Started. Seed: {seed}. Opponent type: {opponent_type}")
+    if debug_mode: print(f"[ACTOR {worker_id} PID {os.getpid()}] Started. Seed: {seed}. Opponent type: {opponent_config['type']}")
     
     # --- Initialization within Worker ---
     torch.manual_seed(seed + worker_id); np.random.seed(seed + worker_id); random.seed(seed + worker_id)
     worker_device = torch.device(worker_dev_str)
 
-    if game_adapter_game_class_name == "ConnectFour":
+    if game_class_name == "ConnectFour":
         game_instance_worker = ConnectFour()
         game_adapter_worker = ConnectFourAdapter(game_instance_worker)
         NNClass = AdvancedC4ZeroNet # Assuming this is the correct network class for C4
     else:
-        print(f"[ACTOR {worker_id}] Unsupported game: {game_adapter_game_class_name}"); return None, 0, worker_id
+        print(f"[ACTOR {worker_id}] Unsupported game: {game_class_name}"); return None, 0, worker_id
 
-    learning_net = NNClass(ch=nn_ch, blocks=nn_bl).to(worker_device)
+    learning_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
     try:
         state_d = torch.load(current_learning_net_state_dict_path, map_location=worker_device)
         if "net" in state_d: learning_net.load_state_dict(state_d["net"])
@@ -811,26 +813,26 @@ def play_one_game_for_buffer_worker(
                                   mcts_config_learning["dirichlet_epsilon"])
 
     opp_net = None; opp_mcts = None
-    actual_opponent_type = opponent_type # Use the passed opponent_type
+    actual_opponent_type = opponent_config['type'] # Use the passed opponent_type
 
-    if actual_opponent_type == "past_checkpoint" and opponent_checkpoint_path_str:
-        opp_net = NNClass(ch=nn_ch, blocks=nn_bl).to(worker_device)
+    if actual_opponent_type == "past_checkpoint" and opponent_config['path']:
+        opp_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
         try:
-            opp_sd = torch.load(opponent_checkpoint_path_str, map_location=worker_device)
+            opp_sd = torch.load(opponent_config['path'], map_location=worker_device)
             if "net" in opp_sd: opp_net.load_state_dict(opp_sd["net"])
             else: opp_net.load_state_dict(opp_sd)
             opp_net.eval()
             def opp_mcts_fn(b): 
                 with torch.no_grad(): lgs,v = opp_net(b); return lgs, v.unsqueeze(-1)
-            opp_mcts_cfg = opponent_mcts_config # Use passed opponent_mcts_config
+            opp_mcts_cfg = opponent_config["mcts_config"] # Use passed opponent_mcts_config
             opp_mcts = AlphaZeroMCTS(game_adapter_worker, opp_mcts_fn, worker_device, 
                                          opp_mcts_cfg.get("c_puct_opponent", 1.41), 0, 0) 
-            if debug_mode: print(f"[ACTOR {worker_id}] Opponent is past self: {opponent_checkpoint_path_str}")
+            if debug_mode: print(f"[ACTOR {worker_id}] Opponent is past self: {opponent_config['path']}")
         except Exception as e:
-            if debug_mode: print(f"[ACTOR {worker_id}] Failed to load opponent {opponent_checkpoint_path_str}: {e}. Defaulting to self-play.")
+            if debug_mode: print(f"[ACTOR {worker_id}] Failed to load opponent {opponent_config['path']}: {e}. Defaulting to self-play.")
             actual_opponent_type = "self"; opp_net = None; opp_mcts = None
     else:
-        if actual_opponent_type == "past_checkpoint" and not opponent_checkpoint_path_str and debug_mode:
+        if actual_opponent_type == "past_checkpoint" and not opponent_config['path'] and debug_mode:
              print(f"[ACTOR {worker_id}] Opponent type is past_checkpoint but no path provided. Defaulting to self-play.")
         actual_opponent_type = "self"
 
@@ -852,14 +854,14 @@ def play_one_game_for_buffer_worker(
 
         if is_learning_turn:
             mcts_to_use = learning_mcts
-            sims_for_current_move = mcts_sims_learning
+            sims_for_current_move = mcts_config_learning["mcts_simulations_learning"]
         else: # Opponent's turn
             if actual_opponent_type == "self":
                 mcts_to_use = learning_mcts 
-                sims_for_current_move = mcts_sims_opponent # Use opponent sims even if it's self
+                sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"] # Use opponent sims even if it's self
             else: # Past checkpoint opponent
                 mcts_to_use = opp_mcts
-                sims_for_current_move = mcts_sims_opponent
+                sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
         
         if mcts_to_use is None: mcts_to_use = learning_mcts 
         
@@ -900,7 +902,7 @@ def play_one_game_for_buffer_worker(
     if final_history_for_learner and experience_save_dir:
         Path(experience_save_dir).mkdir(parents=True, exist_ok=True)
         ts_save = int(time.time() * 1000000) 
-        game_fname = f"exp_w{worker_id}_g{game_seed}_{ts_save}_m{move_no}_res{z_outcome}.pkl"
+        game_fname = f"exp_w{worker_id}_g{seed}_{ts_save}_m{move_no}_res{z_outcome}.pkl"
         filepath_obj = Path(experience_save_dir) / game_fname
         try:
             with open(filepath_obj, 'wb') as f_out_pkl:
@@ -912,15 +914,6 @@ def play_one_game_for_buffer_worker(
             saved_filepath = None
             
     return saved_filepath, len(final_history_for_learner), worker_id
-
-# The original play_one_game function (used for sequential/league play in main process)
-# needs to be updated to match the logic of the worker if it's still used directly.
-# For now, the focus is on the worker for parallel data generation.
-
-# ... (train_step, save_buffer_experiences, load_experiences_to_buffer, run, parser as before) ...
-# Ensure that in the run function, the sequential path for play_one_game is either removed
-# or correctly calls a version of play_one_game that has the updated league logic and parameters.
-# The primary data generation path will now be through the self_play_actor_worker.
 
 if __name__ == "__main__":
     run()
