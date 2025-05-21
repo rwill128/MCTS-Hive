@@ -1,18 +1,15 @@
 {
   "ratings": {
-    "hybrid_4": 1600.076658271466,
-    "hybrid_6": 1729.0618174645115,
-    "minimax_6": 1728.0139193049913,
+    "hybrid_4": 1607.0225428218325,
+    "hybrid_6": 1724.1449063037924,
+    "minimax_6": 1737.718192574736,
     "minimax_5": 1662.085729738615,
-    "minimax_4": 1575.3530038971787,
+    "minimax_4": 1563.9314768531008,
     "adv_mcts_zero_ep004900": 1572.8862124614295,
     "adv_mcts_zero_ep000900": 1499.8797180080746,
-    "adv_mcts_zero_ep001700": 1478.2102043707719,
-    "adv_mcts_zero_ep001800": 1466.3488056983738,
+    "adv_mcts_zero_ep001700": 1488.36341727655,
     "adv_mcts_zero_ep001900": 1504.4737894469088,
     "adv_mcts_zero_ep002000": 1492.6454541924845,
-    "adv_mcts_zero_ep002100": 1461.2502592605083,
-    "adv_mcts_zero_ep002200": 1468.8213353280676,
     "adv_mcts_zero_ep002300": 1505.7591606259218,
     "adv_mcts_zero_ep002500": 1482.5500256828338,
     "adv_mcts_zero_ep002600": 1574.3719680606637,
@@ -21,22 +18,22 @@
     "adv_mcts_zero_ep002900": 1584.5540117135645,
     "adv_mcts_zero_ep003000": 1624.413720064315,
     "adv_mcts_zero_ep003100": 1534.1129065433831,
-    "adv_mcts_zero_ep003200": 1544.8709705558942,
+    "adv_mcts_zero_ep003200": 1537.5710499887077,
     "adv_mcts_zero_ep003300": 1506.5208286873028,
     "adv_mcts_zero_ep003400": 1491.8316543116387,
     "adv_mcts_zero_ep003500": 1512.9715659451242,
-    "adv_mcts_zero_ep003600": 1534.7125740765741,
+    "adv_mcts_zero_ep003600": 1530.7547834830993,
     "adv_mcts_zero_ep003700": 1516.0123964684958,
-    "adv_mcts_zero_ep003800": 1480.1927640620559,
+    "adv_mcts_zero_ep003800": 1485.109675222775,
     "adv_mcts_zero_ep003900": 1573.596892406186,
-    "adv_mcts_zero_ep004000": 1557.933176933968,
+    "adv_mcts_zero_ep004000": 1566.5014116394543,
     "adv_mcts_zero_ep004100": 1623.11907159073,
     "adv_mcts_zero_ep004200": 1491.028016750425,
     "adv_mcts_zero_ep004300": 1543.356316944772,
-    "adv_mcts_zero_ep004400": 1554.0292713047068,
+    "adv_mcts_zero_ep004400": 1547.0833867543402,
     "adv_mcts_zero_ep004500": 1609.164761969998,
     "adv_mcts_zero_ep004600": 1621.118289647653,
-    "adv_mcts_zero_ep004700": 1631.3834028078513,
+    "adv_mcts_zero_ep004700": 1625.6369201315815,
     "adv_mcts_zero_ep004800": 1570.6155636570227,
     "adv_mcts_zero_last": 1484.3702954195549
   },
@@ -8304,7 +8301,7 @@
     "adv_mcts_zero_ep004400_vs_hybrid_4": {
       "w": 0,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "adv_mcts_zero_ep003300_vs_adv_mcts_zero_ep000900": {
       "w": 0,
@@ -9182,7 +9179,7 @@
       "l": 1
     },
     "minimax_6_vs_adv_mcts_zero_ep003600": {
-      "w": 0,
+      "w": 1,
       "d": 0,
       "l": 1
     },
@@ -10624,6 +10621,31 @@
     "minimax_6_vs_adv_mcts_zero_ep003700": {
       "w": 1,
       "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep003200_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep004700_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep004000_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001700_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep003800_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
       "l": 0
     }
   },

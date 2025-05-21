@@ -590,12 +590,74 @@ def run(parsed_cli_args=None) -> None:
 
                 if args_global.num_parallel_selfplay > 1:
                     print(f"[LEARNER Epoch {ep}] Entering PARALLEL game generation block.") # DEBUG PRINT
-                    if ep == (start_ep if 'start_ep' in locals() else 1) and not args_global.debug_single_loop : print(f"Generating {games_this_iteration} games in parallel using {args_global.num_parallel_selfplay} workers...")
-                    # ... (Parallel worker logic as implemented before) ...
+                    if ep == (start_ep if 'start_ep' in locals() else 1) and not args_global.debug_single_loop:
+                        print(f"Generating {games_this_iteration} games in parallel using {args_global.num_parallel_selfplay} workers...")
+                    # Reimplement parallel self-play logic
+                    temp_weights_path = ckdir / f"temp_weights_ep{ep:06d}.pt"
+                    torch.save({'net': learning_net.state_dict()}, temp_weights_path)
+                    exp_dir = ckdir / "selfplay_exp"
+                    exp_dir.mkdir(exist_ok=True)
+                    with concurrent.futures.ProcessPoolExecutor(max_workers=args_global.num_parallel_selfplay) as executor:
+                        futures = []
+                        for worker_id in range(args_global.num_parallel_selfplay):
+                            seed = random.randint(0, 2**32 -1)
+                            mcts_cfg = {
+                                "c_puct": args_global.c_puct,
+                                "dirichlet_alpha": args_global.dirichlet_alpha,
+                                "dirichlet_epsilon": args_global.dirichlet_epsilon,
+                                "mcts_simulations_learning": args_global.mcts_simulations,
+                                "mcts_simulations_opponent": args_global.mcts_simulations_opponent
+                            }
+                            nn_cfg = {"channels": args_global.channels, "blocks": args_global.blocks}
+                            futures.append(executor.submit(
+                                self_play_actor_worker,
+                                worker_id,
+                                str(temp_weights_path),
+                                "ConnectFour",
+                                nn_cfg,
+                                mcts_cfg,
+                                {"type": "self"},
+                                str(exp_dir),
+                                temp_schedule,
+                                args_global.max_game_moves,
+                                dev,
+                                seed,
+                                args_global.debug_single_loop
+                            ))
+                        for fut in futures:
+                            saved_fp, num_exp, wid = fut.result()
+                            if saved_fp:
+                                try:
+                                    with open(saved_fp, 'rb') as f_exp:
+                                        exps = pickle.load(f_exp)
+                                    if isinstance(buf, PrioritizedReplayBuffer):
+                                        for exp in exps: buf.add(exp)
+                                    else:
+                                        buf.extend(exps)
+                                except Exception as e:
+                                    print(f"Error loading experiences from {saved_fp}: {e}")
+                                finally:
+                                    try: os.remove(saved_fp)
+                                    except: pass
                 else: # Sequential self-play (num_parallel_selfplay is 0 or 1)
                     print(f"[LEARNER Epoch {ep}] Entering SEQUENTIAL game generation block.") # DEBUG PRINT
-                    if not args_global.debug_single_loop: print(f"Generating {games_this_iteration} games sequentially...")
-                    # ... (Sequential play_one_game calls as implemented before) ...
+                    if not args_global.debug_single_loop:
+                        print(f"Generating {games_this_iteration} games sequentially...")
+                    # Reimplement sequential self-play logic
+                    for g in range(games_this_iteration):
+                        game_hist = play_one_game(
+                            learning_net, game_adapter, learning_mcts_instance,
+                            "self", None, None,
+                            temp_schedule,
+                            args_global.mcts_simulations,
+                            args_global.mcts_simulations_opponent,
+                            max_moves=args_global.max_game_moves,
+                            debug_mode=args_global.debug_single_loop
+                        )
+                        if isinstance(buf, PrioritizedReplayBuffer):
+                            for exp in game_hist: buf.add(exp)
+                        else:
+                            buf.extend(game_hist)
             
                 learning_net.train()
             # ... (Training Phase logic as before) ...
