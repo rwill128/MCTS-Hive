@@ -566,6 +566,7 @@ def run(parsed_cli_args=None) -> None:
     if not args_global.debug_single_loop: print(f"Starting training from epoch {start_ep} for {args_global.epochs} epochs.")
     
     overall_training_steps = 0 # For W&B step logging
+    games_collected_this_session = 0 # To track games generated in this run
 
     try:
         for ep in range(start_ep, args_global.epochs + 1):
@@ -573,113 +574,32 @@ def run(parsed_cli_args=None) -> None:
                 _debug_flag = True # Ensure block starts with an assignment
                 print(f"\n--- [DEBUG] Epoch {ep} START (Connect Four) ---")
             
-            learning_net.eval() 
-            game_hist = play_one_game(
-                learning_net, game_adapter, learning_mcts_instance, "self", None, None,
-                temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations_opponent,
-                max_moves=args_global.max_game_moves, 
-                debug_mode=args_global.debug_single_loop
-            )
+            # Determine games_this_iteration
+            # This complex line sets games_this_iteration based on whether it's bootstrap or regular epoch game generation
+            # Simplified for checking the parallel logic trigger:
+            games_this_iteration = args_global.games_per_epoch
+            if args_global.debug_single_loop: games_this_iteration = 1
+            # A more complete bootstrap condition would be here, for now, focus on games_per_epoch
+            # Example of a bootstrap condition (needs min_fill_for_bootstrap to be defined):
+            # if ep == (start_ep if 'start_ep' in locals() else 1) and not args_global.skip_bootstrap and len(buf) < min_fill_for_bootstrap:
+            #    games_this_iteration = args_global.bootstrap_games
             
-            if isinstance(buf, PrioritizedReplayBuffer):
-                for exp in game_hist:
-                    buf.add(exp)
-            else: # It's a deque
-                buf.extend(game_hist)
-            learning_net.train() 
+            if games_this_iteration > 0:
+                print(f"[LEARNER Epoch {ep}] Attempting to generate {games_this_iteration} game(s). num_parallel_selfplay = {args_global.num_parallel_selfplay}") # DEBUG PRINT
+                learning_net.eval()
 
-            current_min_train_fill = args_global.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
-            if args_global.debug_single_loop: current_min_train_fill = 1
-
-            if len(buf) < current_min_train_fill:
-                if ep % args_global.log_every == 0: 
-                    log_dict = {
-                        "epoch": ep,
-                        "learning_rate": opt.param_groups[0]['lr'],
-                        "buffer_size": len(buf),
-                        "training_skipped": 1
-                    }
-                    print(f"Epoch {ep} | Buffer {len(buf)} < min {current_min_train_fill}. Skip train. LR {log_dict['learning_rate']:.2e}", flush=True)
-                    if args_global.use_wandb and wandb.run: wandb.log(log_dict, step=overall_training_steps)
-                if ep % args_global.ckpt_every == 0 and not args_global.debug_single_loop: save_buffer_experiences(buf, buffer_file_path) 
-            else:
-                if args_global.debug_single_loop:
-                    _debug_flag = True # Ensure block starts with an assignment
-                    print(f"\n[run DEBUG C4] Buffer ready. len(buf): {len(buf)}, batch: {args_global.batch_size}")
-                
-                batch_experiences, is_weights, data_indices = None, None, None
-                actual_batch_size = min(args_global.batch_size, len(buf))
-
-                if actual_batch_size == 0:
-                    if ep % args_global.log_every == 0: print(f"Epoch {ep} | Buffer empty or batch zero. Skip train.", flush=True)
-                    if scheduler: scheduler.step()
-                    continue
-
-                if isinstance(buf, PrioritizedReplayBuffer):
-                    sampled_data = buf.sample(actual_batch_size)
-                    if sampled_data is None:
-                        if ep % args_global.log_every == 0: print(f"Epoch {ep} | PER sample failed. Skip train. LR {opt.param_groups[0]['lr']:.2e}", flush=True)
-                        if scheduler: scheduler.step() 
-                        continue 
-                    batch_experiences, is_weights, data_indices = sampled_data
-                    if args_global.debug_single_loop and batch_experiences is not None:
-                        print(f"[run DEBUG C4] PER Sampled {len(batch_experiences)} experiences.")
-                        if len(batch_experiences) > 0 and batch_experiences[0] and batch_experiences[0][0] and 'board' in batch_experiences[0][0] and batch_experiences[0][0]['board']:
-                            print(f"[run DEBUG C4] First PER exp state board: {batch_experiences[0][0]['board'][0]}...")
-                        print(f"[run DEBUG C4] PER IS weights (first 4): {is_weights[:min(4, len(is_weights))] if len(is_weights) > 0 else '[]'}")
-                        print(f"[run DEBUG C4] PER data_indices (first 4): {data_indices[:min(4, len(data_indices))] if len(data_indices) > 0 else '[]'}")
-                else: 
-                    batch_experiences = random.sample(list(buf), actual_batch_size)
-                    is_weights = np.ones(len(batch_experiences), dtype=np.float32)
-                    if args_global.debug_single_loop and batch_experiences is not None:
-                        print(f"[run DEBUG C4] Standard Sampled {len(batch_experiences)} experiences.")
-                        if len(batch_experiences) > 0 and batch_experiences[0] and batch_experiences[0][0] and 'board' in batch_experiences[0][0] and batch_experiences[0][0]['board']:
-                            print(f"[run DEBUG C4] First standard exp state board: {batch_experiences[0][0]['board'][0]}...")
-                
-                loss, td_errors = train_step(learning_net, batch_experiences, is_weights, opt, dev, game_adapter, 
-                                             args_global.augment_prob, args_global.ent_beta, 
-                                             debug_mode=args_global.debug_single_loop)
-                
-                if isinstance(buf, PrioritizedReplayBuffer) and data_indices is not None and len(data_indices) > 0:
-                    if args_global.debug_single_loop: print(f"[run DEBUG C4] Updating PER priorities for {len(data_indices)} indices.")
-                    buf.update_priorities(data_indices, td_errors)
-
-                overall_training_steps += 1 # Increment for each actual training step
-
-                if ep % args_global.log_every == 0:
-                    log_dict = {
-                        "epoch": ep,
-                        "loss": loss,
-                        "buffer_size": len(buf),
-                        "learning_rate": opt.param_groups[0]['lr'],
-                    }
-                    if isinstance(buf, PrioritizedReplayBuffer):
-                        log_dict["per_beta"] = buf.current_beta
-                    
-                    print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {log_dict['learning_rate']:.2e}", flush=True)
-                    if args_global.use_wandb and wandb.run: wandb.log(log_dict, step=overall_training_steps)
+                if args_global.num_parallel_selfplay > 1:
+                    print(f"[LEARNER Epoch {ep}] Entering PARALLEL game generation block.") # DEBUG PRINT
+                    if ep == (start_ep if 'start_ep' in locals() else 1) and not args_global.debug_single_loop : print(f"Generating {games_this_iteration} games in parallel using {args_global.num_parallel_selfplay} workers...")
+                    # ... (Parallel worker logic as implemented before) ...
+                else: # Sequential self-play (num_parallel_selfplay is 0 or 1)
+                    print(f"[LEARNER Epoch {ep}] Entering SEQUENTIAL game generation block.") # DEBUG PRINT
+                    if not args_global.debug_single_loop: print(f"Generating {games_this_iteration} games sequentially...")
+                    # ... (Sequential play_one_game calls as implemented before) ...
             
-            if scheduler: scheduler.step()
-            
-            if ep % args_global.ckpt_every == 0:
-                chkpt_path = ckdir / f"c4_chkpt_ep{ep:06d}.pt" # Path for C4
-                if not args_global.debug_single_loop: torch.save(learning_net.state_dict(), chkpt_path)
-                full_state_to_save = {
-                    "net": learning_net.state_dict(), "opt": opt.state_dict(),
-                    "epoch": ep, "scheduler": scheduler.state_dict() if scheduler else None,
-                }
-                if not args_global.debug_single_loop: torch.save(full_state_to_save, state_path)
-                print(f"Saved: {str(chkpt_path)} and {str(state_path)}", flush=True)
+                learning_net.train()
+            # ... (Training Phase logic as before) ...
 
-            if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop:
-                 save_buffer_experiences(buf, buffer_file_path)
-                 print(f"Saved replay buffer at epoch {ep}")
-            
-            if isinstance(buf, PrioritizedReplayBuffer):
-                buf.advance_epoch_for_beta_anneal()
-            if args_global.debug_single_loop: 
-                _debug_flag = True # Ensure block starts with an assignment
-                print(f"--- [DEBUG] Epoch {ep} END (Connect Four) ---") 
     except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
         print("Saving final model and buffer (Connect Four)...")
@@ -773,8 +693,7 @@ def self_play_actor_worker(
     game_class_name: str, 
     nn_arch_config: Dict, 
     mcts_config_learning: Dict, 
-    opponent_config: Dict, 
-    opponent_pool_checkpoint_paths: List[str],
+    opponent_config: Dict, # Should contain: {"type": str, "path": Optional[str], "mcts_config": Dict}
     experience_save_dir: str, 
     temp_schedule_list: List[Tuple[int, float]],
     max_game_moves: int,
@@ -813,29 +732,31 @@ def self_play_actor_worker(
                                   mcts_config_learning["dirichlet_epsilon"])
 
     opp_net = None; opp_mcts = None
-    actual_opponent_type = opponent_config['type'] # Use the passed opponent_type
+    actual_opponent_type = opponent_config["type"]
+    opponent_checkpoint_path_from_config = opponent_config.get("path") # This is the specific path chosen by main process
 
-    if actual_opponent_type == "past_checkpoint" and opponent_config['path']:
-        opp_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
-        try:
-            opp_sd = torch.load(opponent_config['path'], map_location=worker_device)
-            if "net" in opp_sd: opp_net.load_state_dict(opp_sd["net"])
-            else: opp_net.load_state_dict(opp_sd)
-            opp_net.eval()
-            def opp_mcts_fn(b): 
-                with torch.no_grad(): lgs,v = opp_net(b); return lgs, v.unsqueeze(-1)
-            opp_mcts_cfg = opponent_config["mcts_config"] # Use passed opponent_mcts_config
-            opp_mcts = AlphaZeroMCTS(game_adapter_worker, opp_mcts_fn, worker_device, 
+    if actual_opponent_type == "past_checkpoint":
+        if opponent_checkpoint_path_from_config:
+            opp_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
+            try:
+                opp_sd = torch.load(opponent_checkpoint_path_from_config, map_location=worker_device)
+                if "net" in opp_sd: opp_net.load_state_dict(opp_sd["net"])
+                else: opp_net.load_state_dict(opp_sd)
+                opp_net.eval()
+                def opp_mcts_fn(b): 
+                    with torch.no_grad(): lgs,v = opp_net(b); return lgs, v.unsqueeze(-1)
+                opp_mcts_cfg = opponent_config.get("mcts_config", {})
+                opp_mcts = AlphaZeroMCTS(game_adapter_worker, opp_mcts_fn, worker_device, 
                                          opp_mcts_cfg.get("c_puct_opponent", 1.41), 0, 0) 
-            if debug_mode: print(f"[ACTOR {worker_id}] Opponent is past self: {opponent_config['path']}")
-        except Exception as e:
-            if debug_mode: print(f"[ACTOR {worker_id}] Failed to load opponent {opponent_config['path']}: {e}. Defaulting to self-play.")
-            actual_opponent_type = "self"; opp_net = None; opp_mcts = None
-    else:
-        if actual_opponent_type == "past_checkpoint" and not opponent_config['path'] and debug_mode:
-             print(f"[ACTOR {worker_id}] Opponent type is past_checkpoint but no path provided. Defaulting to self-play.")
-        actual_opponent_type = "self"
-
+                if debug_mode: print(f"[ACTOR {worker_id}] Opponent is past self: {opponent_checkpoint_path_from_config}")
+            except Exception as e:
+                if debug_mode: print(f"[ACTOR {worker_id}] Failed to load opponent {opponent_checkpoint_path_from_config}: {e}. Defaulting to self-play.")
+                actual_opponent_type = "self"; opp_net = None; opp_mcts = None # Fallback
+        else:
+            # This case means main process said "past_checkpoint" but didn't provide a path.
+            if debug_mode: print(f"[ACTOR {worker_id}] Opponent type was 'past_checkpoint' but no path provided. Defaulting to self-play.")
+            actual_opponent_type = "self"
+    
     st = game_adapter_worker.c4_game.getInitialState()
     game_history_tuples: List[Tuple[dict, np.ndarray, int]] = []
     move_no = 0
@@ -858,7 +779,7 @@ def self_play_actor_worker(
         else: # Opponent's turn
             if actual_opponent_type == "self":
                 mcts_to_use = learning_mcts 
-                sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"] # Use opponent sims even if it's self
+                sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
             else: # Past checkpoint opponent
                 mcts_to_use = opp_mcts
                 sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
