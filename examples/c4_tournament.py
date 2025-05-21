@@ -603,7 +603,7 @@ def replay_game_visual(game_info: Dict[str, Any], game_rows: int, game_cols: int
         pygame.quit()
 
 def run(display: bool = True) -> None:
-    global cli_args # Make cli_args accessible if needed by other funcs, or pass it
+    global cli_args, completed_parallel_games # Ensure cli_args and completed_parallel_games are accessible
     # Argument parsing should happen here or cli_args passed in
     # For this step, assume cli_args is available globally after parsing in if __name__ == "__main__"
 
@@ -665,13 +665,11 @@ def run(display: bool = True) -> None:
                     futures_map[future] = (p_x_name, p_o_name)
 
                 while futures_map: 
-                    # Use a timeout to allow periodic checks for user input if tournament runs long
-                    done_futures = concurrent.futures.wait(list(futures_map.keys()), timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)[0]
+                    done_futures, _ = concurrent.futures.wait(list(futures_map.keys()), timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
 
                     for future in done_futures:
                         p_x_name_fut, p_o_name_fut = futures_map.pop(future)
                         try:
-                            # Worker now returns: p_x_name, p_o_name, result, history_states, params_x, params_o
                             _, _, game_res, history, _, _ = future.result()
                             _update_elo_and_stats(elo_data, p_x_name_fut, p_o_name_fut, game_res)
                             game_count += 1
@@ -689,20 +687,29 @@ def run(display: bool = True) -> None:
                         except Exception as exc:
                             print(f"Game {p_x_name_fut} vs {p_o_name_fut} generated an exception in worker: {exc}")
 
-                        # Submit a new game if pool is not shutting down
-                        if executor._shutdown != True and len(player_names) >= 2:
-                            (idx_i, idx_j), orientation = choose_pair(player_names, elo_data)
-                            next_px_name, next_po_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
-                            next_params_x = players[next_px_name]
-                            next_params_o = players[next_po_name]
-                            new_future = executor.submit(play_one_game_parallel_worker, game_type_for_tournament,
-                                                       next_params_x, next_params_o, next_px_name, next_po_name,
-                                                       random.randint(0, 2**32-1))
-                            futures_map[new_future] = (next_px_name, next_po_name)
-                    
-                    # Check for user input to quit tournament (example)
-                    # This part needs to be non-blocking or handled carefully in a real app
-                    # For a long-running console app, KeyboardInterrupt is the main stop mechanism.
+                        # Submit a new game to keep the pool busy
+                        # The executor itself will raise an error if we try to submit after shutdown has started.
+                        # This try-except is to gracefully handle that during KeyboardInterrupt shutdown.
+                        try:
+                            if len(player_names) >= 2:
+                                (idx_i, idx_j), orientation = choose_pair(player_names, elo_data)
+                                next_px_name, next_po_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
+                                next_params_x = players[next_px_name]
+                                next_params_o = players[next_po_name]
+                                new_future = executor.submit(play_one_game_parallel_worker, game_type_for_tournament,
+                                                           next_params_x, next_params_o, next_px_name, next_po_name,
+                                                           random.randint(0, 2**32-1))
+                                futures_map[new_future] = (next_px_name, next_po_name)
+                        except RuntimeError as e: # Catches "cannot schedule new futures after shutdown"
+                            if "shutdown" in str(e).lower():
+                                print("Executor shutting down, no more games will be submitted.")
+                                break # Break from submitting new tasks if executor is shutting down
+                            else:
+                                raise # Re-raise other RuntimeErrors
+                    if not futures_map and not done_futures : # If map became empty and no futures were processed, might be stuck or all done
+                        # This condition might need more refinement to prevent busy-wait if all tasks are truly done
+                        # but for continuous play with KeyboardInterrupt, it's okay.
+                        pass 
 
     except KeyboardInterrupt: print("\nTournament interrupted. Saving final results...")
     finally:
