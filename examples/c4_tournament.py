@@ -444,7 +444,6 @@ completed_parallel_games: List[Dict[str, Any]] = []
 def play_one_game_parallel_worker(game_type_str: str, params_x_dict: Dict, params_o_dict: Dict, 
                                   player_x_name: str, player_o_name: str, 
                                   seed: int, global_az_sims_override: int,
-                                  # New arguments for saving history:
                                   history_dir_path_str: str | None, 
                                   game_id_for_filename: int
                                   ) -> Tuple[str, str, int, str | None]: # Returns x_name, o_name, result, saved_history_filepath
@@ -454,11 +453,56 @@ def play_one_game_parallel_worker(game_type_str: str, params_x_dict: Dict, param
     # For brevity, I'm not repeating the full make_player_local here.
     if game_type_str == "ConnectFour": game_instance = ConnectFour()
     else: raise ValueError(f"Unsupported game type: {game_type_str}")
-    # make_player_local would be defined here, using global_az_sims_override
-    # player_x = make_player_local(...); player_o = make_player_local(...)
-    # Placeholder for make_player logic until it's fully integrated in the context
-    def make_player_local(cfg, role, game_inst): return MCTS(game=game_inst, perspective_player=role, **cfg) 
     random.seed(seed); torch.manual_seed(seed); np.random.seed(seed)
+
+    def make_player_local(cfg: Dict, role: str, game_inst: ConnectFour):
+        player_type = cfg.get("type", "mcts")
+
+        if player_type == "human":
+            raise NotImplementedError("Human player cannot be used in parallel tournament.")
+        elif player_type in {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}:
+            # ... (AlphaZeroC4Player instantiation as before, using global_az_sims_override) ...
+            model_path = cfg.get("model_path") or cfg.get("weights")
+            if not model_path: raise ValueError(f"Player type {player_type} (role {role}, name {cfg.get('name', 'Unknown')}) specifies no model path.")
+            architecture = cfg.get("architecture", "new_style")
+            if cfg.get("arch") == "advanced" and architecture == "new_style": architecture = "old_sequential"
+            current_mcts_sims = cfg.get("mcts_simulations") or cfg.get("num_iterations", 100)
+            mcts_sims_to_use = global_az_sims_override if global_az_sims_override > 0 else current_mcts_sims
+            return AlphaZeroC4Player(
+                game_instance=game_inst, perspective_player=role, model_path=model_path,
+                device=cfg.get("device", "cpu"), 
+                mcts_simulations=mcts_sims_to_use,
+                c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)),
+                dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
+                dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0),
+                nn_channels=cfg.get("nn_channels", 128), 
+                nn_blocks=cfg.get("nn_blocks", 10),
+                architecture=architecture
+            )
+        elif player_type == "minimax":
+            depth = int(cfg.get("depth", 4))
+            return MinimaxConnectFourPlayer(game_inst, perspective_player=role, depth=depth)
+        else: # Fallback to original MCTS player from mcts.Mcts
+            params_for_old_mcts = cfg.copy() # Work on a copy
+            # Explicitly remove keys not expected by the old MCTS constructor or that are handled by AlphaZeroC4Player
+            keys_to_remove_for_old_mcts = [
+                'type', 'model_path', 'weights', 'architecture', 'arch', 'device',
+                'nn_channels', 'nn_blocks', 'mcts_simulations', # Covered by num_iterations for old MCTS
+                'dirichlet_alpha', 'dirichlet_epsilon', 'c_puct', # Covered by c_param for old MCTS
+                'temperature' # Specific to ZeroPlayer, not generic MCTS
+            ]
+            for key_to_remove in keys_to_remove_for_old_mcts:
+                params_for_old_mcts.pop(key_to_remove, None) # Remove if exists, do nothing if not
+            
+            # Map old num_iterations and c_param if they exist from original config
+            if "num_iterations" in cfg: # This is expected by MCTS
+                params_for_old_mcts["num_iterations"] = cfg["num_iterations"]
+            if "c_param" in cfg: # This is expected by MCTS
+                params_for_old_mcts["c_param"] = cfg["c_param"]
+            
+            # print(f"[WORKER {os.getpid()}] Fallback to original MCTS for player {role} ({player_type}). Final MCTS Params: {params_for_old_mcts}")
+            return MCTS(game=game_inst, perspective_player=role, **params_for_old_mcts)
+    
     player_x = make_player_local(params_x_dict, "X", game_instance)
     player_o = make_player_local(params_o_dict, "O", game_instance)
 
