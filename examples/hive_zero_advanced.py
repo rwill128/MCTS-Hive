@@ -267,102 +267,143 @@ class HiveAdapter:
     def get_action_size(self) -> int:
         return self.action_size # This is the flat ACTION_SIZE (e.g. 845)
 
-# ... (AdvancedHiveZeroNet - will define next) ...
-# ... (play_one_game, train_step, save/load buffer, run, parser - will adapt from C4 version) ... 
+# ---------------------------------------------------------------------------
+# Neural network (Hive specific)
+# ---------------------------------------------------------------------------
+if torch is not None:
+    class ResidualBlockHive(nn.Module):
+        def __init__(self, ch: int):
+            super().__init__()
+            self.c1 = nn.Conv2d(ch, ch, kernel_size=3, padding=1, bias=False)
+            self.b1 = nn.BatchNorm2d(ch)
+            self.c2 = nn.Conv2d(ch, ch, kernel_size=3, padding=1, bias=False)
+            self.b2 = nn.BatchNorm2d(ch)
 
-args_global = None # For global access to parsed args
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            y = F.relu(self.b1(self.c1(x)))
+            y = self.b2(self.c2(y))
+            return F.relu(x + y)
+
+    class AdvancedHiveZeroNet(nn.Module):
+        def __init__(self, ch: int = 128, blocks: int = 10): # Defaults for Hive
+            super().__init__()
+            self.stem = nn.Sequential(
+                nn.Conv2d(NUM_CHANNELS, ch, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(ch), nn.ReLU(),
+            )
+            self.res = nn.Sequential(*[ResidualBlockHive(ch) for _ in range(blocks)])
+            
+            # Policy head outputs ACTION_SIZE logits (now includes PASS)
+            self.policy_conv = nn.Conv2d(ch, 2, kernel_size=1)
+            self.policy_bn = nn.BatchNorm2d(2)
+            self.policy_flatten = nn.Flatten()
+            self.policy_linear = nn.Linear(2 * HEX_GRID_DIAMETER * HEX_GRID_DIAMETER, ACTION_SIZE) 
+
+            # Value head
+            self.value_conv = nn.Conv2d(ch, 1, kernel_size=1)
+            self.value_bn = nn.BatchNorm2d(1)
+            self.value_flatten = nn.Flatten()
+            self.value_linear1 = nn.Linear(1 * HEX_GRID_DIAMETER * HEX_GRID_DIAMETER, 256) 
+            self.value_linear2 = nn.Linear(256, 1)
+
+        def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            x_stem = self.stem(x)
+            x_res = self.res(x_stem)
+            p = F.relu(self.policy_bn(self.policy_conv(x_res)))
+            policy_logits = self.policy_linear(self.policy_flatten(p))
+            v = F.relu(self.value_bn(self.value_conv(x_res)))
+            v = F.relu(self.value_linear1(self.value_flatten(v)))
+            value = torch.tanh(self.value_linear2(v))
+            return policy_logits, value.squeeze(1)
+else:
+    class ResidualBlockHive:
+        def __init__(self, *args, **kwargs):
+            pass
+    class AdvancedHiveZeroNet:
+        def __init__(self, *args, **kwargs):
+            pass
+
+args_global = None 
 
 # ---------------------------------------------------------------------------
 # Self-play helpers (adapted for Hive)
 # ---------------------------------------------------------------------------
 def play_one_game(
-    net: AdvancedHiveZeroNet, 
-    game_adapter: HiveAdapter, 
-    mcts_instance: AlphaZeroMCTS,     
-    temp_schedule: List[Tuple[int, float]], 
-    mcts_simulations: int,
-    max_moves: int = 100, # Typical Hive games are shorter than C4, but can be long
-    debug_mode: bool = False
+    net: AdvancedHiveZeroNet, game_adapter: HiveAdapter, mcts_instance: AlphaZeroMCTS,     
+    temp_schedule: List[Tuple[int, float]], mcts_simulations: int,
+    max_moves: int = 100, debug_mode: bool = False
 ) -> List[Tuple[dict, np.ndarray, int]]:
     if torch is None or np is None: raise RuntimeError("PyTorch and NumPy are required")
     st = game_adapter.hive_game.getInitialState() 
     hist: List[Tuple[dict, np.ndarray, int]] = [] 
     move_no = 0
     current_temp = 1.0
+    game_terminated_by_mcts = False # Flag to see if MCTS loop ended game
 
     if debug_mode: print("\n--- play_one_game START (Hive) ---")
 
     while not game_adapter.isTerminal(st) and move_no < max_moves:
         if debug_mode:
-            print(f"\n[play_one_game Hive] Move: {move_no}")
-            # Skipping detailed board print for Hive due to complexity, print player and turn
-            print(f"[play_one_game Hive] Current state (player {st['current_player']}) to move.")
-
-        for threshold_moves, temp_val in temp_schedule:
-            if move_no < threshold_moves: current_temp = temp_val; break
-        
+            print(f"\n[play_one_game Hive] Move: {move_no}, Player: {st['current_player']}")
+        for th_moves, t_val in temp_schedule:
+            if move_no < th_moves: current_temp = t_val; break
         player_perspective = game_adapter.getCurrentPlayer(st)
-        if debug_mode: print(f"[play_one_game Hive] MCTS sims: {mcts_simulations}, Temp: {current_temp}, Perspective: {player_perspective}")
-        
-        # Get legal actions from adapter (these are already flat ints)
         legal_actions_for_mcts = game_adapter.getLegalActions(st)
         if not legal_actions_for_mcts:
-            # This can happen if the only legal move is PASS and we are filtering it,
-            # or if the game is over but isTerminal missed it (unlikely for HiveGame).
-            if debug_mode: print(f"[play_one_game Hive] No legal (non-PASS) actions from adapter. State player: {st['current_player']}. Ending game.")
-            break # End game if no actions can be mapped/played by MCTS
-
+            if debug_mode: print(f"[play_one_game Hive] No legal actions from adapter. Ending game.")
+            game_terminated_by_mcts = True # Game effectively ends here due to no MCTS actions
+            break
+        if debug_mode: print(f"[play_one_game Hive] MCTS sims: {mcts_simulations}, Temp: {current_temp}, Perspective: {player_perspective}")
+        
         chosen_action_int, mcts_policy_dict = mcts_instance.get_action_policy(
             root_state=st, num_simulations=mcts_simulations, temperature=current_temp,
-            debug_mcts=debug_mode 
-        )
-        if debug_mode: print(f"[play_one_game Hive] MCTS chosen_action_int: {chosen_action_int}")
-        if debug_mode: print(f"[play_one_game Hive] MCTS policy_dict: {mcts_policy_dict}") # keys are int actions
+            debug_mcts=debug_mode)
+        if chosen_action_int is None and not legal_actions_for_mcts : # Should be caught by above legal_actions check
+             if debug_mode: print("[play_one_game Hive] MCTS returned no action and no legal actions were found. Breaking.")
+             game_terminated_by_mcts = True
+             break
+        elif chosen_action_int is None and legal_actions_for_mcts:
+             if debug_mode: print("[play_one_game Hive] MCTS returned no action despite legal actions. Choosing random.")
+             chosen_action_int = random.choice(legal_actions_for_mcts)
         
         policy_target_vector = np.zeros(game_adapter.get_action_size(), dtype=np.float32)
         if mcts_policy_dict:
-            for action_idx_int, prob in mcts_policy_dict.items():
-                if 0 <= action_idx_int < game_adapter.get_action_size(): 
-                    policy_target_vector[action_idx_int] = prob
-        
+            for action_idx, prob in mcts_policy_dict.items():
+                if 0 <= action_idx < game_adapter.get_action_size(): policy_target_vector[action_idx] = prob
         current_sum = policy_target_vector.sum()
-        if abs(current_sum - 1.0) > 1e-5 and current_sum > 1e-5:
-             policy_target_vector /= current_sum
-        elif current_sum < 1e-5 and not game_adapter.isTerminal(st):
-            # Fallback if MCTS policy sum is zero (e.g. all illegal moves in policy or no legal actions mapped)
-            # Use uniform over the adapter's legal integer actions
-            if legal_actions_for_mcts: 
-                uniform_prob = 1.0 / len(legal_actions_for_mcts)
-                for la_int in legal_actions_for_mcts: policy_target_vector[la_int] = uniform_prob
-            elif debug_mode:
-                print("[play_one_game Hive] Warning: MCTS policy sum is zero and no legal adapter actions for fallback.")
+        if abs(current_sum - 1.0) > 1e-5 and current_sum > 1e-5: policy_target_vector /= current_sum
+        elif current_sum < 1e-5 and legal_actions_for_mcts:
+            uniform_prob = 1.0 / len(legal_actions_for_mcts)
+            for la_int in legal_actions_for_mcts: policy_target_vector[la_int] = uniform_prob
         
-        if debug_mode: print(f"[play_one_game Hive] Policy target (sum={policy_target_vector.sum()}): {policy_target_vector[:10]}...")
-
-        current_state_copy = game_adapter.copyState(st)
-        hist.append((current_state_copy, policy_target_vector, 0))
-        if debug_mode: print(f"[play_one_game Hive] Appended to history. Player: {current_state_copy['current_player']}")
-        
-        # chosen_action_int from MCTS is already a flat int, adapter.applyAction expects this.
+        if debug_mode: print(f"[play_one_game Hive] MCTS chosen_action_int: {chosen_action_int}, Policy: {mcts_policy_dict}")
+        hist.append((game_adapter.copyState(st), policy_target_vector, 0))
         st = game_adapter.applyAction(st, chosen_action_int)
         move_no += 1
 
-    winner = game_adapter.getGameOutcome(st) # Player1, Player2, or Draw
-    z = 0 # perspective of Player1
-    if winner == "Draw": z = 0
-    elif winner == "Player1": z = 1
-    elif winner == "Player2": z = -1
+    # Determine game outcome
+    winner = game_adapter.getGameOutcome(st) 
+    if not game_terminated_by_mcts and move_no >= max_moves and winner is None:
+        if debug_mode: print(f"[play_one_game Hive] Game reached max_moves ({max_moves}) limit. Declaring DRAW.")
+        winner = "Draw" # Explicitly a draw if max_moves reached and not otherwise terminal
+    elif game_terminated_by_mcts and winner is None:
+        # If MCTS found no moves but game wasn't declared terminal by HiveGame (e.g. only PASS was available and filtered)
+        # This is a tricky state. Forcing a draw is safest.
+        if debug_mode: print(f"[play_one_game Hive] Game ended due to no MCTS actions, but not terminal. Declaring DRAW.")
+        winner = "Draw"
+
+    z_p1 = 0
+    if winner == "Player1": z_p1 = 1
+    elif winner == "Player2": z_p1 = -1
+    # For "Draw" or any other unhandled winner string, z_p1 remains 0.
     
-    if debug_mode: print(f"\n[play_one_game Hive] Game Over. Winner: {winner}, z (Player1's perspective): {z}")
+    if debug_mode: print(f"\n[play_one_game Hive] Game Over. Actual Winner: {winner}, z_p1 (Player1's perspective): {z_p1}")
 
     final_history = []
-    for idx, (recorded_state, policy, _) in enumerate(hist):
-        player_at_state = game_adapter.getCurrentPlayer(recorded_state) # Player1 or Player2
-        # Value target should be from the perspective of player_at_state
-        value_for_state_player = z if player_at_state == "Player1" else -z
-        final_history.append((recorded_state, policy, value_for_state_player))
-        if debug_mode: print(f"[play_one_game Hive] final_hist item {idx}: Player: {player_at_state}, Val: {value_for_state_player}, Policy sum: {np.sum(policy) if policy is not None else 'N/A'}")
-    
+    for rec_state, pol, _ in hist:
+        p_at_state = game_adapter.getCurrentPlayer(rec_state)
+        val_for_player = z_p1 if p_at_state == "Player1" else -z_p1
+        final_history.append((rec_state, pol, val_for_player))
     if debug_mode: print("--- play_one_game END (Hive) ---")
     return final_history
 
@@ -373,55 +414,48 @@ def train_step(net: AdvancedHiveZeroNet, batch_experiences: list, is_weights: np
                opt: torch.optim.Optimizer, dev: str, game_adapter: HiveAdapter, 
                augment_prob: float, ent_beta_val: float, debug_mode: bool = False) -> Tuple[float, np.ndarray]:
     if debug_mode: print("\n--- train_step START (Hive) ---")
-    # ... (rest of train_step logic from c4_zero_advanced, using reflect_hive_state_policy) ...
     S_list, P_tgt_list, V_tgt_list = [], [], []
     if not batch_experiences: 
-        if debug_mode: print("[train_step Hive] Batch empty.")
+        if debug_mode: print("[train_step Hive] Batch empty."); 
         return 0.0, np.array([])
-
-    for i, (s_dict_orig, p_tgt_orig, v_tgt_orig) in enumerate(batch_experiences):
-        s_to_enc, p_to_use = s_dict_orig, p_tgt_orig
-        augmented = False
-        if random.random() < augment_prob:
-            s_to_enc, p_to_use = reflect_hive_state_policy(s_dict_orig, p_tgt_orig) 
-            augmented = True
-        
-        # For Hive, perspective is always 'Player1' or 'Player2' from game state
-        player_persp = game_adapter.getCurrentPlayer(s_to_enc) 
-        S_list.append(game_adapter.encode_state(s_to_enc, player_persp))
-        P_tgt_list.append(p_to_use)
-        V_tgt_list.append(v_tgt_orig)
-        if debug_mode and i < 1:
-             print(f"  [train_step Hive] Sample {i} Augmented: {augmented}, Player: {player_persp}, ValueTgt: {v_tgt_orig}")
-             p_to_use_np = np.array(p_to_use)
-             print(f"  [train_step Hive] PolicyTgt (sum {p_to_use_np.sum()}): {p_to_use_np[:min(10,len(p_to_use_np))]}...")
-
-    S = torch.stack(S_list).to(dev)
-    P_tgt = torch.tensor(np.array(P_tgt_list), dtype=torch.float32, device=dev)
-    V_tgt = torch.tensor(V_tgt_list, dtype=torch.float32, device=dev)
-    is_weights_tensor = torch.tensor(is_weights, dtype=torch.float32, device=dev).unsqueeze(1)
-
+    for s_orig, p_orig, v_orig in batch_experiences:
+        s_enc, p_use = s_orig, p_orig
+        if random.random() < augment_prob: s_enc, p_use = reflect_hive_state_policy(s_orig, p_orig)
+        player_persp = game_adapter.getCurrentPlayer(s_enc)
+        S_list.append(game_adapter.encode_state(s_enc, player_persp))
+        P_tgt_list.append(p_use); V_tgt_list.append(v_orig)
+    S, P_tgt, V_tgt = torch.stack(S_list).to(dev), torch.tensor(np.array(P_tgt_list), dtype=torch.float32, device=dev), torch.tensor(V_tgt_list, dtype=torch.float32, device=dev)
+    is_weights_t = torch.tensor(is_weights, dtype=torch.float32, device=dev).unsqueeze(1)
     logits, V_pred = net(S)
-    logP_pred = F.log_softmax(logits, dim=1)
-    loss_p_per_sample = F.kl_div(logP_pred, P_tgt, reduction="none").sum(dim=1)
+    logP = F.log_softmax(logits, dim=1)
+    loss_p_per_sample = F.kl_div(logP, P_tgt, reduction="none").sum(dim=1)
     loss_v_per_sample = F.mse_loss(V_pred.squeeze(), V_tgt, reduction="none")
-    weighted_loss_p = (loss_p_per_sample * is_weights_tensor.squeeze()).mean()
-    weighted_loss_v = (loss_v_per_sample * is_weights_tensor.squeeze()).mean()
-    P_pred_dist = torch.exp(logP_pred)
-    entropy = -(P_pred_dist * logP_pred).sum(dim=1).mean()
+    weighted_loss_p = (loss_p_per_sample * is_weights_t.squeeze()).mean()
+    weighted_loss_v = (loss_v_per_sample * is_weights_t.squeeze()).mean()
+    entropy = -(torch.exp(logP) * logP).sum(dim=1).mean()
     total_loss = weighted_loss_p + weighted_loss_v - ent_beta_val * entropy
-
-    if debug_mode: print(f"[train_step Hive] Losses (p,v,ent,total): {weighted_loss_p.item():.4f}, {weighted_loss_v.item():.4f}, {entropy.item():.4f}, {total_loss.item():.4f}")
-
-    opt.zero_grad()
-    total_loss.backward()
-    nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-    opt.step()
-    td_errors = np.abs(V_tgt.cpu().detach().numpy() - V_pred.squeeze().cpu().detach().numpy())
+    opt.zero_grad(); total_loss.backward(); nn.utils.clip_grad_norm_(net.parameters(), 1.0); opt.step()
+    td_err = np.abs(V_tgt.cpu().detach().numpy() - V_pred.squeeze().cpu().detach().numpy())
+    if debug_mode: print(f"[train_step Hive] Loss: {total_loss.item():.4f}")
     if debug_mode: print("--- train_step END (Hive) ---")
-    return float(total_loss.item()), td_errors
+    return float(total_loss.item()), td_err
 
-# ... (save_buffer_experiences, load_experiences_to_buffer - should be generic enough) ...
+def save_buffer_experiences(buf: PrioritizedReplayBuffer | deque, path: Path) -> None:
+    if torch is None: raise RuntimeError("PyTorch is required")
+    data_to_save = list(buf.data_buffer[:len(buf)]) if isinstance(buf, PrioritizedReplayBuffer) else list(buf)
+    torch.save(data_to_save, path); print(f"Saved {len(data_to_save)} exp to {path}")
+
+def load_experiences_to_buffer(target_buffer: PrioritizedReplayBuffer | deque, path: Path) -> None:
+    if torch is None: raise RuntimeError("PyTorch is required")
+    if not path.exists(): print(f"Buffer {path} not found."); return
+    try: data = torch.load(path, weights_only=False) 
+    except: print(f"Error loading {path}."); return
+    if isinstance(target_buffer, PrioritizedReplayBuffer):
+        loaded_count = 0
+        for exp in data:
+            if len(target_buffer) < target_buffer.capacity: target_buffer.add(exp); loaded_count+=1
+        print(f"Loaded {loaded_count} exp into PER buffer. Size: {len(target_buffer)}/{target_buffer.capacity}")
+    elif isinstance(target_buffer, deque): target_buffer.extend(data); print(f"Loaded {len(data)} exp into deque. Size: {len(target_buffer)}/{target_buffer.maxlen}")
 
 # ---------------------------------------------------------------------------
 # Training loop (adapted for Hive)
@@ -430,20 +464,15 @@ def run(parsed_cli_args=None) -> None:
     global args_global 
     args_global = parsed_cli_args if parsed_cli_args is not None else parser().parse_args()
 
-    # ... (debug_single_loop overrides, PER beta annealing, device setup as in C4/TTT)
     if args_global.debug_single_loop:
+        _debug_flag_main = True 
         print("!!!!!!!!!!!!!!!!! DEBUG SINGLE LOOP MODE ENABLED (Hive) !!!!!!!!!!!!!!!!!")
-        args_global.epochs = 1
-        args_global.bootstrap_games = 1 
-        args_global.mcts_simulations = 10 
-        args_global.batch_size = 8 
-        args_global.min_buffer_fill_standard = 1 
-        args_global.min_buffer_fill_for_per_training = 1
-        args_global.min_buffer_fill_for_per_bootstrap = 1
-        args_global.log_every = 1
-        args_global.ckpt_every = 1 
-        args_global.save_buffer_every = 1
+        args_global.epochs = 1; args_global.bootstrap_games = 1; args_global.mcts_simulations = 10; args_global.batch_size = 4
+        args_global.min_buffer_fill_standard = 1; args_global.min_buffer_fill_for_per_training = 1; args_global.min_buffer_fill_for_per_bootstrap = 1
+        args_global.log_every = 1; args_global.ckpt_every = 1; args_global.save_buffer_every = 1
         args_global.skip_bootstrap = False
+        args_global.max_game_moves = 15 # Drastically reduce for debug to see if game loop finishes
+        print(f"[DEBUG] Overridden max_game_moves to: {args_global.max_game_moves}")
     
     if args_global.use_per and args_global.per_beta_epochs <= 0:
         args_global.per_beta_epochs = args_global.epochs
@@ -451,187 +480,99 @@ def run(parsed_cli_args=None) -> None:
             print(f"PER: Beta annealing epochs set to total epochs: {args_global.per_beta_epochs}")
 
     if torch is None or np is None: raise RuntimeError("PyTorch and NumPy are required")
-    dev = "cuda" if args_global.gpu and torch.cuda.is_available() else "cpu"
-    print(f"Using device: {dev}")
-
-    ckdir = Path(args_global.ckpt_dir)
-    ckdir.mkdir(exist_ok=True, parents=True)
-    
-    hive_game_instance = HiveGame()
-    game_adapter = HiveAdapter(hive_game_instance)
-
+    dev = "cuda" if args_global.gpu and torch.cuda.is_available() else "cpu"; print(f"Using device: {dev}")
+    ckdir = Path(args_global.ckpt_dir); ckdir.mkdir(exist_ok=True, parents=True)
+    hive_game_instance = HiveGame(); game_adapter = HiveAdapter(hive_game_instance)
     net = AdvancedHiveZeroNet(ch=args_global.channels, blocks=args_global.blocks).to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=args_global.lr)
-    
     scheduler = None
     if args_global.lr_scheduler == "cosine":
-        t_max_epochs = args_global.lr_t_max if args_global.lr_t_max > 0 else args_global.epochs
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args_global.lr_eta_min)
-        if not args_global.debug_single_loop: print(f"Using CosineAnnealingLR: T_max={t_max_epochs}, eta_min={args_global.lr_eta_min}")
+        t_max = args_global.lr_t_max if args_global.lr_t_max > 0 else args_global.epochs
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max, eta_min=args_global.lr_eta_min)
+        if not args_global.debug_single_loop: print(f"Using CosineAnnealingLR: T_max={t_max}, eta_min={args_global.lr_eta_min}")
     
-    def mcts_model_fn_wrapper(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        net.eval() 
-        with torch.no_grad(): policy_logits, value_estimates = net(encoded_state_batch)
-        net.train() 
-        return policy_logits, value_estimates.unsqueeze(-1)
-
-    mcts = AlphaZeroMCTS(
-        game_interface=game_adapter, model_fn=mcts_model_fn_wrapper, device=torch.device(dev),
-        c_puct=args_global.c_puct, dirichlet_alpha=args_global.dirichlet_alpha,
-        dirichlet_epsilon=args_global.dirichlet_epsilon
-    )
-
-    state_path = ckdir / "train_state_hive.pt" # Path for Hive
-    start_ep = 1
-    # ... (resume logic as in C4/TTT, checking state_path)
+    def mcts_model_fn(batch_in): net.eval(); lgs,v = net(batch_in); net.train(); return lgs, v.unsqueeze(-1)
+    mcts = AlphaZeroMCTS(game_adapter, mcts_model_fn, torch.device(dev), args_global.c_puct, args_global.dirichlet_alpha, args_global.dirichlet_epsilon)
+    state_path = ckdir / "train_state_hive.pt"; start_ep = 1
+    
     if args_global.resume_full_state and state_path.exists() and not args_global.debug_single_loop:
-        print("Resuming full Hive training state from", state_path)
-        st_checkpoint = torch.load(state_path, map_location=dev) 
-        net.load_state_dict(st_checkpoint["net"])
-        opt.load_state_dict(st_checkpoint["opt"])
-        start_ep = int(st_checkpoint.get("epoch", 1)) + 1
-        if scheduler and "scheduler" in st_checkpoint and st_checkpoint["scheduler"]:
-            try: scheduler.load_state_dict(st_checkpoint["scheduler"]); print("Resumed LR scheduler.")
-            except: print("Could not load scheduler state.")
-        if args_global.lr_scheduler == "cosine" and scheduler and start_ep > scheduler.T_max:
-             print(f"Warning: Resumed epoch {start_ep} > scheduler T_max {scheduler.T_max}.")
+        st_ckpt = torch.load(state_path, map_location=dev); net.load_state_dict(st_ckpt["net"]); opt.load_state_dict(st_ckpt["opt"])
+        start_ep = int(st_ckpt.get("epoch",1)) + 1
+        if scheduler and "scheduler" in st_ckpt and st_ckpt["scheduler"]: scheduler.load_state_dict(st_ckpt["scheduler"])
     elif args_global.resume_weights and not args_global.debug_single_loop:
-        print("Resuming Hive weights from", args_global.resume_weights)
         net.load_state_dict(torch.load(args_global.resume_weights, map_location=dev))
 
-
-    buf: PrioritizedReplayBuffer | deque
-    # ... (buffer initialization logic as in C4/TTT, using args_global for PER/deque)
-    if args_global.use_per:
-        debug_capacity = args_global.batch_size if args_global.debug_single_loop else args_global.buffer_size
-        if args_global.debug_single_loop and debug_capacity == 0: debug_capacity = 8 
-        buf = PrioritizedReplayBuffer(
-            capacity=debug_capacity, alpha=args_global.per_alpha,
-            beta_start=args_global.per_beta_start, beta_epochs=args_global.per_beta_epochs,
-            epsilon=args_global.per_epsilon )
-        print(f"Using PrioritizedReplayBuffer (capacity: {buf.capacity}).")
-    else:
-        debug_maxlen = args_global.batch_size if args_global.debug_single_loop else args_global.buffer_size
-        if args_global.debug_single_loop and debug_maxlen == 0: debug_maxlen = 8
-        buf = deque(maxlen=debug_maxlen)
-        print(f"Using standard deque replay buffer (maxlen: {buf.maxlen}).")
-
+    buf_capacity = args_global.batch_size if args_global.debug_single_loop and args_global.batch_size > 0 else (args_global.buffer_size if not args_global.debug_single_loop else 8) 
+    if args_global.use_per: buf = PrioritizedReplayBuffer(buf_capacity, args_global.per_alpha, args_global.per_beta_start, args_global.per_beta_epochs, args_global.per_epsilon); print(f"Using PER (cap: {buf.capacity}).")
+    else: buf = deque(maxlen=buf_capacity); print(f"Using deque (maxlen: {buf.maxlen}).")
     buffer_file_path = Path(args_global.buffer_path)
     if not args_global.debug_single_loop: load_experiences_to_buffer(buf, buffer_file_path)
-    elif args_global.debug_single_loop: print("[run DEBUG Hive] Skipping buffer load.")
-    
+    else: print("[run DEBUG Hive] Skipping buffer load.")
     temp_schedule = [(args_global.temp_decay_moves, 1.0), (float('inf'), args_global.final_temp)]
-    
-    # ... (bootstrap logic as in C4/TTT, calling play_one_game with Hive specifics, ACTION_SIZE for Hive is large, so max_moves might be different)
-    # For Hive, max_moves in play_one_game can be higher, e.g., 100-150, or from args.
-    MAX_HIVE_MOVES = args_global.max_game_moves # Add this to parser
+    MAX_HIVE_MOVES = args_global.max_game_moves
 
-    # Bootstrap games
-    min_fill_for_bootstrap = args_global.min_buffer_fill_for_per_bootstrap if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
-    if args_global.debug_single_loop: min_fill_for_bootstrap = 1
-    
-    games_to_play_bootstrap = 0
-    if not args_global.skip_bootstrap and len(buf) < min_fill_for_bootstrap:
-        games_to_play_bootstrap = args_global.bootstrap_games 
-        if len(buf) < min_fill_for_bootstrap and not args_global.debug_single_loop:
-            avg_states_per_game = 40 # Estimate for Hive
-            needed_states = min_fill_for_bootstrap - len(buf)
-            needed_games = (needed_states + avg_states_per_game -1) // avg_states_per_game
-            games_to_play_bootstrap = max(games_to_play_bootstrap, needed_games)
-            print(f"Buffer below min fill ({len(buf)}/{min_fill_for_bootstrap}). Playing {games_to_play_bootstrap} bootstrap games.")
-        elif args_global.debug_single_loop:
-            print(f"[run DEBUG Hive] Bootstrap: Will play {games_to_play_bootstrap} game(s)")
-        
-        if games_to_play_bootstrap > 0:
-            if not args_global.debug_single_loop: print(f"Bootstrapping {games_to_play_bootstrap} games …", flush=True)
-            for g in range(games_to_play_bootstrap):
-                net.eval() 
-                game_hist = play_one_game(
-                    net, game_adapter, mcts, temp_schedule, 
-                    mcts_simulations=args_global.mcts_simulations, max_moves=MAX_HIVE_MOVES,
-                    debug_mode=args_global.debug_single_loop )
-                
-                if isinstance(buf, PrioritizedReplayBuffer): 
-                    for exp in game_hist: buf.add(exp)
-                else: buf.extend(game_hist)
-                net.train() 
-                if args_global.debug_single_loop or (g+1) % args_global.save_buffer_every == 0:
-                    print(f"  Bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_hist)} states) → buffer {len(buf)}", flush=True)
-                    if not args_global.debug_single_loop : save_buffer_experiences(buf, buffer_file_path)
+    min_fill_boot = args_global.min_buffer_fill_for_per_bootstrap if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
+    if args_global.debug_single_loop: min_fill_boot = 1
+    games_to_boot = 0
+    if not args_global.skip_bootstrap and len(buf) < min_fill_boot:
+        games_to_boot = args_global.bootstrap_games
+        if len(buf) < min_fill_boot and not args_global.debug_single_loop:
+            avg_states_pg = 40; needed_s = min_fill_boot - len(buf); needed_g = (needed_s+avg_states_pg-1)//avg_states_pg
+            games_to_boot = max(games_to_boot, needed_g)
+        if games_to_boot > 0 and not args_global.debug_single_loop: print(f"Bootstrapping {games_to_boot} games…")
+        for g in range(games_to_boot):
+            game_hist = play_one_game(net, game_adapter, mcts, temp_schedule, args_global.mcts_simulations, MAX_HIVE_MOVES, args_global.debug_single_loop)
+            if isinstance(buf, PrioritizedReplayBuffer): [buf.add(exp) for exp in game_hist]
+            else: buf.extend(game_hist)
+            if args_global.debug_single_loop or (g+1)%args_global.save_buffer_every==0: print(f"  Bootstrap game {g+1}/{games_to_boot} ({len(game_hist)} states) → buf {len(buf)}")
 
-    if not args_global.debug_single_loop: print(f"Starting training from epoch {start_ep} for {args_global.epochs} epochs.")
+    if not args_global.debug_single_loop: print(f"Starting training epoch {start_ep} for {args_global.epochs} epochs.")
     try:
         for ep in range(start_ep, args_global.epochs + 1):
-            if args_global.debug_single_loop: print(f"\n--- Epoch {ep} START (Hive) ---")
-            net.eval() 
-            game_hist = play_one_game(
-                net, game_adapter, mcts, temp_schedule, 
-                mcts_simulations=args_global.mcts_simulations, max_moves=MAX_HIVE_MOVES, 
-                debug_mode=args_global.debug_single_loop )
-            
-            if isinstance(buf, PrioritizedReplayBuffer): 
-                for exp in game_hist: buf.add(exp)
+            if args_global.debug_single_loop:
+                _debug_flag_ep_loop = True # Linter fix
+                print(f"\n--- [DEBUG] Epoch {ep} START (Hive) ---")
+            net.eval()
+            game_hist = play_one_game(net, game_adapter, mcts, temp_schedule, args_global.mcts_simulations, MAX_HIVE_MOVES, args_global.debug_single_loop)
+            if isinstance(buf, PrioritizedReplayBuffer): [buf.add(exp) for exp in game_hist]
             else: buf.extend(game_hist)
-            net.train() 
-
-            current_min_train_fill = args_global.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
-            if args_global.debug_single_loop: current_min_train_fill = 1
-
-            if len(buf) < current_min_train_fill:
-                # ... (skip training print logic) ...
-                if ep % args_global.log_every == 0: print(f"Epoch {ep} | Buffer {len(buf)} < min {current_min_train_fill}. Skip train. LR {opt.param_groups[0]['lr']:.2e}", flush=True)
+            net.train()
+            min_train_fill = args_global.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
+            if args_global.debug_single_loop: min_train_fill = 1
+            if len(buf) < min_train_fill:
+                if ep % args_global.log_every == 0: print(f"Epoch {ep} | Buffer {len(buf)} < min {min_train_fill}. Skip train.")
             else:
-                # ... (sampling, train_step call, PER update, logging as in C4/TTT) ...
-                actual_batch_size = min(args_global.batch_size, len(buf))
-                if actual_batch_size == 0: # Should be caught by min_buffer_fill generally
-                    if ep % args_global.log_every == 0: print(f"Epoch {ep} | Buffer empty or batch zero. Skip train.")
-                    if scheduler: scheduler.step()
-                    continue
-                
-                batch_experiences, is_weights, data_indices = None, None, None
+                if args_global.debug_single_loop:
+                    _debug_flag_train_block = True # Linter fix
+                    print(f"\n[run DEBUG Hive] Buffer ready. len(buf): {len(buf)}, batch: {args_global.batch_size}")
+                actual_bs = min(args_global.batch_size, len(buf))
+                if actual_bs == 0: continue
+                batch_exp, is_w, data_idx = (None,None,None)
                 if isinstance(buf, PrioritizedReplayBuffer):
-                    sampled_data = buf.sample(actual_batch_size)
-                    if sampled_data is None: # Not enough samples or zero sum in PER
-                        if ep % args_global.log_every == 0: print(f"Epoch {ep} | PER sample failed. Skip train.")
-                        if scheduler: scheduler.step()
-                        continue
-                    batch_experiences, is_weights, data_indices = sampled_data
+                    sampled = buf.sample(actual_bs)
+                    if sampled is None: continue
+                    batch_exp, is_w, data_idx = sampled
                 else:
-                    batch_experiences = random.sample(list(buf), actual_batch_size)
-                    is_weights = np.ones(len(batch_experiences), dtype=np.float32)
-
-                loss, td_errors = train_step(net, batch_experiences, is_weights, opt, dev, game_adapter, 
-                                             args_global.augment_prob, args_global.ent_beta, 
-                                             debug_mode=args_global.debug_single_loop)
-                if isinstance(buf, PrioritizedReplayBuffer) and data_indices is not None and len(data_indices)>0:
-                    buf.update_priorities(data_indices, td_errors)
-                if ep % args_global.log_every == 0:
-                    print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}", flush=True)
-            
+                    batch_exp = random.sample(list(buf), actual_bs); is_w = np.ones(len(batch_exp),dtype=np.float32)
+                loss, td_errs = train_step(net,batch_exp,is_w,opt,dev,game_adapter,args_global.augment_prob,args_global.ent_beta,args_global.debug_single_loop)
+                if isinstance(buf,PrioritizedReplayBuffer) and data_idx is not None and len(data_idx)>0: buf.update_priorities(data_idx, td_errs)
+                if ep % args_global.log_every == 0: print(f"Epoch {ep} | Loss {loss:.4f} | Buf {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}")
             if scheduler: scheduler.step()
-            # ... (checkpointing, buffer saving, PER beta anneal as in C4/TTT, adjusting paths/names for Hive) ...
-            if ep % args_global.ckpt_every == 0:
-                chkpt_path = ckdir / f"hive_chkpt_ep{ep:06d}.pt"
-                if not args_global.debug_single_loop: torch.save(net.state_dict(), chkpt_path)
-                full_state_to_save = {"net": net.state_dict(), "opt": opt.state_dict(), "epoch": ep, "scheduler": scheduler.state_dict() if scheduler else None,}
-                if not args_global.debug_single_loop: torch.save(full_state_to_save, state_path)
-                print(f"Saved: {str(chkpt_path)} and {str(state_path)}", flush=True)
-            if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop:
-                 save_buffer_experiences(buf, buffer_file_path)
-                 print(f"Saved replay buffer at epoch {ep}")
+            if ep % args_global.ckpt_every == 0: 
+                chkpt_path = ckdir / f"hive_chkpt_ep{ep:06d}.pt"; full_state_path = state_path
+                if not args_global.debug_single_loop: torch.save(net.state_dict(), chkpt_path); torch.save({"net":net.state_dict(),"opt":opt.state_dict(),"epoch":ep,"scheduler":scheduler.state_dict() if scheduler else None},full_state_path)
+                if args_global.debug_single_loop or ep % args_global.log_every == 0: print(f"Saved: {str(chkpt_path)} & {str(full_state_path)}")
+            if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop: save_buffer_experiences(buf, buffer_file_path)
             if isinstance(buf, PrioritizedReplayBuffer): buf.advance_epoch_for_beta_anneal()
             if args_global.debug_single_loop: print(f"--- Epoch {ep} END (Hive) ---")
-
     except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
-        # ... (final save logic as in C4/TTT, adjusting paths/names for Hive) ...
         print("Saving final model and buffer (Hive)...")
         final_model_path = ckdir / "last_hive_model.pt" 
         torch.save(net.state_dict(), final_model_path)
         if len(buf) > 0: save_buffer_experiences(buf, buffer_file_path)
-        ep_to_save = ep if 'ep' in locals() and 'start_ep' in locals() and ep >= start_ep else start_ep - 1
-        full_state_to_save = {"net": net.state_dict(), "opt": opt.state_dict(), "epoch": ep_to_save, "scheduler": scheduler.state_dict() if scheduler else None, }
-        torch.save(full_state_to_save, state_path)
+        ep_s = ep if 'ep' in locals() and 'start_ep' in locals() and ep>=start_ep else start_ep-1
+        torch.save({"net":net.state_dict(),"opt":opt.state_dict(),"epoch":ep_s,"scheduler":scheduler.state_dict() if scheduler else None}, state_path)
         print(f"Final Hive model: {str(final_model_path)}, Buffer: {str(buffer_file_path)}, State: {str(state_path)}")
 
 # ---------------------------------------------------------------------------
@@ -639,55 +580,48 @@ def run(parsed_cli_args=None) -> None:
 # ---------------------------------------------------------------------------
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="AlphaZero-style training for Hive (Pocket Edition).")
-    # Keep most args from c4_zero_advanced, adjust defaults for Hive
     p.add_argument("--debug-single-loop", action="store_true", help="Minimal loop for debugging.")
     p.add_argument("--gpu", action="store_true", help="Use GPU if available.")
-    
     g_play = p.add_argument_group("Self-Play & MCTS (Hive)")
-    g_play.add_argument("--bootstrap-games", type=int, default=20, help="Initial games.")
-    g_play.add_argument("--skip-bootstrap", action="store_true", help="Skip bootstrap.")
-    g_play.add_argument("--mcts-simulations", type=int, default=100, help="MCTS simulations per move.") # Higher default for Hive
-    g_play.add_argument("--max-game-moves", type=int, default=150, help="Max moves per game before forced draw.")
-    g_play.add_argument("--c-puct", type=float, default=1.5, help="PUCT constant (higher for larger action spaces often).")
-    g_play.add_argument("--dirichlet-alpha", type=float, default=0.1, help="Dirichlet noise alpha (smaller for larger policy). ") # Adjusted
-    g_play.add_argument("--dirichlet-epsilon", type=float, default=0.25, help="Dirichlet noise epsilon.")
-    g_play.add_argument("--temp-decay-moves", type=int, default=15, help="Moves to use T=1 for exploration.") # Adjusted for Hive
-    g_play.add_argument("--final-temp", type=float, default=0.05, help="Temperature after decay.")
-
+    g_play.add_argument("--bootstrap-games", type=int, default=20)
+    g_play.add_argument("--skip-bootstrap", action="store_true")
+    g_play.add_argument("--mcts-simulations", type=int, default=100) 
+    g_play.add_argument("--max-game-moves", type=int, default=150)
+    g_play.add_argument("--c-puct", type=float, default=1.5)
+    g_play.add_argument("--dirichlet-alpha", type=float, default=0.1)
+    g_play.add_argument("--dirichlet-epsilon", type=float, default=0.25)
+    g_play.add_argument("--temp-decay-moves", type=int, default=15)
+    g_play.add_argument("--final-temp", type=float, default=0.05)
     g_train = p.add_argument_group("Training (Hive)")
-    g_train.add_argument("--epochs", type=int, default=20000, help="Total training epochs.")
-    g_train.add_argument("--lr", type=float, default=1e-4, help="Initial learning rate.") # Might need tuning for Hive
-    g_train.add_argument("--batch-size", type=int, default=128, help="Batch size.") # Smaller for larger network/data
-    g_train.add_argument("--ent-beta", type=float, default=1e-3, help="Entropy regularization.")
+    g_train.add_argument("--epochs", type=int, default=20000)
+    g_train.add_argument("--lr", type=float, default=1e-4)
+    g_train.add_argument("--batch-size", type=int, default=128)
+    g_train.add_argument("--ent-beta", type=float, default=1e-3)
     g_train.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"])
-    g_train.add_argument("--lr-t-max", type=int, default=0, help="T_max for CosineLR (0 for args.epochs).")
-    g_train.add_argument("--lr-eta-min", type=float, default=1e-7, help="Min LR for CosineLR.")
-    g_train.add_argument("--augment-prob", type=float, default=0.0, help="Augmentation (curr. no-op for Hive).") # Default 0 as it's no-op
-
+    g_train.add_argument("--lr-t-max", type=int, default=0)
+    g_train.add_argument("--lr-eta-min", type=float, default=1e-7)
+    g_train.add_argument("--augment-prob", type=float, default=0.0) 
     g_buffer = p.add_argument_group("Replay Buffer (Hive)")
-    g_buffer.add_argument("--buffer-size", type=int, default=100000, help="Max replay buffer size.") # Larger for Hive
-    g_buffer.add_argument("--min-buffer-fill-standard", type=int, default=2000, help="Min samples for standard buffer.")
-    g_buffer.add_argument("--min-buffer-fill-for-per-training", type=int, default=20000, help="Min samples for PER training.")
-    g_buffer.add_argument("--min-buffer-fill-for-per-bootstrap", type=int, default=2000, help="Min PER samples for bootstrap.")
-    g_buffer.add_argument("--buffer-path", type=str, default="hive_adv_mcts_buffer.pth", help="Path for buffer.")
-    g_buffer.add_argument("--save-buffer-every", type=int, default=100, help="Save buffer every N epochs.")
-    g_buffer.add_argument("--use-per", action="store_true", help="Use Prioritized Replay.")
-    g_buffer.add_argument("--per-alpha", type=float, default=0.6, help="Alpha for PER.")
-    g_buffer.add_argument("--per-beta-start", type=float, default=0.4, help="Initial beta for PER.")
-    g_buffer.add_argument("--per-beta-epochs", type=int, default=0, help="Epochs to anneal beta.")
-    g_buffer.add_argument("--per-epsilon", type=float, default=1e-5, help="Epsilon for PER priorities.")
-
+    g_buffer.add_argument("--buffer-size", type=int, default=100000)
+    g_buffer.add_argument("--min-buffer-fill-standard", type=int, default=2000)
+    g_buffer.add_argument("--min-buffer-fill-for-per-training", type=int, default=20000)
+    g_buffer.add_argument("--min-buffer-fill-for-per-bootstrap", type=int, default=2000)
+    g_buffer.add_argument("--buffer-path", type=str, default="hive_adv_mcts_buffer.pth")
+    g_buffer.add_argument("--save-buffer-every", type=int, default=100)
+    g_buffer.add_argument("--use-per", action="store_true")
+    g_buffer.add_argument("--per-alpha", type=float, default=0.6)
+    g_buffer.add_argument("--per-beta-start", type=float, default=0.4)
+    g_buffer.add_argument("--per-beta-epochs", type=int, default=0)
+    g_buffer.add_argument("--per-epsilon", type=float, default=1e-5)
     g_nn = p.add_argument_group("Neural Network (Hive)")
-    g_nn.add_argument("--channels", type=int, default=128, help="Channels per conv layer.") # Starting point
-    g_nn.add_argument("--blocks", type=int, default=10, help="Number of residual blocks.") # Starting point
-
+    g_nn.add_argument("--channels", type=int, default=128)
+    g_nn.add_argument("--blocks", type=int, default=10)
     g_mgmt = p.add_argument_group("Checkpointing & Logging (Hive)")
-    g_mgmt.add_argument("--ckpt-dir", default="hive_checkpoints_az", help="Checkpoint directory.")
-    g_mgmt.add_argument("--ckpt-every", type=int, default=100, help="Save checkpoint every N epochs.")
-    g_mgmt.add_argument("--log-every", type=int, default=10, help="Log training stats every N epochs.")
-    g_mgmt.add_argument("--resume-weights", metavar="PATH", help="Path to load network weights.")
-    g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state.")
-    
+    g_mgmt.add_argument("--ckpt-dir", default="hive_checkpoints_az")
+    g_mgmt.add_argument("--ckpt-every", type=int, default=100)
+    g_mgmt.add_argument("--log-every", type=int, default=10)
+    g_mgmt.add_argument("--resume-weights", metavar="PATH")
+    g_mgmt.add_argument("--resume-full-state", action="store_true")
     return p
 
 if __name__ == "__main__":
