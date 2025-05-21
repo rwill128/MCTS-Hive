@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any
 import concurrent.futures
 import os
+import time
+import pickle
 
 try:
     import numpy as np
@@ -881,6 +883,168 @@ def play_one_game_for_buffer_worker(
     for r_st, r_pol, _ in hist: final_hist.append((r_st, r_pol, z_learn))
     if debug_mode: print(f"[WORKER {worker_id}] Game ended. Winner: {winner}. Hist items: {len(final_hist)}")
     return final_hist
+
+# --- Worker function for parallel self-play data generation ---
+def self_play_actor_worker(
+    worker_id: int, 
+    # Configs passed to worker:
+    game_class_name: str, # e.g., "ConnectFour"
+    nn_arch_config: Dict, # e.g., {"channels": 128, "blocks": 10}
+    mcts_config: Dict, # For the learning agent's MCTS
+    opponent_config: Dict, # {"type": "self" or "past_checkpoint", "path": path_str, "mcts_config": {...}}
+    
+    # Paths & Dynamic info:
+    current_model_weights_path: str, # Path to .pt file of current learning network
+    opponent_pool_checkpoint_paths: List[str], # List of paths to past checkpoints for sampling
+    experience_save_dir: str, # Directory to save generated experience files
+    
+    # Gameplay parameters for this specific game generation task:
+    temp_schedule_tuples: List[Tuple[int, float]],
+    max_game_moves: int,
+    game_seed: int,
+    debug_mode: bool = False
+) -> Tuple[str | None, int, int]: # Returns (filepath_of_saved_game, num_states_generated, worker_id)
+    """Plays one game in a worker process, saves history, returns filepath and stats."""
+    
+    if debug_mode:
+        print(f"[ACTOR {worker_id} PID {os.getpid()}] Started. Seed: {game_seed}. Opponent type: {opponent_config.get('type')}")
+
+    # --- Initialization within Worker ---
+    torch.manual_seed(game_seed); np.random.seed(game_seed); random.seed(game_seed)
+    worker_device = torch.device("cpu") # Actors typically run on CPU to free up GPU for learner
+
+    if game_class_name == "ConnectFour":
+        game = ConnectFour()
+        adapter = ConnectFourAdapter(game)
+        NNClass = AdvancedC4ZeroNet
+    # Add elif for HiveGame etc. if making this truly generic later
+    else:
+        print(f"[ACTOR {worker_id}] Unsupported game: {game_class_name}"); return None, 0, worker_id
+
+    # Learning agent's network
+    learning_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
+    try:
+        state_d = torch.load(current_model_weights_path, map_location=worker_device)
+        if "net" in state_d: learning_net.load_state_dict(state_d["net"])
+        else: learning_net.load_state_dict(state_d)
+    except Exception as e:
+        print(f"[ACTOR {worker_id}] Error loading learning_net from {current_model_weights_path}: {e}"); return None, 0, worker_id
+    learning_net.eval()
+
+    def ln_mcts_fn(b): 
+        with torch.no_grad(): lgs,v=learning_net(b); return lgs, v.unsqueeze(-1)
+    learning_mcts = AlphaZeroMCTS(adapter, ln_mcts_fn, worker_device, 
+                                  mcts_config["c_puct"], mcts_config["dirichlet_alpha"], 
+                                  mcts_config["dirichlet_epsilon"])
+
+    # Opponent network and MCTS (if not pure self-play)
+    opp_net = None; opp_mcts = None
+    actual_opponent_type = opponent_config["type"]
+
+    if actual_opponent_type == "past_checkpoint":
+        opp_path = opponent_config.get("path") # This would be selected by main process and passed
+        if not opp_path and opponent_pool_checkpoint_paths: # If no specific path, pick from pool
+            opp_path = random.choice(opponent_pool_checkpoint_paths)
+        
+        if opp_path:
+            opp_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
+            try:
+                opp_sd = torch.load(opp_path, map_location=worker_device)
+                if "net" in opp_sd: opp_net.load_state_dict(opp_sd["net"])
+                else: opp_net.load_state_dict(opp_sd)
+                opp_net.eval()
+                def opp_mcts_fn(b): 
+                    with torch.no_grad(): lgs,v = opp_net(b); return lgs, v.unsqueeze(-1)
+                opp_mcts_cfg = opponent_config.get("mcts_config", {})
+                opp_mcts = AlphaZeroMCTS(adapter, opp_mcts_fn, worker_device, 
+                                         opp_mcts_cfg.get("c_puct_opponent", 1.41), 0, 0) # No noise for past opp
+                if debug_mode: print(f"[ACTOR {worker_id}] Opponent is past self: {opp_path}")
+            except Exception as e:
+                if debug_mode: print(f"[ACTOR {worker_id}] Failed to load opponent {opp_path}: {e}. Defaulting to self-play.")
+                actual_opponent_type = "self"; opp_net = None; opp_mcts = None
+        else:
+            if debug_mode: print(f"[ACTOR {worker_id}] No opponent_checkpoint_path and pool empty. Defaulting to self-play.")
+            actual_opponent_type = "self"
+
+    # --- Actual game play logic (simplified from existing play_one_game) ---
+    st = adapter.c4_game.getInitialState()
+    game_history_tuples: List[Tuple[dict, np.ndarray, int]] = []
+    move_no = 0
+    current_temp = 1.0
+    # Learning agent is always considered 'X' for consistent data storage for the learner
+    learning_agent_char_in_game = "X" 
+    opponent_char_in_game = "O"
+
+    while not adapter.isTerminal(st) and move_no < max_game_moves:
+        current_player = adapter.getCurrentPlayer(st)
+        is_learning_turn = (current_player == learning_agent_char_in_game)
+        
+        for tm, tv in temp_schedule_tuples: 
+            if move_no < tm: current_temp = tv; break
+
+        mcts_to_use = None
+        sims_for_current_move = 0
+
+        if current_player == learning_agent_char_in_game:
+            mcts_to_use = learning_mcts
+            sims_for_current_move = mcts_config["mcts_simulations_learning"]
+        else: # Opponent's turn
+            if actual_opponent_type == "self":
+                mcts_to_use = learning_mcts # Pure self-play, opponent uses current learner's MCTS
+                sims_for_current_move = mcts_config.get("mcts_simulations_opponent_if_self", sims_for_current_move)
+            else: # Past checkpoint opponent
+                mcts_to_use = opp_mcts
+                sims_for_current_move = opponent_mcts_config.get("mcts_simulations_opponent", 50)
+        
+        if mcts_to_use is None: mcts_to_use = learning_mcts # Final fallback
+
+        legal_actions = adapter.getLegalActions(st)
+        if not legal_actions: break
+
+        chosen_action, policy_dict = mcts_to_use.get_action_policy(st, sims_for_current_move, current_temp, debug_mcts=False)
+
+        policy_target = np.zeros(adapter.get_action_size(), dtype=np.float32)
+        if policy_dict: 
+            for act_idx, prob in policy_dict.items(): policy_target[act_idx] = prob
+        s = policy_target.sum()
+        if abs(s-1.0) > 1e-5 and s > 1e-5: policy_target /= s
+        elif s < 1e-5 and legal_actions: 
+            for la in legal_actions: policy_target[la] = 1.0/len(legal_actions)
+
+        if is_learning_turn: # Only save data from learning agent's perspective
+            game_history_tuples.append((adapter.copyState(st), policy_target, 0))
+        
+        st = adapter.applyAction(st, chosen_action)
+        move_no += 1
+
+    winner = adapter.getGameOutcome(st)
+    if move_no >= max_game_moves and winner is None: winner = "Draw"
+
+    z_outcome = 0 # From perspective of learning_agent_char_in_game ('X')
+    if winner == learning_agent_char_in_game: z_outcome = 1
+    elif winner == opponent_char_in_game: z_outcome = -1
+
+    final_history_for_learner: List[Tuple[dict, np.ndarray, int]] = []
+    for recorded_s, recorded_pi, _ in game_history_tuples:
+        # The value is the final game outcome from the perspective of the player (X) whose policy was recorded.
+        final_history_for_learner.append((recorded_s, recorded_pi, z_outcome))
+
+    saved_filepath = None
+    if final_history_for_learner and experience_save_dir: # Only save if history was generated
+        Path(experience_save_dir).mkdir(parents=True, exist_ok=True)
+        ts_save = int(time.time() * 1000000) # Microseconds for uniqueness
+        game_fname = f"exp_w{worker_id}_g{game_seed}_{ts_save}_m{move_no}_res{z_outcome}.pkl"
+        filepath_obj = Path(experience_save_dir) / game_fname
+        try:
+            with open(filepath_obj, 'wb') as f_out_pkl:
+                pickle.dump(final_history_for_learner, f_out_pkl)
+            saved_filepath = str(filepath_obj)
+            if debug_mode: print(f"[ACTOR {worker_id}] Saved {len(final_history_for_learner)} experiences to {saved_filepath}")
+        except Exception as e:
+            print(f"[ACTOR {worker_id}] Error saving experiences to {filepath_obj}: {e}")
+            saved_filepath = None # Indicate failure
+            
+    return saved_filepath, len(final_history_for_learner), worker_id
 
 if __name__ == "__main__":
     run()
