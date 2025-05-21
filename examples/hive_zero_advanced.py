@@ -343,8 +343,8 @@ def play_one_game(
     if debug_mode: print("\n--- play_one_game START (Hive) ---")
 
     while not game_adapter.isTerminal(st) and move_no < max_moves:
-        if debug_mode:
-            print(f"\n[play_one_game Hive] Move: {move_no}, Player: {st['current_player']}")
+        # if debug_mode:
+        print(f"\n[play_one_game Hive] Move: {move_no}, Player: {st['current_player']}")
         for th_moves, t_val in temp_schedule:
             if move_no < th_moves: current_temp = t_val; break
         player_perspective = game_adapter.getCurrentPlayer(st)
@@ -522,6 +522,7 @@ def run(parsed_cli_args=None) -> None:
         if games_to_boot > 0 and not args_global.debug_single_loop: print(f"Bootstrapping {games_to_boot} games…")
         for g in range(games_to_boot):
             game_hist = play_one_game(net, game_adapter, mcts, temp_schedule, args_global.mcts_simulations, MAX_HIVE_MOVES, args_global.debug_single_loop)
+            print(f"Game {g+1}/{games_to_boot}: {game_hist}")
             if isinstance(buf, PrioritizedReplayBuffer): [buf.add(exp) for exp in game_hist]
             else: buf.extend(game_hist)
             if args_global.debug_single_loop or (g+1)%args_global.save_buffer_every==0: print(f"  Bootstrap game {g+1}/{games_to_boot} ({len(game_hist)} states) → buf {len(buf)}")
