@@ -1,0 +1,11 @@
+{
+  "type": "mcts_zero_adv",
+  "arch": "new_style",
+  "weights": "c4_checkpoints_az\\c4_chkpt_ep001000.pt",
+  "mcts_simulations": 50,
+  "num_iterations": 100,
+  "max_depth": 42,
+  "c_param": 1.4,
+  "forced_check_depth": 0,
+  "temperature": 0.0
+}

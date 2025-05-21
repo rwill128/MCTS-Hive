@@ -1,25 +1,35 @@
 {
   "ratings": {
-    "c2": 1504.1121314775517,
-    "c3": 1456.94535030102,
-    "iter100": 1267.6281178218646,
-    "iter150": 1361.7291455448167,
-    "iter20": 1160.489219655483,
-    "iter200": 1423.5851863509602,
-    "iter300": 1508.5359980910628,
-    "iter400": 1381.9940144873938,
-    "iter50": 1089.2949841117102,
-    "iter600": 1318.9624322459006,
-    "search_4": 1794.6908763648917,
-    "search_6": 1778.917922069858,
-    "hybrid_4": 1571.7825009283497,
-    "hybrid_6": 1642.8109191605226,
-    "c1": 1403.612180622118,
-    "check2": 1627.9366781748772,
-    "iter800": 1259.4971488716315,
-    "adv_mcts_zero_4": 1693.1869676084643,
-    "minimax": 1500.0,
-    "minimax_6": 1562.1083817522829
+    "c2": 1492.6219922968028,
+    "c3": 1446.0519044926668,
+    "iter100": 1263.1751176761356,
+    "iter150": 1357.3778711279908,
+    "iter20": 1158.0980609161986,
+    "iter200": 1422.2740298339477,
+    "iter300": 1484.852641808412,
+    "iter400": 1374.4252412632138,
+    "iter50": 1087.6138394410316,
+    "iter600": 1313.2550040391839,
+    "search_4": 1755.0682434641733,
+    "search_6": 1763.2582762993145,
+    "hybrid_4": 1563.1380172274266,
+    "hybrid_6": 1669.2191877367175,
+    "c1": 1392.450572457248,
+    "check2": 1601.9627408799258,
+    "iter800": 1255.3690549935188,
+    "minimax": 1537.219922722356,
+    "minimax_6": 1620.450935305595,
+    "adv_mcts_zero_1000": 1500.0,
+    "adv_mcts_zero_1100": 1500.0,
+    "adv_mcts_zero_1200": 1500.0,
+    "adv_mcts_zero_1300": 1506.3799048732508,
+    "adv_mcts_zero_1400": 1500.0,
+    "adv_mcts_zero_1500": 1507.8315727054987,
+    "adv_mcts_zero_1600": 1500.0,
+    "adv_mcts_zero_1700": 1500.0,
+    "adv_mcts_zero_1800": 1500.0,
+    "adv_mcts_zero_1900": 1500.0,
+    "adv_mcts_zero_2000": 1500.0
   },
   "pair_results": {
     "iter50_vs_iter600": {
@@ -603,7 +613,7 @@
       "l": 3
     },
     "minimax_vs_iter300": {
-      "w": 6,
+      "w": 7,
       "d": 0,
       "l": 0
     },
@@ -2165,155 +2175,155 @@
     "check2_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 1,
-      "l": 2
+      "l": 4
     },
     "adv_mcts_zero_4_vs_hybrid_4": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_iter100": {
-      "w": 2,
+      "w": 3,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_check2": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_search_4": {
-      "w": 1,
+      "w": 3,
       "d": 0,
       "l": 1
     },
     "hybrid_6_vs_adv_mcts_zero_4": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "iter600_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "adv_mcts_zero_4_vs_c3": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "iter150_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 4
     },
     "adv_mcts_zero_4_vs_iter400": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "c1_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 4
     },
     "iter20_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "c2_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 4
     },
     "iter800_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "adv_mcts_zero_4_vs_iter200": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_search_6": {
-      "w": 2,
+      "w": 3,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_iter300": {
-      "w": 2,
+      "w": 3,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_iter50": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "iter400_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "adv_mcts_zero_4_vs_iter600": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "iter200_vs_adv_mcts_zero_4": {
-      "w": 0,
+      "w": 1,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "iter100_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 4
     },
     "search_6_vs_adv_mcts_zero_4": {
-      "w": 2,
+      "w": 3,
       "d": 0,
-      "l": 0
+      "l": 1
     },
     "iter50_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "adv_mcts_zero_4_vs_iter800": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_iter20": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_4_vs_c1": {
-      "w": 2,
+      "w": 4,
       "d": 0,
       "l": 0
     },
     "hybrid_4_vs_adv_mcts_zero_4": {
-      "w": 0,
+      "w": 1,
       "d": 0,
-      "l": 2
+      "l": 4
     },
     "adv_mcts_zero_4_vs_hybrid_6": {
       "w": 0,
       "d": 2,
-      "l": 0
+      "l": 1
     },
     "c3_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 3
     },
     "adv_mcts_zero_4_vs_c2": {
-      "w": 3,
+      "w": 4,
       "d": 0,
       "l": 0
     },
@@ -2325,12 +2335,12 @@
     "iter300_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 3
+      "l": 4
     },
     "search_4_vs_adv_mcts_zero_4": {
       "w": 0,
       "d": 0,
-      "l": 2
+      "l": 4
     },
     "adv_mcts_zero_3_vs_adv_mcts_zero_4": {
       "w": 0,
@@ -2338,12 +2348,12 @@
       "l": 1
     },
     "adv_mcts_zero_4_vs_minimax_6": {
-      "w": 6,
+      "w": 12,
       "d": 1,
-      "l": 0
+      "l": 2
     },
     "minimax_6_vs_adv_mcts_zero_4": {
-      "w": 7,
+      "w": 15,
       "d": 0,
       "l": 0
     },
@@ -2351,6 +2361,26 @@
       "w": 0,
       "d": 0,
       "l": 1
+    },
+    "adv_mcts_zero_4_vs_minimax": {
+      "w": 3,
+      "d": 0,
+      "l": 3
+    },
+    "minimax_vs_adv_mcts_zero_4": {
+      "w": 3,
+      "d": 0,
+      "l": 3
+    },
+    "adv_mcts_zero_1300_vs_iter200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_1500_vs_iter300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
     }
   },
   "pair_index": 0,

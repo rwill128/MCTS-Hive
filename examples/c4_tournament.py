@@ -275,37 +275,51 @@ def game_counts(data: dict, names: List[str]) -> Dict[str, int]:
     for key, record in data.get("pair_results", {}).items():
         a, _, b = key.partition("_vs_")
         games = record.get("w", 0) + record.get("d", 0) + record.get("l", 0)
-        counts[a] = counts.get(a, 0) + games
-        counts[b] = counts.get(b, 0) + games
+        # Ensure keys exist before incrementing
+        if a in counts:
+            counts[a] = counts.get(a, 0) + games
+        if b in counts:
+            counts[b] = counts.get(b, 0) + games
     return counts
 
 
 def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
-    counts = game_counts(data, names)
-    pairs = [(i, j) for i in range(len(names)) for j in range(i + 1, len(names))]
+    """Chooses a pair of players to play, selecting uniformly at random from all possible unique pairs."""
+    num_players = len(names)
+    if num_players < 2:
+        raise ValueError("Need at least two players to choose a pair.")
 
-    min_total = None
-    candidates = []
-    for i, j in pairs:
-        total = counts.get(names[i], 0) + counts.get(names[j], 0)
-        if min_total is None or total < min_total:
-            min_total = total
-            candidates = [(i, j)]
-        elif total == min_total:
-            candidates.append((i, j))
+    # Generate all unique pairs (i, j) where i < j
+    possible_pairs = []
+    for i in range(num_players):
+        for j in range(i + 1, num_players):
+            possible_pairs.append((i, j))
+    
+    if not possible_pairs:
+        # Should not happen if num_players >= 2
+        raise ValueError("Could not form any pairs.")
 
-    i, j = random.choice(candidates)
+    # Choose a pair uniformly at random
+    i, j = random.choice(possible_pairs)
 
+    # Determine orientation (who plays X, who plays O)
+    # This part can remain, aiming for roughly equal games as X and O for each pair
     key_ab = f"{names[i]}_vs_{names[j]}"
     key_ba = f"{names[j]}_vs_{names[i]}"
-    count_ab = sum(data.get("pair_results", {}).get(key_ab, {}).values())
-    count_ba = sum(data.get("pair_results", {}).get(key_ba, {}).values())
+    # Need to access pair_results safely
+    pair_results = data.get("pair_results", {})
+    record_ab = pair_results.get(key_ab, {})
+    record_ba = pair_results.get(key_ba, {})
+
+    count_ab = sum(record_ab.values())
+    count_ba = sum(record_ba.values())
+
     if count_ab < count_ba:
-        orientation = 0
+        orientation = 0  # names[i] is X, names[j] is O
     elif count_ba < count_ab:
-        orientation = 1
+        orientation = 1  # names[j] is X, names[i] is O
     else:
-        orientation = random.randint(0, 1)
+        orientation = random.randint(0, 1) # Random if counts are equal
 
     return (i, j), orientation
 

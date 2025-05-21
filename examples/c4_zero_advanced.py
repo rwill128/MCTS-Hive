@@ -616,7 +616,7 @@ def parser() -> argparse.ArgumentParser:
 
     g_train = p.add_argument_group("Training (Connect Four)")
     g_train.add_argument("--epochs", type=int, default=10000, help="Total training epochs.")
-    g_train.add_argument("--lr", type=float, default=2e-4, help="Initial learning rate.") # C4 specific LR
+    g_train.add_argument("--lr", type=float, default=1e-5, help="Initial learning rate.") # C4 specific LR
     g_train.add_argument("--batch-size", type=int, default=256, help="Batch size for training.")
     g_train.add_argument("--ent-beta", type=float, default=1e-3, help="Entropy regularization.")
     g_train.add_argument("--lr-scheduler", type=str, default="cosine", choices=["cosine", "step", "none"])
