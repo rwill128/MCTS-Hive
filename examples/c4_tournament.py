@@ -335,9 +335,11 @@ def choose_pair(names: List[str], players_configs: Dict[str, Dict], data: dict, 
     count_ba = sum(record_ba.values())
 
     orientation = random.randint(0, 1)
-    if count_ab < count_ba: orientation = 0
-    elif count_ba < count_ab: orientation = 1
-    
+    if count_ab < count_ba:
+        orientation = 0
+    elif count_ba < count_ab:
+        orientation = 1
+
     return (i, j), orientation
 
 
@@ -348,7 +350,9 @@ def play_one_game_sequential_version(
     params_o: dict,
     seed: int,
     screen=None,
-    display_moves: bool = False
+    display_moves: bool = False,
+    history_dir_path_str: str | None = None,
+    game_id_for_filename: int = 0
 ) -> int:
     random.seed(seed)
     # make_player is defined inside play_one_game_sequential_version and play_one_game_parallel_worker
@@ -405,6 +409,9 @@ def play_one_game_sequential_version(
         if pygame and hasattr(pygame, "event"): pygame.event.pump()
     
     move_count = 0
+    # Prepare history saving list (initial state)
+    game_history_for_saving: List[Dict] = [game.copyState(state)]
+    
     while not game.isTerminal(state):
         to_move = game.getCurrentPlayer(state)
         active_player = player_x if to_move == "X" else player_o
@@ -432,10 +439,40 @@ def play_one_game_sequential_version(
             else: print(state["board"])
             print("-----")
 
+        game_history_for_saving.append(game.copyState(state))
+
     outcome = game.getGameOutcome(state)
-    if outcome == "X": return 1
-    if outcome == "O": return -1
-    return 0 # Placeholder for actual game result
+    result_val = 0
+    if outcome == "X":
+        result_val = 1
+    elif outcome == "O":
+        result_val = -1
+
+    # Save history if requested
+    if history_dir_path_str:
+        history_dir = Path(history_dir_path_str)
+        history_dir.mkdir(parents=True, exist_ok=True)
+        winner_char = "X" if result_val == 1 else ("O" if result_val == -1 else "D")
+        safe_px_name = params_x.get("name", "X").replace(" ", "_")
+        safe_po_name = params_o.get("name", "O").replace(" ", "_")
+        filename = f"game_{game_id_for_filename:06d}_X-{safe_px_name}_O-{safe_po_name}_W-{winner_char}.json"
+        filepath = history_dir / filename
+        try:
+            with open(filepath, "w") as f_hist:
+                json.dump({
+                    "game_id": game_id_for_filename,
+                    "player_x": safe_px_name,
+                    "player_o": safe_po_name,
+                    "params_x": params_x,
+                    "params_o": params_o,
+                    "result_for_x": result_val,
+                    "history_states": game_history_for_saving
+                }, f_hist, indent=2)
+            print(f"Saved history to {filepath}")
+        except Exception as e:
+            print(f"Error saving game history to {filepath}: {e}")
+
+    return result_val
 
 # Global list to store game histories from parallel runs
 completed_parallel_games: List[Dict[str, Any]] = []
@@ -747,7 +784,7 @@ def run(display: bool = True) -> None:
     try:
         if cli_args.num_parallel <= 1:
             print("Running in single-process mode.")
-            while True: 
+        while True:
                 pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
                 if pair_choice_result is None:
                     print("No suitable opponent pairs found. Tournament might be stalled or complete under current rules.")
@@ -766,10 +803,10 @@ def run(display: bool = True) -> None:
                 current_result = play_one_game_sequential_version(
                     main_game_instance, params_x, params_o,
                     seed=random.randint(0, 2**32 -1),
-                    screen=screen, display_moves=cli_args.display_moves
-                    # Add history_dir and game_id if sequential should also save history files:
-                    # history_dir_path_str=cli_args.history_dir, 
-                    # game_id_for_filename=current_game_id 
+                    screen=screen,
+                    display_moves=cli_args.display_moves,
+                    history_dir_path_str=cli_args.history_dir,
+                    game_id_for_filename=current_game_id
                 )
                 _update_elo_and_stats(elo_data, p_x_name, p_o_name, current_result)
                 save_results(elo_data)
@@ -847,9 +884,10 @@ def run(display: bool = True) -> None:
                         except RuntimeError as e: 
                             if "shutdown" in str(e).lower():
                                 print("Executor shutting down, no more games will be submitted.")
-                                break 
-                            else: raise 
-                    if not futures_map: break # Exit while if map is empty (e.g. all tasks done and no new ones possible)
+                            else:
+                                raise
+                    if not futures_map:
+                        break
 
     except KeyboardInterrupt: print("\nTournament interrupted. Saving final results...")
     finally:
