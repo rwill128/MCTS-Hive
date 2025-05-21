@@ -672,13 +672,29 @@ def generate_player_configs_from_checkpoints(source_checkpoint_dir: Path, target
     print(f"\nGenerated {generated_count} new player configuration files.")
 
 def run(display: bool = True) -> None:
-    global cli_args # No need for completed_parallel_games global list anymore
-    # ... (setup: game_type, main_game_instance, players, player_names, elo_data)
-    # ... (display disabling logic)
-    # ... (screen init for sequential mode only)
+    global cli_args #, completed_parallel_games # completed_parallel_games is now local to run if only used for replay prompt which was removed for file saving
+    cli_args = cli_args # This line is redundant if cli_args is already global from __main__
+
+    game_type_for_tournament = "ConnectFour" 
+    main_game_instance = ConnectFour() 
+    players = load_players()
+    player_names = list(players.keys())
+    elo_data = load_results(player_names)
+
+    # This global list is for the removed replay feature. If only saving to disk, it's not strictly needed by run.
+    # However, if any part of the loop still appends to it, it should be initialized here.
+    completed_parallel_games_list: List[Dict[str, Any]] = [] 
+
+
+    if display and cli_args.num_parallel > 1:
+        print("Display is disabled when running parallel games.")
+        display = False
+
+    screen = None
+    if display and pygame is not None and init_display is not None:
+        screen = init_display(main_game_instance.ROWS, main_game_instance.COLS)
     
-    game_counter_lock = concurrent.futures.thread.Lock() # For thread-safe game_id generation
-    game_id_counter = 0
+    game_id_counter = 0 # Simple counter for game IDs
 
     if cli_args.history_dir:
         Path(cli_args.history_dir).mkdir(parents=True, exist_ok=True)
@@ -687,24 +703,54 @@ def run(display: bool = True) -> None:
     try:
         if cli_args.num_parallel <= 1:
             print("Running in single-process mode.")
-            while True:
-                # ... (choose pair, setup params_x, params_o) ...
-                with game_counter_lock:
-                    game_id_counter += 1
-                    current_game_id = game_id_counter
-                # Modify play_one_game_sequential_version to also save history if history_dir is set
-                # ... (call sequential game, process result, update Elo) ...
-                pass # Placeholder, sequential needs update to save history too
-        else: # Parallel Mode
+            while True: 
+                pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                if pair_choice_result is None:
+                    print("No suitable opponent pairs found. Tournament might be stalled or complete under current rules.")
+                    break 
+                (i, j), orientation = pair_choice_result
+                p_x_name, p_o_name = (player_names[i], player_names[j]) if orientation == 0 else (player_names[j], player_names[i])
+                params_x = players[p_x_name]
+                params_o = players[p_o_name]
+                
+                game_id_counter += 1
+                current_game_id = game_id_counter
+                print(f"Game {current_game_id}: {p_x_name} (R) vs {p_o_name} (Y)")
+                
+                # Ensure play_one_game_sequential_version is correctly handling history saving if desired
+                # For now, assuming it doesn't interact with completed_parallel_games_list directly
+                current_result = play_one_game_sequential_version(
+                    main_game_instance, params_x, params_o,
+                    seed=random.randint(0, 2**32 -1),
+                    screen=screen, display_moves=cli_args.display_moves
+                    # Add history_dir and game_id if sequential should also save history files:
+                    # history_dir_path_str=cli_args.history_dir, 
+                    # game_id_for_filename=current_game_id 
+                )
+                _update_elo_and_stats(elo_data, p_x_name, p_o_name, current_result)
+                save_results(elo_data)
+                if current_game_id % 10 == 0: print_elo_standings(elo_data)
+        else: 
             print(f"Running in parallel with {cli_args.num_parallel} workers.")
-            # ... (pygame quit logic if display was on) ...
+            if display and screen is not None: 
+                 if pygame and hasattr(pygame, "quit"): pygame.quit()
+                 print("Pygame display explicitly quit for parallel mode.")
+            
             with concurrent.futures.ProcessPoolExecutor(max_workers=cli_args.num_parallel) as executor:
-                futures_map: Dict[concurrent.futures.Future, Tuple[str, str]] = {}
-                for _ in range(cli_args.num_parallel * 2):
-                    # ... (choose pair logic to get p_x_name, p_o_name, params_x_submit, params_o_submit) ...
-                    with game_counter_lock: # Ensure unique game_id for filename
-                        game_id_counter += 1
-                        current_game_id_for_worker = game_id_counter
+                futures_map: Dict[concurrent.futures.Future, Tuple[str, str, int]] = {} # Store game_id with names
+                
+                # Submit initial batch of tasks
+                for _ in range(cli_args.num_parallel * 2): 
+                    if len(player_names) < 2: break
+                    pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                    if pair_choice_result is None: break 
+                    (idx_i, idx_j), orientation = pair_choice_result
+                    p_x_name, p_o_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
+                    params_x_submit = players[p_x_name]
+                    params_o_submit = players[p_o_name]
+                    
+                    game_id_counter += 1
+                    current_game_id_for_worker = game_id_counter
                     
                     future = executor.submit(play_one_game_parallel_worker, 
                                              game_type_for_tournament, 
@@ -712,43 +758,59 @@ def run(display: bool = True) -> None:
                                              p_x_name, p_o_name, 
                                              random.randint(0, 2**32 -1),
                                              cli_args.global_az_simulations,
-                                             cli_args.history_dir, # Pass history_dir
-                                             current_game_id_for_worker # Pass game_id
+                                             cli_args.history_dir, 
+                                             current_game_id_for_worker 
                                              )
-                    futures_map[future] = (p_x_name, p_o_name)
+                    futures_map[future] = (p_x_name, p_o_name, current_game_id_for_worker)
+
+                if not futures_map and len(player_names) >=2 :
+                    print("No suitable initial opponent pairs found for parallel execution. Check rules or player pool.")
 
                 while futures_map: 
-                    done_futures, _ = concurrent.futures.wait(list(futures_map.keys()), timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
+                    done_futures, _ = concurrent.futures.wait(list(futures_map.keys()), timeout=0.2, return_when=concurrent.futures.FIRST_COMPLETED)
+
                     for future in done_futures:
-                        p_x_name_fut, p_o_name_fut = futures_map.pop(future)
+                        p_x_name_fut, p_o_name_fut, processed_game_id = futures_map.pop(future)
                         try:
-                            # Worker now returns: x_name, o_name, result, saved_history_filepath
                             _, _, game_res, saved_hist_path = future.result()
                             _update_elo_and_stats(elo_data, p_x_name_fut, p_o_name_fut, game_res)
-                            # game_count is now managed by game_id_counter for file naming
-                            print(f"Game {p_x_name_fut} vs {p_o_name_fut} (parallel) finished. Result for X: {game_res}. History at: {saved_hist_path}")
-                            if current_game_id_for_worker % cli_args.save_every == 0: # Use current_game_id for periodic save
+                            print(f"Game {processed_game_id} (parallel) finished: {p_x_name_fut} vs {p_o_name_fut} -> Result for X: {game_res}. History at: {saved_hist_path}")
+                            if processed_game_id % cli_args.save_every == 0: 
                                 save_results(elo_data)
                                 print_elo_standings(elo_data)
                         except Exception as exc:
-                            print(f"Game {p_x_name_fut} vs {p_o_name_fut} generated an exception in worker: {exc}")
+                            print(f"Game {p_x_name_fut} vs {p_o_name_fut} (id: {processed_game_id}) generated an exception in worker: {exc}")
                         
-                        # Submit new task
                         try:
                             if len(player_names) >= 2:
-                                # ... (choose pair for next game) ...
-                                with game_counter_lock:
-                                    game_id_counter += 1
-                                    next_game_id = game_id_counter
-                                # ... (submit new future with next_game_id and history_dir) ...
-                                pass # Placeholder for new future submission logic
-                        except RuntimeError as e: # ... (handle shutdown) ...
-                            pass
+                                pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                                if pair_choice_result is None: continue 
+                                (idx_i, idx_j), orientation = pair_choice_result
+                                next_px_name, next_po_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
+                                next_params_x = players[next_px_name]
+                                next_params_o = players[next_po_name]
+                                
+                                game_id_counter += 1
+                                next_game_id_for_worker = game_id_counter
+
+                                new_future = executor.submit(play_one_game_parallel_worker, game_type_for_tournament,
+                                                           next_params_x, next_params_o, next_px_name, next_po_name,
+                                                           random.randint(0, 2**32-1),
+                                                           cli_args.global_az_simulations,
+                                                           cli_args.history_dir,
+                                                           next_game_id_for_worker)
+                                futures_map[new_future] = (next_px_name, next_po_name, next_game_id_for_worker)
+                        except RuntimeError as e: 
+                            if "shutdown" in str(e).lower():
+                                print("Executor shutting down, no more games will be submitted.")
+                                break 
+                            else: raise 
+                    if not futures_map: break # Exit while if map is empty (e.g. all tasks done and no new ones possible)
+
     except KeyboardInterrupt: print("\nTournament interrupted. Saving final results...")
     finally:
         save_results(elo_data)
         print_elo_standings(elo_data)
-        # No replay prompt here anymore, user will use separate viewer
         if pygame and hasattr(pygame, 'quit') and pygame.get_init(): pygame.quit()
         print("Tournament finished. Game histories (if enabled) are in the specified history directory.")
 
