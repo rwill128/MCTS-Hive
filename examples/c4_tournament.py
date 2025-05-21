@@ -112,7 +112,7 @@ else:
 class AlphaZeroC4Player:
     def __init__(self, game_instance: ConnectFour, perspective_player: str, 
                  model_path: str, device: str = "cpu",
-                 mcts_simulations: int = 50, c_puct: float = 1.41, 
+                 mcts_simulations: int = 300, c_puct: float = 1.41,
                  dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.0, # Epsilon 0 for eval
                  nn_channels: int = 128, nn_blocks: int = 10, architecture: str = "new_style"):
         if torch is None: raise ImportError("PyTorch required")
@@ -350,7 +350,7 @@ def play_one_game(
                 perspective_player=role, 
                 model_path=model_path,
                 device=cfg.get("device", "cpu"),
-                mcts_simulations=cfg.get("mcts_simulations") or cfg.get("num_iterations", 100), # Accept old num_iterations
+                mcts_simulations=cfg.get("mcts_simulations") or cfg.get("num_iterations", 300), # Accept old num_iterations
                 c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)), # Accept old c_param
                 dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
                 dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0), # Noise off for eval

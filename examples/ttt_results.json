@@ -28,8 +28,9 @@
     "hybrid_6": 1712.479562408996,
     "hybrid_9": 1719.8586019815168,
     "c1": 1526.8466582138687,
-    "iter200_fcd6": 1744.6197480239803,
-    "ttt_zero_adv": 1743.1055780873096
+    "iter200_fcd6": 1720.0578272847206,
+    "ttt_zero_adv": 1622.6393610765278,
+    "ttt_zero_adv_per": 1645.0281377500412
   },
   "pair_results": {
     "iter1000_vs_perfect": {
@@ -4091,6 +4092,26 @@
       "w": 0,
       "d": 204,
       "l": 54
+    },
+    "ttt_zero_adv_vs_ttt_zero_adv_per": {
+      "w": 0,
+      "d": 75,
+      "l": 0
+    },
+    "ttt_zero_adv_per_vs_ttt_zero_adv": {
+      "w": 0,
+      "d": 63,
+      "l": 11
+    },
+    "ttt_zero_adv_per_vs_iter200_fcd6": {
+      "w": 0,
+      "d": 15,
+      "l": 7
+    },
+    "iter200_fcd6_vs_ttt_zero_adv_per": {
+      "w": 0,
+      "d": 23,
+      "l": 0
     }
   },
   "pair_index": 0,

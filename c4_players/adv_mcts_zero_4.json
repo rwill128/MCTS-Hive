@@ -1,7 +1,7 @@
 {
   "type": "mcts_zero_adv",
   "arch": "new_style",
-  "weights": "c4_checkpoints_az\\c4_chkpt_ep000600.pt",
+  "weights": "c4_checkpoints_az\\c4_chkpt_ep001300.pt",
   "num_iterations": 100,
   "max_depth": 42,
   "c_param": 1.4,
