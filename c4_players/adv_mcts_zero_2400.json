@@ -1,7 +1,0 @@
-{
-  "type": "mcts_zero_adv",
-  "arch": "new_style",
-  "weights": "c4_checkpoints_az\\c4_chkpt_ep002400.pt",
-  "mcts_simulations": 500,
-  "temperature": 0.0
-}
