@@ -1,40 +1,40 @@
 {
   "ratings": {
-    "hybrid_4": 1607.0225428218325,
-    "hybrid_6": 1724.1449063037924,
-    "minimax_6": 1737.718192574736,
-    "minimax_5": 1669.2216831484038,
-    "minimax_4": 1563.9314768531008,
+    "hybrid_4": 1570.9631964733585,
+    "hybrid_6": 1720.0566558744067,
+    "minimax_6": 1727.1719616407495,
+    "minimax_5": 1662.6730346054285,
+    "minimax_4": 1535.7327651028932,
     "adv_mcts_zero_ep004900": 1572.8862124614295,
-    "adv_mcts_zero_ep000900": 1499.8797180080746,
+    "adv_mcts_zero_ep000900": 1509.8631683498227,
     "adv_mcts_zero_ep001700": 1488.36341727655,
     "adv_mcts_zero_ep001900": 1504.4737894469088,
-    "adv_mcts_zero_ep002000": 1492.6454541924845,
+    "adv_mcts_zero_ep002000": 1497.3058277569821,
     "adv_mcts_zero_ep002300": 1505.7591606259218,
     "adv_mcts_zero_ep002500": 1482.5500256828338,
-    "adv_mcts_zero_ep002600": 1574.3719680606637,
+    "adv_mcts_zero_ep002600": 1564.99610291681,
     "adv_mcts_zero_ep002700": 1495.8276693808307,
     "adv_mcts_zero_ep002800": 1506.5562888166853,
     "adv_mcts_zero_ep002900": 1584.5540117135645,
     "adv_mcts_zero_ep003000": 1617.2777666545262,
     "adv_mcts_zero_ep003100": 1534.1129065433831,
     "adv_mcts_zero_ep003200": 1537.5710499887077,
-    "adv_mcts_zero_ep003300": 1506.5208286873028,
-    "adv_mcts_zero_ep003400": 1491.8316543116387,
+    "adv_mcts_zero_ep003300": 1517.3322398597672,
+    "adv_mcts_zero_ep003400": 1501.0452255642542,
     "adv_mcts_zero_ep003500": 1512.9715659451242,
     "adv_mcts_zero_ep003600": 1530.7547834830993,
-    "adv_mcts_zero_ep003700": 1516.0123964684958,
-    "adv_mcts_zero_ep003800": 1485.109675222775,
+    "adv_mcts_zero_ep003700": 1528.5525707436684,
+    "adv_mcts_zero_ep003800": 1494.89410465727,
     "adv_mcts_zero_ep003900": 1573.596892406186,
     "adv_mcts_zero_ep004000": 1566.5014116394543,
-    "adv_mcts_zero_ep004100": 1623.11907159073,
-    "adv_mcts_zero_ep004200": 1491.028016750425,
+    "adv_mcts_zero_ep004100": 1632.572441430166,
+    "adv_mcts_zero_ep004200": 1510.804600299404,
     "adv_mcts_zero_ep004300": 1543.356316944772,
     "adv_mcts_zero_ep004400": 1547.0833867543402,
     "adv_mcts_zero_ep004500": 1609.164761969998,
     "adv_mcts_zero_ep004600": 1621.118289647653,
     "adv_mcts_zero_ep004700": 1625.6369201315815,
-    "adv_mcts_zero_ep004800": 1570.6155636570227,
+    "adv_mcts_zero_ep004800": 1579.2092533764971,
     "adv_mcts_zero_last": 1484.3702954195549
   },
   "pair_results": {
@@ -10621,7 +10621,7 @@
     "minimax_6_vs_adv_mcts_zero_ep003700": {
       "w": 1,
       "d": 0,
-      "l": 0
+      "l": 1
     },
     "adv_mcts_zero_ep003200_vs_minimax_4": {
       "w": 0,
@@ -10646,6 +10646,76 @@
     "adv_mcts_zero_ep003800_vs_hybrid_6": {
       "w": 0,
       "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep004200_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep004100_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep003300_vs_minimax_5": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep003300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep003800_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_ep004200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep004800_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep003300_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep003400_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep004100_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_ep002600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep002600": {
+      "w": 1,
+      "d": 0,
       "l": 0
     }
   },
