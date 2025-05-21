@@ -574,93 +574,63 @@ def run(parsed_cli_args=None) -> None:
                 _debug_flag = True # Ensure block starts with an assignment
                 print(f"\n--- [DEBUG] Epoch {ep} START (Connect Four) ---")
             
-            # Determine games_this_iteration
-            # This complex line sets games_this_iteration based on whether it's bootstrap or regular epoch game generation
-            # Simplified for checking the parallel logic trigger:
-            games_this_iteration = args_global.games_per_epoch
-            if args_global.debug_single_loop: games_this_iteration = 1
-            # A more complete bootstrap condition would be here, for now, focus on games_per_epoch
-            # Example of a bootstrap condition (needs min_fill_for_bootstrap to be defined):
-            # if ep == (start_ep if 'start_ep' in locals() else 1) and not args_global.skip_bootstrap and len(buf) < min_fill_for_bootstrap:
-            #    games_this_iteration = args_global.bootstrap_games
-            
-            if games_this_iteration > 0:
-                print(f"[LEARNER Epoch {ep}] Attempting to generate {games_this_iteration} game(s). num_parallel_selfplay = {args_global.num_parallel_selfplay}") # DEBUG PRINT
-                learning_net.eval()
-
-                if args_global.num_parallel_selfplay > 1:
-                    print(f"[LEARNER Epoch {ep}] Entering PARALLEL game generation block.") # DEBUG PRINT
-                    if ep == (start_ep if 'start_ep' in locals() else 1) and not args_global.debug_single_loop:
-                        print(f"Generating {games_this_iteration} games in parallel using {args_global.num_parallel_selfplay} workers...")
-                    # Reimplement parallel self-play logic
-                    temp_weights_path = ckdir / f"temp_weights_ep{ep:06d}.pt"
-                    torch.save({'net': learning_net.state_dict()}, temp_weights_path)
-                    exp_dir = ckdir / "selfplay_exp"
-                    exp_dir.mkdir(exist_ok=True)
-                    with concurrent.futures.ProcessPoolExecutor(max_workers=args_global.num_parallel_selfplay) as executor:
-                        futures = []
-                        for worker_id in range(args_global.num_parallel_selfplay):
-                            seed = random.randint(0, 2**32 -1)
-                            mcts_cfg = {
-                                "c_puct": args_global.c_puct,
-                                "dirichlet_alpha": args_global.dirichlet_alpha,
-                                "dirichlet_epsilon": args_global.dirichlet_epsilon,
-                                "mcts_simulations_learning": args_global.mcts_simulations,
-                                "mcts_simulations_opponent": args_global.mcts_simulations_opponent
-                            }
-                            nn_cfg = {"channels": args_global.channels, "blocks": args_global.blocks}
-                            futures.append(executor.submit(
-                                self_play_actor_worker,
-                                worker_id,
-                                str(temp_weights_path),
-                                "ConnectFour",
-                                nn_cfg,
-                                mcts_cfg,
-                                {"type": "self"},
-                                str(exp_dir),
-                                temp_schedule,
-                                args_global.max_game_moves,
-                                dev,
-                                seed,
-                                args_global.debug_single_loop
-                            ))
-                        for fut in futures:
-                            saved_fp, num_exp, wid = fut.result()
-                            if saved_fp:
-                                try:
-                                    with open(saved_fp, 'rb') as f_exp:
-                                        exps = pickle.load(f_exp)
-                                    if isinstance(buf, PrioritizedReplayBuffer):
-                                        for exp in exps: buf.add(exp)
-                                    else:
-                                        buf.extend(exps)
-                                except Exception as e:
-                                    print(f"Error loading experiences from {saved_fp}: {e}")
-                                finally:
-                                    try: os.remove(saved_fp)
-                                    except: pass
-                else: # Sequential self-play (num_parallel_selfplay is 0 or 1)
-                    print(f"[LEARNER Epoch {ep}] Entering SEQUENTIAL game generation block.") # DEBUG PRINT
-                    if not args_global.debug_single_loop:
-                        print(f"Generating {games_this_iteration} games sequentially...")
-                    # Reimplement sequential self-play logic
-                    for g in range(games_this_iteration):
-                        game_hist = play_one_game(
-                            learning_net, game_adapter, learning_mcts_instance,
-                            "self", None, None,
-                            temp_schedule,
-                            args_global.mcts_simulations,
-                            args_global.mcts_simulations_opponent,
-                            max_moves=args_global.max_game_moves,
-                            debug_mode=args_global.debug_single_loop
-                        )
-                        if isinstance(buf, PrioritizedReplayBuffer):
-                            for exp in game_hist: buf.add(exp)
-                        else:
-                            buf.extend(game_hist)
-            
-                learning_net.train()
-            # ... (Training Phase logic as before) ...
+            # Training Phase: sample experiences and update network
+            # Determine minimum buffer fill to start training
+            current_min_train_fill = (args_global.min_buffer_fill_for_per_training
+                                      if isinstance(buf, PrioritizedReplayBuffer)
+                                      else args_global.min_buffer_fill_standard)
+            if args_global.debug_single_loop:
+                current_min_train_fill = 1
+            # If buffer not ready, skip training and step scheduler
+            if len(buf) < current_min_train_fill:
+                if ep % args_global.log_every == 0:
+                    print(f"Epoch {ep} | Buffer {len(buf)} < min {current_min_train_fill}. Skipping training. LR {opt.param_groups[0]['lr']:.2e}")
+                if scheduler: scheduler.step()
+            else:
+                # Sample a batch
+                actual_batch_size = min(args_global.batch_size, len(buf))
+                if isinstance(buf, PrioritizedReplayBuffer):
+                    sampled = buf.sample(actual_batch_size)
+                    if sampled is None:
+                        if ep % args_global.log_every == 0:
+                            print(f"Epoch {ep} | PER sample failed. Skip train. LR {opt.param_groups[0]['lr']:.2e}")
+                        if scheduler: scheduler.step()
+                        continue
+                    batch_experiences, is_weights, data_indices = sampled
+                    if args_global.debug_single_loop:
+                        print(f"[run DEBUG C4] PER Sampled {len(batch_experiences)} exps. Indices: {data_indices[:4]}, ISW: {is_weights[:4]}")
+                else:
+                    batch_experiences = random.sample(list(buf), actual_batch_size)
+                    is_weights = np.ones(len(batch_experiences), dtype=np.float32)
+                    if args_global.debug_single_loop:
+                        print(f"[run DEBUG C4] Deque Sampled {len(batch_experiences)} exps.")
+                # Perform training step
+                loss, td_errors = train_step(
+                    learning_net, batch_experiences, is_weights,
+                    opt, dev, game_adapter,
+                    args_global.augment_prob, args_global.ent_beta,
+                    debug_mode=args_global.debug_single_loop
+                )
+                # Update PER priorities and anneal beta
+                if isinstance(buf, PrioritizedReplayBuffer):
+                    buf.update_priorities(data_indices, td_errors)
+                    buf.advance_epoch_for_beta_anneal()
+                # Logging
+                if ep % args_global.log_every == 0:
+                    print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}")
+                # Scheduler step
+                if scheduler: scheduler.step()
+                # Periodic checkpoint and buffer save
+                if ep % args_global.ckpt_every == 0 and not args_global.debug_single_loop:
+                    ckpt_path = ckdir / f"c4_chkpt_ep{ep:06d}.pt"
+                    torch.save(learning_net.state_dict(), ckpt_path)
+                    full_state = {"net": learning_net.state_dict(), "opt": opt.state_dict(), "epoch": ep,
+                                  "scheduler": scheduler.state_dict() if scheduler else None}
+                    torch.save(full_state, state_path)
+                    print(f"Saved checkpoint: {ckpt_path} and state: {state_path}")
+                if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop:
+                    save_buffer_experiences(buf, buffer_file_path)
+                    print(f"Saved replay buffer at epoch {ep}")
 
     except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
