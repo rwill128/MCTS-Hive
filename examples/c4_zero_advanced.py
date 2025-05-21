@@ -19,6 +19,8 @@ import random
 from collections import deque
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
+import concurrent.futures
+import os
 
 try:
     import numpy as np
@@ -640,6 +642,8 @@ def parser() -> argparse.ArgumentParser:
     g_play.add_argument("--mcts-simulations-opponent", type=int, default=50, help="MCTS simulations for past self opponent.")
     g_play.add_argument("--c-puct-opponent", type=float, default=1.41, help="PUCT for past self opponent MCTS.")
     g_play.add_argument("--max-game-moves", type=int, default=BOARD_H * BOARD_W + 10, help="Max moves per game.") # Added
+    g_play.add_argument("--num-parallel-selfplay", type=int, default=1, help="Number of parallel game generation workers (1 for sequential).")
+    g_play.add_argument("--games-per-epoch", type=int, default=1, help="Number of self-play games to generate per epoch/training step.")
 
     g_train = p.add_argument_group("Training (Connect Four)")
     g_train.add_argument("--epochs", type=int, default=10000, help="Total training epochs.")
@@ -676,6 +680,128 @@ def parser() -> argparse.ArgumentParser:
     g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state.")
     
     return p
+
+# --- Worker function for parallel self-play data generation (was play_one_game) ---
+def play_one_game_for_buffer_worker(
+    worker_id: int, 
+    current_learning_net_state_dict_path: str, 
+    game_adapter_game_class_name: str, 
+    mcts_config_learning: Dict, 
+    opponent_type: str, 
+    opponent_checkpoint_path_str: str | None,
+    opponent_mcts_config: Dict, 
+    temp_schedule_list: List[Tuple[int, float]],
+    mcts_sims_learning: int,
+    mcts_sims_opponent: int,
+    max_game_moves: int,
+    nn_ch: int, nn_bl: int,
+    worker_dev_str: str,
+    seed: int,
+    debug_mode: bool = False 
+) -> List[Tuple[dict, np.ndarray, int]]:
+
+    if debug_mode: print(f"[WORKER {worker_id}] Init. Opponent: {opponent_type}, Seed: {seed}")
+    
+    torch.manual_seed(seed + worker_id); np.random.seed(seed + worker_id); random.seed(seed + worker_id)
+    worker_device = torch.device(worker_dev_str)
+
+    if game_adapter_game_class_name == "ConnectFour":
+        game_instance_worker = ConnectFour()
+        game_adapter_worker = ConnectFourAdapter(game_instance_worker)
+    else:
+        raise ValueError(f"Unsupported game type in worker: {game_adapter_game_class_name}")
+
+    learning_net_worker = AdvancedC4ZeroNet(ch=nn_ch, blocks=nn_bl).to(worker_device)
+    try:
+        state_dict_data = torch.load(current_learning_net_state_dict_path, map_location=worker_device)
+        if "net" in state_dict_data and isinstance(state_dict_data["net"], dict):
+             learning_net_worker.load_state_dict(state_dict_data["net"])
+        elif isinstance(state_dict_data, dict):
+             learning_net_worker.load_state_dict(state_dict_data)
+        else: raise ValueError("Cannot load learning_net_worker state_dict format")
+    except Exception as e:
+        print(f"[WORKER {worker_id}] CRITICAL ERROR loading learning_net from {current_learning_net_state_dict_path}: {e}"); return []
+    learning_net_worker.eval()
+
+    def ln_mcts_model_fn(batch): 
+        with torch.no_grad(): lgs,v = learning_net_worker(batch); return lgs, v.unsqueeze(-1)
+    learning_mcts_worker = AlphaZeroMCTS(game_adapter_worker, ln_mcts_model_fn, worker_device, 
+                                   mcts_config_learning["c_puct"], mcts_config_learning["dirichlet_alpha"], 
+                                   mcts_config_learning["dirichlet_epsilon"])
+
+    opponent_net_instance_worker = None; opponent_mcts_instance_worker = None
+    if opponent_type == "past_checkpoint" and opponent_checkpoint_path_str:
+        opponent_net_instance_worker = AdvancedC4ZeroNet(ch=nn_ch, blocks=nn_bl).to(worker_device)
+        try:
+            opp_ckpt_data = torch.load(opponent_checkpoint_path_str, map_location=worker_device)
+            if "net" in opp_ckpt_data and isinstance(opp_ckpt_data["net"], dict): opponent_net_instance_worker.load_state_dict(opp_ckpt_data["net"])
+            elif isinstance(opp_ckpt_data, dict): opponent_net_instance_worker.load_state_dict(opp_ckpt_data)
+            else: raise ValueError("Opponent checkpoint format not recognized.")
+            opponent_net_instance_worker.eval()
+            def opp_mcts_model_fn(batch): 
+                with torch.no_grad(): lgs,v = opponent_net_instance_worker(batch); return lgs, v.unsqueeze(-1)
+            opponent_mcts_instance_worker = AlphaZeroMCTS(game_adapter_worker, opp_mcts_model_fn, worker_device,
+                                                      opponent_mcts_config["c_puct_opponent"], 0, 0)
+        except Exception as e:
+            if debug_mode: print(f"[WORKER {worker_id}] Error loading opponent {opponent_checkpoint_path_str}: {e}. Defaulting to self-play.")
+            opponent_type = "self"; opponent_net_instance_worker = None; opponent_mcts_instance_worker = None
+    
+    # --- Core game playing logic (from original play_one_game) ---
+    st = game_adapter_worker.c4_game.getInitialState()
+    hist: List[Tuple[dict, np.ndarray, int]] = []
+    move_no = 0
+    current_temp = 1.0
+    learning_agent_char = "X"; opponent_char = "O" # Learning agent is X for data collection consistency
+
+    while not game_adapter_worker.isTerminal(st) and move_no < max_game_moves:
+        current_player = game_adapter_worker.getCurrentPlayer(st)
+        is_learning_turn = (current_player == learning_agent_char)
+
+        for th_moves, t_val in temp_schedule_list: 
+            if move_no < th_moves: current_temp = t_val; break
+        
+        active_mcts = learning_mcts_worker if is_learning_turn else opponent_mcts_instance_worker
+        active_sims = mcts_sims_learning if is_learning_turn else mcts_sims_opponent
+
+        if opponent_type == "self" and not is_learning_turn:
+            active_mcts = learning_mcts_worker # Opponent uses the current learning agent's MCTS/Net
+        
+        if active_mcts is None: # Fallback if opponent setup failed
+            if debug_mode: print(f"[WORKER {worker_id}] MCTS for {current_player} is None, using learning_mcts as fallback.")
+            active_mcts = learning_mcts_worker
+        
+        legal_actions = game_adapter_worker.getLegalActions(st)
+        if not legal_actions:
+            if debug_mode: print(f"[WORKER {worker_id}] No legal actions for {current_player}. Move {move_no}.")
+            break
+
+        chosen_action, policy_d = active_mcts.get_action_policy(st, active_sims, current_temp, debug_mcts=False)
+        
+        policy_vec = np.zeros(game_adapter_worker.get_action_size(), dtype=np.float32)
+        if policy_d: 
+            for act_idx, prob in policy_d.items(): policy_vec[act_idx] = prob
+        s = policy_vec.sum()
+        if abs(s - 1.0) > 1e-5 and s > 1e-5: policy_vec /= s
+        elif s < 1e-5 and legal_actions: # Fallback for empty/zero policy from MCTS
+            for la in legal_actions: policy_vec[la] = 1.0 / len(legal_actions)
+
+        if is_learning_turn: # Store data only from learning agent's perspective
+            hist.append((game_adapter_worker.copyState(st), policy_vec, 0))
+        
+        st = game_adapter_worker.applyAction(st, chosen_action)
+        move_no += 1
+
+    winner = game_adapter_worker.getGameOutcome(st)
+    if move_no >= max_game_moves and winner is None: winner = "Draw"
+    
+    z_learn = 0
+    if winner == learning_agent_char: z_learn = 1
+    elif winner == opponent_char: z_learn = -1
+    
+    final_hist = []
+    for r_st, r_pol, _ in hist: final_hist.append((r_st, r_pol, z_learn))
+    if debug_mode: print(f"[WORKER {worker_id}] Game ended. Winner: {winner}. Hist items: {len(final_hist)}")
+    return final_hist
 
 if __name__ == "__main__":
     run()
