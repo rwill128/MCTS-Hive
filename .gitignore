@@ -1,0 +1,8 @@
+/examples/c4_checkpoints/
+/examples/c4_checkpoints_az/
+/examples/hive_checkpoints_az/
+/examples/ttt_checkpoints_az/
+/examples/c4_adv_buffer.pth
+/examples/c4_adv_mcts_buffer.pth
+/examples/hive_adv_mcts_buffer.pth
+/examples/ttt_adv_mcts_buffer.pth
