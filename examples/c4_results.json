@@ -1,15 +1,17 @@
 {
   "ratings": {
-    "search_4": 1441.0142719204168,
-    "search_6": 1447.4660705533731,
-    "hybrid_4": 1737.9027456960657,
-    "hybrid_6": 1751.682568022392,
-    "minimax_6": 1712.2873425382668,
-    "minimax_5": 1701.996108259066,
-    "adv_mcts_zero_2100": 1555.6034640594978,
-    "minimax_4": 1560.8406902183094,
-    "adv_mcts_zero_2200": 1515.6714981527198,
-    "adv_mcts_zero_2000": 1499.9690385499168
+    "search_4": 1402.0925679913598,
+    "search_6": 1411.6933518390376,
+    "hybrid_4": 1728.458651623261,
+    "hybrid_6": 1763.8439660318372,
+    "minimax_6": 1713.8959248527171,
+    "minimax_5": 1654.651190159089,
+    "adv_mcts_zero_2100": 1568.6909641887453,
+    "minimax_4": 1604.434118723343,
+    "adv_mcts_zero_2200": 1529.4846885517368,
+    "adv_mcts_zero_2000": 1525.3044134795884,
+    "adv_mcts_zero_2300": 1504.808585050927,
+    "adv_mcts_zero_2400": 1517.075375478382
   },
   "pair_results": {
     "iter50_vs_iter600": {
@@ -663,7 +665,7 @@
       "l": 5
     },
     "hybrid_6_vs_hybrid_4": {
-      "w": 31,
+      "w": 32,
       "d": 0,
       "l": 18
     },
@@ -770,7 +772,7 @@
     "search_4_vs_hybrid_6": {
       "w": 10,
       "d": 1,
-      "l": 6
+      "l": 7
     },
     "minimax_vs_hybrid_4": {
       "w": 17,
@@ -784,7 +786,7 @@
     },
     "hybrid_4_vs_search_4": {
       "w": 8,
-      "d": 0,
+      "d": 1,
       "l": 14
     },
     "check2_vs_minimax": {
@@ -815,7 +817,7 @@
     "search_4_vs_hybrid_4": {
       "w": 16,
       "d": 0,
-      "l": 7
+      "l": 8
     },
     "minimax_vs_iter800": {
       "w": 20,
@@ -870,7 +872,7 @@
     "search_6_vs_hybrid_6": {
       "w": 11,
       "d": 2,
-      "l": 4
+      "l": 5
     },
     "c1_vs_search_4": {
       "w": 1,
@@ -1833,7 +1835,7 @@
       "l": 8
     },
     "minimax_6_vs_search_6": {
-      "w": 5,
+      "w": 6,
       "d": 0,
       "l": 0
     },
@@ -3113,7 +3115,7 @@
       "l": 0
     },
     "hybrid_6_vs_adv_mcts_zero_2000": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
@@ -3545,10 +3547,10 @@
     "search_6_vs_adv_mcts_zero_2000": {
       "w": 0,
       "d": 0,
-      "l": 3
+      "l": 4
     },
     "minimax_6_vs_adv_mcts_zero_2000": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
@@ -3705,7 +3707,7 @@
     "search_6_vs_minimax_5": {
       "w": 0,
       "d": 0,
-      "l": 3
+      "l": 4
     },
     "iter20_vs_minimax_5": {
       "w": 0,
@@ -4300,7 +4302,7 @@
     "search_4_vs_minimax_5": {
       "w": 0,
       "d": 0,
-      "l": 3
+      "l": 4
     },
     "adv_mcts_zero_1300_vs_adv_mcts_zero_2000": {
       "w": 0,
@@ -4345,7 +4347,7 @@
     "minimax_5_vs_hybrid_4": {
       "w": 0,
       "d": 0,
-      "l": 4
+      "l": 5
     },
     "check2_vs_adv_mcts_zero_1500": {
       "w": 0,
@@ -4588,7 +4590,7 @@
       "l": 0
     },
     "adv_mcts_zero_2000_vs_minimax_5": {
-      "w": 0,
+      "w": 2,
       "d": 0,
       "l": 3
     },
@@ -4625,7 +4627,7 @@
     "minimax_5_vs_minimax_6": {
       "w": 2,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "search_6_vs_adv_mcts_zero_1600": {
       "w": 0,
@@ -4785,7 +4787,7 @@
     "minimax_5_vs_adv_mcts_zero_2100": {
       "w": 2,
       "d": 0,
-      "l": 0
+      "l": 1
     },
     "adv_mcts_zero_2000_vs_adv_mcts_zero_1100": {
       "w": 1,
@@ -4853,7 +4855,7 @@
       "l": 0
     },
     "hybrid_4_vs_adv_mcts_zero_2100": {
-      "w": 2,
+      "w": 3,
       "d": 0,
       "l": 0
     },
@@ -4888,7 +4890,7 @@
       "l": 1
     },
     "minimax_4_vs_search_6": {
-      "w": 1,
+      "w": 3,
       "d": 0,
       "l": 0
     },
@@ -4920,10 +4922,10 @@
     "search_4_vs_adv_mcts_zero_2100": {
       "w": 0,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "adv_mcts_zero_2100_vs_minimax_5": {
-      "w": 0,
+      "w": 1,
       "d": 0,
       "l": 2
     },
@@ -4955,7 +4957,7 @@
     "minimax_5_vs_minimax_4": {
       "w": 0,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "adv_mcts_zero_2100_vs_minimax_4": {
       "w": 1,
@@ -4963,12 +4965,12 @@
       "l": 1
     },
     "minimax_4_vs_adv_mcts_zero_2000": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_2200_vs_search_6": {
-      "w": 2,
+      "w": 3,
       "d": 0,
       "l": 0
     },
@@ -4978,7 +4980,7 @@
       "l": 0
     },
     "minimax_4_vs_search_4": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
@@ -5005,7 +5007,7 @@
     "search_6_vs_adv_mcts_zero_2200": {
       "w": 0,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "search_4_vs_minimax_4": {
       "w": 0,
@@ -5036,6 +5038,101 @@
       "w": 2,
       "d": 0,
       "l": 0
+    },
+    "adv_mcts_zero_2000_vs_minimax_4": {
+      "w": 2,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_2200_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "search_4_vs_adv_mcts_zero_2300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_2400_vs_minimax_6": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2000_vs_adv_mcts_zero_2300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "search_4_vs_adv_mcts_zero_2400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_5_vs_adv_mcts_zero_2400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_2200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2300_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2400_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "search_4_vs_adv_mcts_zero_2000": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_2200": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_2300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2100_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "adv_mcts_zero_2000_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_2300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2200_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2400_vs_hybrid_6": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_2300_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
     }
   },
   "pair_index": 0,

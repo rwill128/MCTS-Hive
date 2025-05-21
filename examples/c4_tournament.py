@@ -285,44 +285,55 @@ def game_counts(data: dict, names: List[str]) -> Dict[str, int]:
     return counts
 
 
-def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
-    """Chooses a pair of players to play, selecting uniformly at random from all possible unique pairs."""
+def choose_pair(names: List[str], players_configs: Dict[str, Dict], data: dict, az_vs_others_only: bool) -> Tuple[Tuple[int, int], int] | None:
+    """Chooses a pair of players to play. 
+    If az_vs_others_only is True, ensures AlphaZero players don't play each other.
+    """
     num_players = len(names)
     if num_players < 2:
-        raise ValueError("Need at least two players to choose a pair.")
+        # raise ValueError("Need at least two players to choose a pair.")
+        print("Warning: Less than two players available, cannot choose a pair.")
+        return None # Return None if no pair can be chosen
 
-    # Generate all unique pairs (i, j) where i < j
     possible_pairs = []
     for i in range(num_players):
         for j in range(i + 1, num_players):
+            player_i_name = names[i]
+            player_j_name = names[j]
+            
+            player_i_type = players_configs.get(player_i_name, {}).get("type", "mcts")
+            player_j_type = players_configs.get(player_j_name, {}).get("type", "mcts")
+            
+            # Define what constitutes an "AlphaZero" type for this rule
+            az_types = {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}
+
+            is_player_i_az = player_i_type in az_types
+            is_player_j_az = player_j_type in az_types
+
+            if az_vs_others_only and is_player_i_az and is_player_j_az:
+                continue # Skip AZ vs AZ if flag is set
+            
             possible_pairs.append((i, j))
     
     if not possible_pairs:
-        # Should not happen if num_players >= 2
-        raise ValueError("Could not form any pairs.")
+        # This can happen if all remaining players are AZ and az_vs_others_only is True
+        print("Warning: No valid pairs found based on current matchmaking rules (e.g., az_vs_others_only).")
+        return None # Return None if no pair can be chosen
 
-    # Choose a pair uniformly at random
     i, j = random.choice(possible_pairs)
 
-    # Determine orientation (who plays X, who plays O)
-    # This part can remain, aiming for roughly equal games as X and O for each pair
     key_ab = f"{names[i]}_vs_{names[j]}"
     key_ba = f"{names[j]}_vs_{names[i]}"
-    # Need to access pair_results safely
     pair_results = data.get("pair_results", {})
     record_ab = pair_results.get(key_ab, {})
     record_ba = pair_results.get(key_ba, {})
-
     count_ab = sum(record_ab.values())
     count_ba = sum(record_ba.values())
 
-    if count_ab < count_ba:
-        orientation = 0  # names[i] is X, names[j] is O
-    elif count_ba < count_ab:
-        orientation = 1  # names[j] is X, names[i] is O
-    else:
-        orientation = random.randint(0, 1) # Random if counts are equal
-
+    orientation = random.randint(0, 1)
+    if count_ab < count_ba: orientation = 0
+    elif count_ba < count_ab: orientation = 1
+    
     return (i, j), orientation
 
 
@@ -335,25 +346,36 @@ def play_one_game_sequential_version(
     screen=None,
     display_moves: bool = False
 ) -> int:
-    # ... (Full content of the original play_one_game function here) ...
-    # Make sure its make_player helper is also within or accessible
     random.seed(seed)
-    # --- make_player definition (as it was, now local to sequential or passed) ---
+    # make_player is defined inside play_one_game_sequential_version and play_one_game_parallel_worker
+    # We need to modify it in both places, or extract it to be a common helper if signatures align.
+    # For now, let's modify it where it's used. This applies to the sequential version first.
+
     def make_player(cfg, role, game_instance):
         player_type = cfg.get("type", "mcts") 
+        # Access cli_args, assuming it's global or passed appropriately. 
+        # It's made global in if __name__ == "__main__"
+        global_sim_override = cli_args.global_az_simulations if hasattr(cli_args, 'global_az_simulations') else -1
+
         if player_type == "human":
             raise NotImplementedError("Human player for C4 tournament not implemented yet.")
         elif player_type in {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}:
-            model_path = cfg.get("model_path") or cfg.get("weights") 
-            if not model_path:
-                raise ValueError(f"Player type {player_type} config must specify 'model_path' or 'weights'.")
-            architecture = cfg.get("architecture", "new_style") 
-            if cfg.get("arch") == "advanced" and architecture == "new_style": 
-                architecture = "old_sequential"
+            model_path = cfg.get("model_path") or cfg.get("weights")
+            if not model_path: raise ValueError(f"Player type {player_type} config for {cfg.get('name', role)} must specify 'model_path' or 'weights'.")
+            architecture = cfg.get("architecture", "new_style")
+            if cfg.get("arch") == "advanced" and architecture == "new_style": architecture = "old_sequential"
+            
+            current_mcts_sims = cfg.get("mcts_simulations") or cfg.get("num_iterations", 100)
+            if global_sim_override > 0:
+                mcts_sims_to_use = global_sim_override
+                # print(f"DEBUG: Overriding sims for {cfg.get('name',role)} from {current_mcts_sims} to {mcts_sims_to_use}") # Optional debug
+            else:
+                mcts_sims_to_use = current_mcts_sims
+
             return AlphaZeroC4Player(
                 game_instance=game_instance, perspective_player=role, model_path=model_path,
                 device=cfg.get("device", "cpu"),
-                mcts_simulations=cfg.get("mcts_simulations") or cfg.get("num_iterations", 100),
+                mcts_simulations=mcts_sims_to_use, # Use the determined sim count
                 c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)),
                 dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
                 dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0),
@@ -366,12 +388,11 @@ def play_one_game_sequential_version(
             return MinimaxConnectFourPlayer(game_instance, perspective_player=role, depth=depth)
         else: 
             known_az_keys = {'type', 'model_path', 'weights', 'architecture', 'arch', 'device', 
-                             'nn_channels', 'nn_blocks', 'mcts_simulations', 'dirichlet_alpha', 
-                             'dirichlet_epsilon', 'c_puct', 'temperature'}
+                             'nn_channels', 'nn_blocks', 'mcts_simulations', 'num_iterations', # also num_iterations
+                             'dirichlet_alpha', 'dirichlet_epsilon', 'c_puct', 'c_param', 'temperature'} # also c_param
             mcts_params = {k: v for k, v in cfg.items() if k not in known_az_keys}
             return MCTS(game=game_instance, perspective_player=role, **mcts_params)
-    # --- End make_player logic ---
-
+    # ... (rest of play_one_game_sequential_version) ...
     player_x = make_player(params_x, "X", game)
     player_o = make_player(params_o, "O", game)
     state = game.getInitialState()
@@ -410,7 +431,7 @@ def play_one_game_sequential_version(
     outcome = game.getGameOutcome(state)
     if outcome == "X": return 1
     if outcome == "O": return -1
-    return 0 # Draw
+    return 0 # Placeholder for actual game result
 
 # Global list to store game histories from parallel runs
 completed_parallel_games: List[Dict[str, Any]] = []
@@ -418,7 +439,8 @@ completed_parallel_games: List[Dict[str, Any]] = []
 # Worker function for parallel execution
 def play_one_game_parallel_worker(game_type_str: str, params_x_dict: Dict, params_o_dict: Dict, 
                                   player_x_name: str, player_o_name: str, 
-                                  seed: int) -> Tuple[str, str, int, List[Dict], Dict, Dict]: # Added List[Dict] for history
+                                  seed: int, global_az_sims_override: int # Pass the override to worker
+                                  ) -> Tuple[str, str, int, List[Dict], Dict, Dict]: 
     """Plays one game in a separate process. Player objects are created here. Returns history."""
     # print(f"WORKER {os.getpid()}: Starting game {player_x_name} vs {player_o_name} with seed {seed}")
     
@@ -431,28 +453,23 @@ def play_one_game_parallel_worker(game_type_str: str, params_x_dict: Dict, param
     # This local make_player will shadow the global one if play_one_game_sequential_version is also in this file
     def make_player_local(cfg: Dict, role: str, game_inst: ConnectFour):
         player_type = cfg.get("type", "mcts")
+        # No direct access to cli_args here, so global_az_sims_override is passed in
+
         if player_type == "human":
             raise NotImplementedError("Human player cannot be used in parallel tournament.")
         elif player_type in {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}:
             model_path = cfg.get("model_path") or cfg.get("weights")
-            if not model_path:
-                raise ValueError(f"Player type {player_type} (role {role}, name {cfg.get('name', 'Unknown')}) config must specify 'model_path' or 'weights'.")
-            
+            if not model_path: raise ValueError(f"Player type {player_type} (role {role}, name {cfg.get('name', 'Unknown')}) specifies no model path.")
             architecture = cfg.get("architecture", "new_style")
-            if cfg.get("arch") == "advanced" and architecture == "new_style":
-                architecture = "old_sequential"
+            if cfg.get("arch") == "advanced" and architecture == "new_style": architecture = "old_sequential"
             
-            worker_device = cfg.get("device", "cpu") # Default to CPU for worker safety
-            # print(f"WORKER {os.getpid()}: Player {role} ({player_type}) using device {worker_device} for model {model_path}")
+            current_mcts_sims = cfg.get("mcts_simulations") or cfg.get("num_iterations", 100)
+            mcts_sims_to_use = global_az_sims_override if global_az_sims_override > 0 else current_mcts_sims
 
-            # Ensure necessary torch components are available if not globally imported in worker context
-            # This can happen with some multiprocessing start methods.
-            # For safety, can re-import locally if issues arise, but usually inherited.
-            
-            return AlphaZeroC4Player( # This refers to the AlphaZeroC4Player class defined in this file
+            return AlphaZeroC4Player(
                 game_instance=game_inst, perspective_player=role, model_path=model_path,
-                device=worker_device, 
-                mcts_simulations=cfg.get("mcts_simulations") or cfg.get("num_iterations", 100),
+                device=cfg.get("device", "cpu"), 
+                mcts_simulations=mcts_sims_to_use,
                 c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)),
                 dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
                 dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0),
@@ -465,10 +482,9 @@ def play_one_game_parallel_worker(game_type_str: str, params_x_dict: Dict, param
             return MinimaxConnectFourPlayer(game_inst, perspective_player=role, depth=depth)
         else: 
             known_az_keys = {'type', 'model_path', 'weights', 'architecture', 'arch', 'device', 
-                             'nn_channels', 'nn_blocks', 'mcts_simulations', 'dirichlet_alpha', 
-                             'dirichlet_epsilon', 'c_puct', 'temperature'}
+                             'nn_channels', 'nn_blocks', 'mcts_simulations', 'num_iterations', 
+                             'dirichlet_alpha', 'dirichlet_epsilon', 'c_puct', 'c_param', 'temperature'}
             mcts_params = {k: v for k, v in cfg.items() if k not in known_az_keys}
-            # print(f"WORKER {os.getpid()}: Player {role} using old MCTS with params {mcts_params}")
             return MCTS(game=game_inst, perspective_player=role, **mcts_params)
 
     random.seed(seed)
@@ -602,6 +618,83 @@ def replay_game_visual(game_info: Dict[str, Any], game_rows: int, game_cols: int
     if pygame.get_init(): # Check if pygame was initialized by this function
         pygame.quit()
 
+def generate_player_configs_from_checkpoints(source_checkpoint_dir: Path, target_player_json_dir: Path):
+    """Scans a directory for .pt model checkpoints and generates player JSON configs."""
+    if not source_checkpoint_dir.is_dir():
+        print(f"Error: Checkpoint directory not found: {source_checkpoint_dir}")
+        return
+
+    target_player_json_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Scanning for checkpoints in: {source_checkpoint_dir}")
+    print(f"Will generate player JSONs in: {target_player_json_dir}")
+
+    checkpoints_found = list(source_checkpoint_dir.glob("c4_chkpt_ep*.pt"))
+    checkpoints_found += list(source_checkpoint_dir.glob("last_c4_model.pt")) # Also include last model
+
+    if not checkpoints_found:
+        print(f"No .pt checkpoints found in {source_checkpoint_dir} matching expected patterns.")
+        return
+
+    generated_count = 0
+    for ckpt_path in checkpoints_found:
+        # Construct player name from checkpoint filename
+        # e.g., c4_chkpt_ep002000.pt -> adv_mcts_zero_ep2000
+        #       last_c4_model.pt -> adv_mcts_zero_last
+        base_name = ckpt_path.stem
+        if "_ep" in base_name:
+            try:
+                epoch_num = int(base_name.split("_ep")[-1])
+                player_name = f"adv_mcts_zero_ep{epoch_num:06d}"
+            except ValueError:
+                player_name = f"adv_mcts_zero_{base_name.replace('c4_chkpt_','')}" # Fallback naming
+        elif base_name == "last_c4_model":
+            player_name = "adv_mcts_zero_last"
+        else:
+            player_name = f"adv_mcts_zero_{base_name}"
+
+        # Construct relative path for JSON if possible, or absolute
+        # For robustness, using absolute path might be safer if tournament is run from different CWD
+        # However, player JSONs often use paths relative to project structure.
+        # Let's try to make it relative to the parent of target_player_json_dir if source_checkpoint_dir is a sub-dir
+        # For simplicity now, let's use a path that's relative to where the JSONs are expected to be read from
+        # Assuming c4_players and examples/c4_checkpoints_az are siblings under MCTS-Hive/
+        # The target_player_json_dir is ../c4_players relative to examples/ dir
+        # The source_checkpoint_dir is examples/c4_checkpoints_az
+        # So, weights path in JSON should be like "../examples/c4_checkpoints_az/filename.pt"
+        try:
+            # Path(ckpt_path).resolve() gives absolute
+            # Path.cwd() is current working directory
+            # target_player_json_dir.resolve().parent is the MCTS-Hive directory if PLAYERS_DIR = Path("../c4_players") from examples
+            # We want path relative to MCTS-Hive directory
+            weights_path_for_json = str(Path(os.path.relpath(ckpt_path.resolve(), target_player_json_dir.resolve().parent)).replace("\\", "/"))
+        except ValueError: # Happens if paths are on different drives on Windows
+            weights_path_for_json = str(ckpt_path.resolve()).replace("\\", "/") # Fallback to absolute
+            print(f"Warning: Could not form relative path for {ckpt_path}, using absolute path in JSON.")
+
+        player_config = {
+            "type": "alphazero_c4", # Use the new unified type
+            "architecture": "new_style", # Assuming these are from the new training script
+            "model_path": weights_path_for_json,
+            "mcts_simulations": 100, # Default for evaluation, can be overridden
+            "c_puct": 1.41,
+            "nn_channels": 128, # Default C4 new arch params
+            "nn_blocks": 10
+            # Add other default AZ player params if needed, like device (defaults to cpu in player class)
+        }
+
+        json_file_path = target_player_json_dir / f"{player_name}.json"
+        
+        if json_file_path.exists():
+            print(f"Player config {json_file_path} already exists. Skipping.")
+            continue
+
+        with open(json_file_path, 'w') as f:
+            json.dump(player_config, f, indent=2)
+        print(f"Generated player config: {json_file_path}")
+        generated_count += 1
+
+    print(f"\nGenerated {generated_count} new player configuration files.")
+
 def run(display: bool = True) -> None:
     global cli_args, completed_parallel_games # Ensure cli_args and completed_parallel_games are accessible
     # Argument parsing should happen here or cli_args passed in
@@ -626,7 +719,11 @@ def run(display: bool = True) -> None:
         if cli_args.num_parallel <= 1:
             print("Running in single-process mode.")
             while True: # Main single-process loop
-                (i, j), orientation = choose_pair(player_names, elo_data)
+                pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                if pair_choice_result is None:
+                    print("No suitable opponent pairs found. Tournament might be stalled or complete under current rules.")
+                    break # Exit loop if no pairs can be chosen
+                (i, j), orientation = pair_choice_result
                 p_x_name, p_o_name = (player_names[i], player_names[j]) if orientation == 0 else (player_names[j], player_names[i])
                 params_x = players[p_x_name]
                 params_o = players[p_o_name]
@@ -654,14 +751,18 @@ def run(display: bool = True) -> None:
                 
                 for _ in range(cli_args.num_parallel * 2): 
                     if len(player_names) < 2: break
-                    (idx_i, idx_j), orientation = choose_pair(player_names, elo_data)
+                    pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                    if pair_choice_result is None: break # Stop submitting if no more valid pairs
+                    (idx_i, idx_j), orientation = pair_choice_result
                     p_x_name, p_o_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
                     params_x_submit = players[p_x_name]
                     params_o_submit = players[p_o_name]
                     
                     future = executor.submit(play_one_game_parallel_worker, game_type_for_tournament, 
                                              params_x_submit, params_o_submit, p_x_name, p_o_name, 
-                                             random.randint(0, 2**32 -1))
+                                             random.randint(0, 2**32 -1),
+                                             cli_args.global_az_simulations # Pass the override here
+                                             )
                     futures_map[future] = (p_x_name, p_o_name)
 
                 while futures_map: 
@@ -692,13 +793,20 @@ def run(display: bool = True) -> None:
                         # This try-except is to gracefully handle that during KeyboardInterrupt shutdown.
                         try:
                             if len(player_names) >= 2:
-                                (idx_i, idx_j), orientation = choose_pair(player_names, elo_data)
+                                pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                                if pair_choice_result is None:
+                                    # No more valid pairs to submit, let existing futures complete
+                                    print("No more suitable pairs to submit for parallel execution.")
+                                    continue # Continue processing other done futures, but don't submit new
+                                (idx_i, idx_j), orientation = pair_choice_result
                                 next_px_name, next_po_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
                                 next_params_x = players[next_px_name]
                                 next_params_o = players[next_po_name]
                                 new_future = executor.submit(play_one_game_parallel_worker, game_type_for_tournament,
                                                            next_params_x, next_params_o, next_px_name, next_po_name,
-                                                           random.randint(0, 2**32-1))
+                                                           random.randint(0, 2**32-1),
+                                                           cli_args.global_az_simulations # Pass the override here
+                                                           )
                                 futures_map[new_future] = (next_px_name, next_po_name)
                         except RuntimeError as e: # Catches "cannot schedule new futures after shutdown"
                             if "shutdown" in str(e).lower():
@@ -755,11 +863,22 @@ if __name__ == "__main__":
     parser.add_argument("--num-parallel", type=int, default=1, help="Number of games to run in parallel (display disabled if > 1).")
     parser.add_argument("--init-players",action="store_true",help="create sample configs in c4_players/")
     parser.add_argument("--save-every", type=int, default=10, help="Save results and print Elo every N games in parallel mode.")
+    parser.add_argument("--az-vs-others-only", action="store_true", help="If set, AlphaZero players only play against non-AlphaZero players.")
+    parser.add_argument("--generate-az-player-configs", type=str, metavar="CHECKPOINT_DIR", default=None, 
+                        help="Scan CHECKPOINT_DIR for .pt files and generate player JSONs in c4_players/. Tournament won't run.")
+    parser.add_argument("--global-az-simulations", type=int, default=-1, 
+                        help="Override MCTS simulations for all AlphaZero-type players in the tournament. -1 means use JSON/default values.")
+
     cli_args = parser.parse_args() # Global cli_args
 
     if cli_args.init_players:
         # init_players() # Ensure init_players is defined if this option is used
         print("init_players function needs to be defined or restored.")
         pass
+    elif cli_args.generate_az_player_configs:
+        # Call a new function to generate configs
+        source_checkpoint_dir = Path(cli_args.generate_az_player_configs)
+        target_player_json_dir = PLAYERS_DIR # Defined globally as Path("../c4_players")
+        generate_player_configs_from_checkpoints(source_checkpoint_dir, target_player_json_dir)
     else:
         run(display=not cli_args.no_display)
