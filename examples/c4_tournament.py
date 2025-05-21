@@ -662,13 +662,11 @@ def generate_player_configs_from_checkpoints(source_checkpoint_dir: Path, target
         # The source_checkpoint_dir is examples/c4_checkpoints_az
         # So, weights path in JSON should be like "../examples/c4_checkpoints_az/filename.pt"
         try:
-            # Path(ckpt_path).resolve() gives absolute
-            # Path.cwd() is current working directory
-            # target_player_json_dir.resolve().parent is the MCTS-Hive directory if PLAYERS_DIR = Path("../c4_players") from examples
-            # We want path relative to MCTS-Hive directory
-            weights_path_for_json = str(Path(os.path.relpath(ckpt_path.resolve(), target_player_json_dir.resolve().parent)).replace("\\", "/"))
-        except ValueError: # Happens if paths are on different drives on Windows
-            weights_path_for_json = str(ckpt_path.resolve()).replace("\\", "/") # Fallback to absolute
+            # Convert to string before calling string's replace method
+            relative_path_obj = Path(os.path.relpath(ckpt_path.resolve(), target_player_json_dir.resolve().parent))
+            weights_path_for_json = str(relative_path_obj).replace("\\", "/")
+        except ValueError: 
+            weights_path_for_json = str(ckpt_path.resolve()).replace("\\", "/")
             print(f"Warning: Could not form relative path for {ckpt_path}, using absolute path in JSON.")
 
         player_config = {

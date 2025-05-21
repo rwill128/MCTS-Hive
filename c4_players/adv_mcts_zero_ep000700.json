@@ -1,0 +1,9 @@
+{
+  "type": "alphazero_c4",
+  "architecture": "new_style",
+  "model_path": "examples/c4_checkpoints_az/c4_chkpt_ep000700.pt",
+  "mcts_simulations": 100,
+  "c_puct": 1.41,
+  "nn_channels": 128,
+  "nn_blocks": 10
+}
