@@ -36,6 +36,11 @@ except Exception:  # pragma: no cover - torch optional
     nn = None
     F = None
 
+try:
+    import wandb # Added for Weights & Biases
+except ImportError:
+    wandb = None # Allow running without wandb if not installed
+
 if torch:
     print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
@@ -392,6 +397,24 @@ def run(parsed_cli_args=None) -> None:
     global args_global 
     args_global = parsed_cli_args if parsed_cli_args is not None else parser().parse_args()
 
+    # --- W&B Initialization ---
+    if args_global.use_wandb:
+        if wandb is None:
+            print("Warning: wandb is not installed. Skipping W&B logging. `pip install wandb`")
+        else:
+            try:
+                wandb.init(
+                    project=args_global.wandb_project,
+                    name=args_global.wandb_run_name, # Will be None if not set, W&B generates one
+                    entity=args_global.wandb_entity,  # Will be None if not set, uses default entity
+                    config=vars(args_global) # Log all CLI arguments
+                )
+                print(f"Weights & Biases logging enabled for project '{args_global.wandb_project}'. Run: {wandb.run.name}")
+            except Exception as e:
+                print(f"Error initializing Weights & Biases: {e}. Disabling W&B logging.")
+                args_global.use_wandb = False # Disable if init fails
+    # --- End W&B Initialization ---
+
     if args_global.debug_single_loop:
         print("!!!!!!!!!!!!!!!!! DEBUG SINGLE LOOP MODE ENABLED (Connect Four) !!!!!!!!!!!!!!!!!")
         args_global.epochs = 1
@@ -441,14 +464,38 @@ def run(parsed_cli_args=None) -> None:
         learning_net.load_state_dict(st_checkpoint["net"])
         opt.load_state_dict(st_checkpoint["opt"])
         start_ep = int(st_checkpoint.get("epoch", 1)) + 1
-        if scheduler and "scheduler" in st_checkpoint and st_checkpoint["scheduler"]:
-            try: scheduler.load_state_dict(st_checkpoint["scheduler"]); print("Resumed LR scheduler.")
-            except: print("Could not load scheduler state.")
-        if args_global.lr_scheduler == "cosine" and scheduler and start_ep > scheduler.T_max: # Fixed quote
-             print(f"Warning: Resumed epoch {start_ep} > scheduler T_max {scheduler.T_max}.")
+        
+        # Forcefully set the LR in the loaded optimizer to the new desired args_global.lr
+        print(f"Optimizer LR before override: {opt.param_groups[0]['lr']}")
+        for param_group in opt.param_groups:
+            param_group['lr'] = args_global.lr
+        print(f"Optimizer LR after override with new --lr: {opt.param_groups[0]['lr']}")
+        
+        # Re-initialize scheduler to use the new LR as base and new T_max for the remaining run
+        # We do not load the old scheduler state to effectively restart its cycle with new params.
+        if args_global.lr_scheduler == "cosine":
+            # T_max for the *remaining* duration of training from start_ep, or user-defined lr_t_max
+            t_max_for_resume = args_global.lr_t_max if args_global.lr_t_max > 0 else (args_global.epochs - start_ep + 1)
+            if t_max_for_resume <= 0: t_max_for_resume = 1 # Ensure positive T_max
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_for_resume, eta_min=args_global.lr_eta_min)
+            print(f"Re-initialized CosineAnnealingLR upon resume: New Base LR {args_global.lr}, T_max for remaining run={t_max_for_resume}, eta_min={args_global.lr_eta_min}")
+        # Add other scheduler types here if needed
+
     elif args_global.resume_weights and not args_global.debug_single_loop:
-        print("Resuming weights from", args_global.resume_weights)
+        print("Resuming weights only from", args_global.resume_weights)
         learning_net.load_state_dict(torch.load(args_global.resume_weights, map_location=dev))
+        # Optimizer and scheduler are fresh, using current cli_args.lr
+        if args_global.lr_scheduler == "cosine":
+            t_max_epochs = args_global.lr_t_max if args_global.lr_t_max > 0 else args_global.epochs
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args_global.lr_eta_min)
+            print(f"Initialized CosineAnnealingLR (weights resume): Base LR {args_global.lr}, T_max={t_max_epochs}, eta_min={args_global.lr_eta_min}")
+    else: # Fresh start (no resume flags or debug_single_loop which might skip resume)
+        if not args_global.debug_single_loop: print("Starting fresh training run or debug run without resume.")
+        # Optimizer already created with args_global.lr
+        if args_global.lr_scheduler == "cosine":
+            t_max_epochs = args_global.lr_t_max if args_global.lr_t_max > 0 else args_global.epochs
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args_global.lr_eta_min)
+            print(f"Initialized CosineAnnealingLR (fresh start): Base LR {args_global.lr}, T_max={t_max_epochs}, eta_min={args_global.lr_eta_min}")
 
     buf: PrioritizedReplayBuffer | deque
     if args_global.use_per:
@@ -513,6 +560,9 @@ def run(parsed_cli_args=None) -> None:
                     if not args_global.debug_single_loop : save_buffer_experiences(buf, buffer_file_path)
 
     if not args_global.debug_single_loop: print(f"Starting training from epoch {start_ep} for {args_global.epochs} epochs.")
+    
+    overall_training_steps = 0 # For W&B step logging
+
     try:
         for ep in range(start_ep, args_global.epochs + 1):
             if args_global.debug_single_loop:
@@ -537,7 +587,14 @@ def run(parsed_cli_args=None) -> None:
 
             if len(buf) < current_min_train_fill:
                 if ep % args_global.log_every == 0: 
-                    print(f"Epoch {ep} | Buffer {len(buf)} < min {current_min_train_fill}. Skip train. LR {opt.param_groups[0]['lr']:.2e}", flush=True)
+                    log_dict = {
+                        "epoch": ep,
+                        "learning_rate": opt.param_groups[0]['lr'],
+                        "buffer_size": len(buf),
+                        "training_skipped": 1
+                    }
+                    print(f"Epoch {ep} | Buffer {len(buf)} < min {current_min_train_fill}. Skip train. LR {log_dict['learning_rate']:.2e}", flush=True)
+                    if args_global.use_wandb and wandb.run: wandb.log(log_dict, step=overall_training_steps)
                 if ep % args_global.ckpt_every == 0 and not args_global.debug_single_loop: save_buffer_experiences(buf, buffer_file_path) 
             else:
                 if args_global.debug_single_loop:
@@ -581,8 +638,20 @@ def run(parsed_cli_args=None) -> None:
                     if args_global.debug_single_loop: print(f"[run DEBUG C4] Updating PER priorities for {len(data_indices)} indices.")
                     buf.update_priorities(data_indices, td_errors)
 
+                overall_training_steps += 1 # Increment for each actual training step
+
                 if ep % args_global.log_every == 0:
-                    print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {opt.param_groups[0]['lr']:.2e}", flush=True)
+                    log_dict = {
+                        "epoch": ep,
+                        "loss": loss,
+                        "buffer_size": len(buf),
+                        "learning_rate": opt.param_groups[0]['lr'],
+                    }
+                    if isinstance(buf, PrioritizedReplayBuffer):
+                        log_dict["per_beta"] = buf.current_beta
+                    
+                    print(f"Epoch {ep} | Loss {loss:.4f} | Buffer {len(buf)} | LR {log_dict['learning_rate']:.2e}", flush=True)
+                    if args_global.use_wandb and wandb.run: wandb.log(log_dict, step=overall_training_steps)
             
             if scheduler: scheduler.step()
             
@@ -617,6 +686,9 @@ def run(parsed_cli_args=None) -> None:
             "scheduler": scheduler.state_dict() if scheduler else None, }
         torch.save(full_state_to_save, state_path)
         print(f"Final C4 model: {str(final_model_path)}, Buffer: {str(buffer_file_path)}, State: {str(state_path)}")
+        if args_global.use_wandb and wandb.run:
+            wandb.finish()
+            print("Weights & Biases run finished.")
 
 # ---------------------------------------------------------------------------
 # CLI parser (aligned with ttt_zero_advanced.py, defaults adjusted for C4)
@@ -679,6 +751,13 @@ def parser() -> argparse.ArgumentParser:
     g_mgmt.add_argument("--resume-weights", metavar="PATH", help="Path to load network weights.")
     g_mgmt.add_argument("--resume-full-state", action="store_true", help="Resume full training state.")
     
+    # W&B Arguments
+    g_wandb = p.add_argument_group("Weights & Biases")
+    g_wandb.add_argument("--use-wandb", action="store_true", help="Enable Weights & Biases logging.")
+    g_wandb.add_argument("--wandb-project", type=str, default="c4_alphazero_advanced", help="W&B project name.")
+    g_wandb.add_argument("--wandb-run-name", type=str, default=None, help="Custom W&B run name (defaults to W&B auto-generated name).")
+    g_wandb.add_argument("--wandb-entity", type=str, default=None, help="W&B entity (username or team) if not using default.")
+
     return p
 
 # --- Worker function for parallel self-play data generation (was play_one_game) ---

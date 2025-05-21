@@ -1,37 +1,12 @@
 {
   "ratings": {
-    "search_4": 1367.971741435405,
-    "search_6": 1397.0105208615591,
-    "hybrid_4": 1681.6554973856366,
-    "hybrid_6": 1769.9760815847853,
-    "minimax_6": 1726.6301142687412,
-    "minimax_5": 1687.5954546887876,
-    "minimax_4": 1584.8738093662005,
-    "adv_mcts_zero_ep000100": 1500.0,
-    "adv_mcts_zero_ep000200": 1500.0,
-    "adv_mcts_zero_ep000300": 1500.0,
-    "adv_mcts_zero_ep000400": 1500.0,
-    "adv_mcts_zero_ep000500": 1491.9606107321297,
-    "adv_mcts_zero_ep000600": 1508.2339858056755,
-    "adv_mcts_zero_ep000700": 1518.6860270893096,
-    "adv_mcts_zero_ep000800": 1509.7163017292335,
-    "adv_mcts_zero_ep000900": 1500.0,
-    "adv_mcts_zero_ep001000": 1507.8647111495861,
-    "adv_mcts_zero_ep001100": 1495.7925596841696,
-    "adv_mcts_zero_ep001200": 1490.0402321785034,
-    "adv_mcts_zero_ep001300": 1496.0491391143103,
-    "adv_mcts_zero_ep001400": 1497.4201256751012,
-    "adv_mcts_zero_ep001500": 1497.2405614152888,
-    "adv_mcts_zero_ep001600": 1507.015631716053,
-    "adv_mcts_zero_ep001700": 1495.2892702892068,
-    "adv_mcts_zero_ep001800": 1505.5268832797187,
-    "adv_mcts_zero_ep001900": 1518.064547410193,
-    "adv_mcts_zero_ep002000": 1505.7132240823653,
-    "adv_mcts_zero_ep002100": 1494.188548160676,
-    "adv_mcts_zero_ep002200": 1503.8246320563424,
-    "adv_mcts_zero_ep002300": 1520.2038817161517,
-    "adv_mcts_zero_ep002400": 1494.880652512846,
-    "adv_mcts_zero_last": 1505.6450258326693
+    "hybrid_4": 1597.0430862308656,
+    "hybrid_6": 1784.8737919263244,
+    "minimax_6": 1746.5200981484716,
+    "minimax_5": 1747.3094897655196,
+    "minimax_4": 1577.9649086277134,
+    "adv_mcts_zero_last": 1603.5605788474413,
+    "adv_mcts_zero_ep002500": 1494.689672556727
   },
   "pair_results": {
     "iter50_vs_iter600": {
@@ -691,7 +666,7 @@
     },
     "hybrid_4_vs_hybrid_6": {
       "w": 31,
-      "d": 0,
+      "d": 1,
       "l": 19
     },
     "check2_vs_iter800": {
@@ -1895,7 +1870,7 @@
       "l": 4
     },
     "minimax_6_vs_hybrid_4": {
-      "w": 7,
+      "w": 8,
       "d": 1,
       "l": 0
     },
@@ -1940,7 +1915,7 @@
       "l": 4
     },
     "minimax_6_vs_hybrid_6": {
-      "w": 5,
+      "w": 6,
       "d": 0,
       "l": 0
     },
@@ -3092,7 +3067,7 @@
     "hybrid_6_vs_minimax_5": {
       "w": 0,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "adv_mcts_zero_2000_vs_iter50": {
       "w": 2,
@@ -5167,7 +5142,7 @@
     "minimax_5_vs_adv_mcts_zero_ep001700": {
       "w": 1,
       "d": 0,
-      "l": 0
+      "l": 1
     },
     "adv_mcts_zero_ep002200_vs_hybrid_4": {
       "w": 1,
@@ -5177,7 +5152,7 @@
     "adv_mcts_zero_ep000700_vs_hybrid_4": {
       "w": 1,
       "d": 0,
-      "l": 0
+      "l": 1
     },
     "adv_mcts_zero_last_vs_search_4": {
       "w": 1,
@@ -5237,7 +5212,7 @@
     "adv_mcts_zero_ep000800_vs_minimax_4": {
       "w": 1,
       "d": 0,
-      "l": 0
+      "l": 1
     },
     "minimax_5_vs_adv_mcts_zero_ep001000": {
       "w": 1,
@@ -5255,7 +5230,7 @@
       "l": 0
     },
     "hybrid_4_vs_adv_mcts_zero_ep000700": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
@@ -5300,7 +5275,7 @@
       "l": 1
     },
     "minimax_4_vs_adv_mcts_zero_ep000800": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
@@ -5375,13 +5350,13 @@
       "l": 0
     },
     "minimax_6_vs_adv_mcts_zero_ep001900": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
     "adv_mcts_zero_ep001600_vs_minimax_6": {
       "w": 0,
-      "d": 1,
+      "d": 2,
       "l": 0
     },
     "minimax_4_vs_adv_mcts_zero_ep001200": {
@@ -5392,9 +5367,1249 @@
     "adv_mcts_zero_ep001000_vs_minimax_5": {
       "w": 0,
       "d": 0,
-      "l": 1
+      "l": 2
     },
     "adv_mcts_zero_ep001900_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001200_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000500_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002100_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "minimax_6_vs_adv_mcts_zero_ep000100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002300_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_search_4": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "search_4_vs_adv_mcts_zero_last": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001300_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "search_4_vs_adv_mcts_zero_ep002400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001900_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep001900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "search_6_vs_adv_mcts_zero_ep001600": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "search_6_vs_adv_mcts_zero_ep001500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep000800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002300_vs_minimax_4": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep002400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000100_vs_minimax_6": {
+      "w": 1,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002200_vs_search_6": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001300_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep002000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep000300": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_ep002000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep000800": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "search_6_vs_adv_mcts_zero_ep001800": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001700_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep001100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_ep001500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001700_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000300_vs_hybrid_4": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep002400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep001700": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_last": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "adv_mcts_zero_ep002100_vs_adv_mcts_zero_ep000600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep001500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000100_vs_adv_mcts_zero_ep002100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep001500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep000400": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep000500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_5_vs_adv_mcts_zero_ep000600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep001100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001000_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000800_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_last": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001100_vs_adv_mcts_zero_ep001700": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep001800": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001800_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000600_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep000100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep000800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep001200": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002400_vs_adv_mcts_zero_ep000600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep001200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_ep000900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_ep001700": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep000100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep002400": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep001800": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000800_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep001800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_adv_mcts_zero_ep002200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002100_vs_adv_mcts_zero_ep002000": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep001100": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep002300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep001700": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000500_vs_adv_mcts_zero_ep000400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001300_vs_adv_mcts_zero_ep001200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep002300": {
+      "w": 3,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000500_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep000600": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep001800": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001700_vs_hybrid_6": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002100_vs_adv_mcts_zero_ep000900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep001600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep001200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep001900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_adv_mcts_zero_ep000100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep000500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep000400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep001700": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep001800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep001600": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep001300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep001800": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep001200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep002300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001400_vs_adv_mcts_zero_ep000100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000800_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_5_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep002200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep000200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep001300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000800_vs_adv_mcts_zero_ep001200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep002000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep002300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002200_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep001100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001800_vs_adv_mcts_zero_ep001200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001100_vs_adv_mcts_zero_ep000100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep001500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000900_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000600_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001500_vs_hybrid_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001600_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep001100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000500_vs_adv_mcts_zero_ep002000": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000500_vs_adv_mcts_zero_ep000100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001800_vs_adv_mcts_zero_ep000200": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "adv_mcts_zero_ep000600_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001400_vs_adv_mcts_zero_ep001700": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001700_vs_adv_mcts_zero_ep001500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep000400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep000600": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_adv_mcts_zero_ep002300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001300_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep001700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_adv_mcts_zero_ep000500": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001700_vs_adv_mcts_zero_ep001600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002400_vs_adv_mcts_zero_ep000400": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_hybrid_4": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep000900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep000800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep001900": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001800_vs_adv_mcts_zero_ep002000": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001800_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001700_vs_adv_mcts_zero_ep001900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002100_vs_adv_mcts_zero_last": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000300_vs_adv_mcts_zero_ep001500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep000700": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_ep002000": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep002100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000700_vs_adv_mcts_zero_ep002300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep002200": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002400_vs_adv_mcts_zero_ep001800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_ep000600": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000100_vs_adv_mcts_zero_ep002200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000800_vs_adv_mcts_zero_ep002400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000300_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "adv_mcts_zero_ep000100_vs_adv_mcts_zero_ep000800": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001800_vs_adv_mcts_zero_ep000100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_adv_mcts_zero_ep002400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001900_vs_adv_mcts_zero_ep001500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000900_vs_adv_mcts_zero_ep000200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_adv_mcts_zero_ep001900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_adv_mcts_zero_ep000800": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001500_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001300_vs_adv_mcts_zero_ep000600": {
+      "w": 0,
+      "d": 2,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001400_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000200_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep000100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep002000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001800_vs_adv_mcts_zero_ep002100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002100_vs_adv_mcts_zero_ep002200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep002300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000100_vs_adv_mcts_zero_ep000500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002300_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000100_vs_adv_mcts_zero_ep001300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002400_vs_adv_mcts_zero_ep002300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep002200": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000800_vs_adv_mcts_zero_ep001000": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002200_vs_adv_mcts_zero_ep001300": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002400_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002200_vs_adv_mcts_zero_ep001600": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002200_vs_adv_mcts_zero_ep001800": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000400_vs_adv_mcts_zero_ep001000": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000200_vs_adv_mcts_zero_ep000400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001200_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001100_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001300_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001700_vs_adv_mcts_zero_ep002000": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_5_vs_adv_mcts_zero_ep001900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep000900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_adv_mcts_zero_ep000900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000400_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000500_vs_adv_mcts_zero_ep000600": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002300_vs_adv_mcts_zero_ep001200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_adv_mcts_zero_ep002000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001300_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000400_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000900_vs_minimax_5": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_adv_mcts_zero_ep000700": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001200_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_ep001100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep000300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001600_vs_adv_mcts_zero_last": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001500_vs_adv_mcts_zero_ep002100": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002500_vs_minimax_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_minimax_4": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_last": {
+      "w": 1,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep002500": {
+      "w": 1,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002500_vs_minimax_6": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "minimax_6_vs_adv_mcts_zero_ep002500": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_last_vs_minimax_6": {
+      "w": 0,
+      "d": 2,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep002500": {
+      "w": 2,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002500_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 3
+    },
+    "minimax_5_vs_adv_mcts_zero_ep002500": {
+      "w": 3,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002500_vs_hybrid_4": {
+      "w": 2,
+      "d": 0,
+      "l": 2
+    },
+    "minimax_4_vs_adv_mcts_zero_last": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_last": {
+      "w": 1,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002500_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_6_vs_adv_mcts_zero_last": {
       "w": 1,
       "d": 0,
       "l": 0
