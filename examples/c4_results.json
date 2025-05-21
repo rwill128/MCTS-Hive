@@ -17,9 +17,9 @@
     "c1": 1403.612180622118,
     "check2": 1627.9366781748772,
     "iter800": 1259.4971488716315,
-    "adv_mcts_zero_4": 1695.0369480754755,
+    "adv_mcts_zero_4": 1693.1869676084643,
     "minimax": 1500.0,
-    "minimax_6": 1556.3302963467256
+    "minimax_6": 1562.1083817522829
   },
   "pair_results": {
     "iter50_vs_iter600": {
@@ -2338,14 +2338,19 @@
       "l": 1
     },
     "adv_mcts_zero_4_vs_minimax_6": {
-      "w": 5,
+      "w": 6,
       "d": 1,
       "l": 0
     },
     "minimax_6_vs_adv_mcts_zero_4": {
-      "w": 6,
+      "w": 7,
       "d": 0,
       "l": 0
+    },
+    "minimax_7_vs_adv_mcts_zero_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
     }
   },
   "pair_index": 0,
