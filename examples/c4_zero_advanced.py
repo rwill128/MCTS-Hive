@@ -175,21 +175,34 @@ else:
 # BUFFER_PATH defined in parser now
 
 def play_one_game(
-    net: AdvancedC4ZeroNet, 
+    learning_net: AdvancedC4ZeroNet, # The network currently being trained
     game_adapter: ConnectFourAdapter, 
-    mcts_instance: AlphaZeroMCTS,     
+    learning_mcts: AlphaZeroMCTS, # MCTS instance for the learning network
+    
+    opponent_type: str, # "self", "past_checkpoint"
+    opponent_net: AdvancedC4ZeroNet | None, # Network for the opponent if not self-play
+    opponent_mcts: AlphaZeroMCTS | None, # MCTS for the opponent if not self-play
+    # Note: opponent_net and opponent_mcts are None if opponent_type is "self"
+
     temp_schedule: List[Tuple[int, float]], 
-    mcts_simulations: int,
-    max_moves: int = BOARD_H * BOARD_W, # Max moves in C4
+    mcts_simulations_learning: int, # Sims for the learning agent
+    mcts_simulations_opponent: int, # Sims for the opponent agent (can be different)
+    max_moves: int = BOARD_H * BOARD_W, 
     debug_mode: bool = False
 ) -> List[Tuple[dict, np.ndarray, int]]:
     if torch is None or np is None: raise RuntimeError("PyTorch and NumPy are required")
-    st = game_adapter.c4_game.getInitialState() 
-    hist: List[Tuple[dict, np.ndarray, int]] = [] 
+    
+    st = game_adapter.c4_game.getInitialState()
+    hist: List[Tuple[dict, np.ndarray, int]] = [] # Stores (state, policy_target_for_learning_net, final_value_for_P1)
     move_no = 0
     current_temp = 1.0
 
-    if debug_mode: print("\n--- play_one_game START (Connect Four) ---")
+    if debug_mode: print(f"\n--- play_one_game START (Connect Four) ---")
+    if debug_mode: print(f"[play_one_game C4] Opponent type: {opponent_type}")
+
+    # Determine which player is the learning agent (always perspective 'X' for data collection)
+    learning_agent_player_char = "X"
+    opponent_player_char = "O"
 
     while not game_adapter.isTerminal(st) and move_no < max_moves:
         if debug_mode:
@@ -200,11 +213,27 @@ def play_one_game(
         for threshold_moves, temp_val in temp_schedule:
             if move_no < threshold_moves: current_temp = temp_val; break
         
-        player_perspective = game_adapter.getCurrentPlayer(st)
-        if debug_mode: print(f"[play_one_game C4] MCTS sims: {mcts_simulations}, Temp: {current_temp}, Perspective: {player_perspective}")
+        current_player_char = game_adapter.getCurrentPlayer(st)
+        is_learning_agent_turn = (current_player_char == learning_agent_player_char)
+
+        # Determine which network and MCTS to use
+        active_net = learning_net if is_learning_agent_turn else opponent_net
+        active_mcts = learning_mcts if is_learning_agent_turn else opponent_mcts
+        active_sims = mcts_simulations_learning if is_learning_agent_turn else mcts_simulations_opponent
         
-        chosen_action_int, mcts_policy_dict = mcts_instance.get_action_policy(
-            root_state=st, num_simulations=mcts_simulations, temperature=current_temp,
+        # If opponent is "self" (i.e. opponent_net/mcts are None), use learning agent's components
+        if opponent_type == "self" and not is_learning_agent_turn:
+            active_net = learning_net
+            active_mcts = learning_mcts # Use learning_mcts for both if pure self-play
+            # active_sims remains mcts_simulations_opponent (could be same as learning)
+        
+        if active_mcts is None: # Should only happen if opponent_type was invalidly configured
+            raise ValueError("Active MCTS is None. Opponent not configured correctly.")
+
+        if debug_mode: print(f"[play_one_game C4] Turn: {current_player_char}, MCTS sims: {active_sims}, Temp: {current_temp}")
+
+        chosen_action_int, mcts_policy_dict = active_mcts.get_action_policy(
+            root_state=st, num_simulations=active_sims, temperature=current_temp,
             debug_mcts=debug_mode 
         )
         if debug_mode: print(f"[play_one_game C4] MCTS chosen_action_int: {chosen_action_int}")
@@ -227,27 +256,29 @@ def play_one_game(
         if debug_mode: print(f"[play_one_game C4] Policy target vector (sum={policy_target_vector.sum()}): {policy_target_vector}")
 
         current_state_copy = game_adapter.copyState(st)
-        hist.append((current_state_copy, policy_target_vector, 0))
-        if debug_mode: print(f"[play_one_game C4] Appended to history. Player: {current_state_copy['current_player']}")
+        if is_learning_agent_turn:
+            hist.append((current_state_copy, policy_target_vector, 0))
+            if debug_mode: print(f"[play_one_game C4] LEARNING AGENT ({current_player_char}) played. Stored policy target.")
+        elif debug_mode:
+             print(f"[play_one_game C4] OPPONENT ({current_player_char}) played. Policy target not stored for this turn.")
         
         st = game_adapter.applyAction(st, chosen_action_int)
         move_no += 1
 
     winner = game_adapter.getGameOutcome(st)
-    z = 0
-    if winner == "Draw": z = 0
-    elif winner == "X": z = 1 # Assuming X is P1
-    elif winner == "O": z = -1 # Assuming O is P2
+    z_for_learning_agent = 0
+    if winner == learning_agent_player_char: z_for_learning_agent = 1
+    elif winner == opponent_player_char: z_for_learning_agent = -1
     
     if debug_mode:
-        print(f"\n[play_one_game C4] Game Over. Winner: {winner}, z (X's perspective): {z}")
+        print(f"\n[play_one_game C4] Game Over. Winner: {winner}, z (for {learning_agent_player_char}): {z_for_learning_agent}")
         board_str_final = "\n".join([str(row) for row in st["board"]])
         print(f"[play_one_game C4] Final board state (player {st['current_player']}):\n{board_str_final}")
 
     final_history = []
     for idx, (recorded_state, policy, _) in enumerate(hist):
         player_at_state = game_adapter.getCurrentPlayer(recorded_state)
-        value_for_state_player = z if player_at_state == "X" else -z
+        value_for_state_player = z_for_learning_agent if player_at_state == "X" else -z_for_learning_agent
         final_history.append((recorded_state, policy, value_for_state_player))
         if debug_mode: print(f"[play_one_game C4] final_hist item {idx}: Player: {player_at_state}, Val: {value_for_state_player}, Policy sum: {np.sum(policy) if policy is not None else 'N/A'}")
     
@@ -388,8 +419,8 @@ def run(parsed_cli_args=None) -> None:
     c4_game_instance = ConnectFour()
     game_adapter = ConnectFourAdapter(c4_game_instance)
 
-    net = AdvancedC4ZeroNet(ch=args_global.channels, blocks=args_global.blocks).to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=args_global.lr)
+    learning_net = AdvancedC4ZeroNet(ch=args_global.channels, blocks=args_global.blocks).to(dev)
+    opt = torch.optim.Adam(learning_net.parameters(), lr=args_global.lr)
     
     scheduler = None
     if args_global.lr_scheduler == "cosine":
@@ -397,24 +428,15 @@ def run(parsed_cli_args=None) -> None:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=t_max_epochs, eta_min=args_global.lr_eta_min)
         if not args_global.debug_single_loop: print(f"Using CosineAnnealingLR: T_max={t_max_epochs}, eta_min={args_global.lr_eta_min}")
     
-    def mcts_model_fn_wrapper(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        net.eval() 
-        with torch.no_grad(): policy_logits, value_estimates = net(encoded_state_batch)
-        net.train() 
-        return policy_logits, value_estimates.unsqueeze(-1)
-
-    mcts = AlphaZeroMCTS(
-        game_interface=game_adapter, model_fn=mcts_model_fn_wrapper, device=torch.device(dev),
-        c_puct=args_global.c_puct, dirichlet_alpha=args_global.dirichlet_alpha,
-        dirichlet_epsilon=args_global.dirichlet_epsilon
-    )
+    def learning_mcts_model_fn(batch_in): learning_net.eval(); lgs,v = learning_net(batch_in); learning_net.train(); return lgs, v.unsqueeze(-1)
+    learning_mcts_instance = AlphaZeroMCTS(game_adapter, learning_mcts_model_fn, torch.device(dev), args_global.c_puct, args_global.dirichlet_alpha, args_global.dirichlet_epsilon)
 
     state_path = ckdir / "train_state_c4.pt" # Path for C4
     start_ep = 1
     if args_global.resume_full_state and state_path.exists() and not args_global.debug_single_loop:
         print("Resuming full training state from", state_path)
         st_checkpoint = torch.load(state_path, map_location=dev) 
-        net.load_state_dict(st_checkpoint["net"])
+        learning_net.load_state_dict(st_checkpoint["net"])
         opt.load_state_dict(st_checkpoint["opt"])
         start_ep = int(st_checkpoint.get("epoch", 1)) + 1
         if scheduler and "scheduler" in st_checkpoint and st_checkpoint["scheduler"]:
@@ -424,7 +446,7 @@ def run(parsed_cli_args=None) -> None:
              print(f"Warning: Resumed epoch {start_ep} > scheduler T_max {scheduler.T_max}.")
     elif args_global.resume_weights and not args_global.debug_single_loop:
         print("Resuming weights from", args_global.resume_weights)
-        net.load_state_dict(torch.load(args_global.resume_weights, map_location=dev))
+        learning_net.load_state_dict(torch.load(args_global.resume_weights, map_location=dev))
 
     buf: PrioritizedReplayBuffer | deque
     if args_global.use_per:
@@ -471,10 +493,10 @@ def run(parsed_cli_args=None) -> None:
         if games_to_play_bootstrap > 0:
             if not args_global.debug_single_loop: print(f"Bootstrapping {games_to_play_bootstrap} games …", flush=True)
             for g in range(games_to_play_bootstrap):
-                net.eval() 
+                learning_net.eval() 
                 game_hist = play_one_game(
-                    net, game_adapter, mcts, temp_schedule, 
-                    mcts_simulations=args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
+                    learning_net, game_adapter, learning_mcts_instance, "self", None, None,
+                    temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
                     debug_mode=args_global.debug_single_loop )
                 
                 if isinstance(buf, PrioritizedReplayBuffer):
@@ -483,7 +505,7 @@ def run(parsed_cli_args=None) -> None:
                 else: # It's a deque
                     buf.extend(game_hist)
                 
-                net.train() 
+                learning_net.train() 
                 if args_global.debug_single_loop or (g+1) % args_global.save_buffer_every == 0:
                     print(f"  Bootstrap game {g+1}/{games_to_play_bootstrap} ({len(game_hist)} states) → buffer {len(buf)}", flush=True)
                     if not args_global.debug_single_loop : save_buffer_experiences(buf, buffer_file_path)
@@ -495,10 +517,10 @@ def run(parsed_cli_args=None) -> None:
                 _debug_flag = True # Ensure block starts with an assignment
                 print(f"\n--- [DEBUG] Epoch {ep} START (Connect Four) ---")
             
-            net.eval() 
+            learning_net.eval() 
             game_hist = play_one_game(
-                net, game_adapter, mcts, temp_schedule, 
-                mcts_simulations=args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
+                learning_net, game_adapter, learning_mcts_instance, "self", None, None,
+                temp_schedule, args_global.mcts_simulations, args_global.mcts_simulations, max_moves=BOARD_H * BOARD_W, # C4 max moves
                 debug_mode=args_global.debug_single_loop )
             
             if isinstance(buf, PrioritizedReplayBuffer):
@@ -506,7 +528,7 @@ def run(parsed_cli_args=None) -> None:
                     buf.add(exp)
             else: # It's a deque
                 buf.extend(game_hist)
-            net.train() 
+            learning_net.train() 
 
             current_min_train_fill = args_global.min_buffer_fill_for_per_training if isinstance(buf, PrioritizedReplayBuffer) else args_global.min_buffer_fill_standard
             if args_global.debug_single_loop: current_min_train_fill = 1
@@ -549,7 +571,7 @@ def run(parsed_cli_args=None) -> None:
                         if len(batch_experiences) > 0 and batch_experiences[0] and batch_experiences[0][0] and 'board' in batch_experiences[0][0] and batch_experiences[0][0]['board']:
                             print(f"[run DEBUG C4] First standard exp state board: {batch_experiences[0][0]['board'][0]}...")
                 
-                loss, td_errors = train_step(net, batch_experiences, is_weights, opt, dev, game_adapter, 
+                loss, td_errors = train_step(learning_net, batch_experiences, is_weights, opt, dev, game_adapter, 
                                              args_global.augment_prob, args_global.ent_beta, 
                                              debug_mode=args_global.debug_single_loop)
                 
@@ -564,9 +586,9 @@ def run(parsed_cli_args=None) -> None:
             
             if ep % args_global.ckpt_every == 0:
                 chkpt_path = ckdir / f"c4_chkpt_ep{ep:06d}.pt" # Path for C4
-                if not args_global.debug_single_loop: torch.save(net.state_dict(), chkpt_path)
+                if not args_global.debug_single_loop: torch.save(learning_net.state_dict(), chkpt_path)
                 full_state_to_save = {
-                    "net": net.state_dict(), "opt": opt.state_dict(),
+                    "net": learning_net.state_dict(), "opt": opt.state_dict(),
                     "epoch": ep, "scheduler": scheduler.state_dict() if scheduler else None,
                 }
                 if not args_global.debug_single_loop: torch.save(full_state_to_save, state_path)
@@ -585,11 +607,11 @@ def run(parsed_cli_args=None) -> None:
     finally:
         print("Saving final model and buffer (Connect Four)...")
         final_model_path = ckdir / "last_c4_model.pt" # Path for C4
-        torch.save(net.state_dict(), final_model_path)
+        torch.save(learning_net.state_dict(), final_model_path)
         if len(buf) > 0: save_buffer_experiences(buf, buffer_file_path)
         ep_to_save = ep if 'ep' in locals() and 'start_ep' in locals() and ep >= start_ep else start_ep - 1
         full_state_to_save = {
-            "net": net.state_dict(), "opt": opt.state_dict(), "epoch": ep_to_save,
+            "net": learning_net.state_dict(), "opt": opt.state_dict(), "epoch": ep_to_save,
             "scheduler": scheduler.state_dict() if scheduler else None, }
         torch.save(full_state_to_save, state_path)
         print(f"Final C4 model: {str(final_model_path)}, Buffer: {str(buffer_file_path)}, State: {str(state_path)}")
@@ -613,6 +635,11 @@ def parser() -> argparse.ArgumentParser:
     g_play.add_argument("--dirichlet-epsilon", type=float, default=0.25, help="Epsilon for Dirichlet noise.")
     g_play.add_argument("--temp-decay-moves", type=int, default=10, help="Moves to use T=1 for exploration.") # C4 default
     g_play.add_argument("--final-temp", type=float, default=0.1, help="Temp after decay (0 for deterministic).")
+    g_play.add_argument("--play-past-self-prob", type=float, default=0.0, help="Probability to play against a past self (0.0 to disable).")
+    g_play.add_argument("--max-opponent-pool-size", type=int, default=20, help="Max number of recent past checkpoints for opponent pool.")
+    g_play.add_argument("--mcts-simulations-opponent", type=int, default=50, help="MCTS simulations for past self opponent.")
+    g_play.add_argument("--c-puct-opponent", type=float, default=1.41, help="PUCT for past self opponent MCTS.")
+    g_play.add_argument("--max-game-moves", type=int, default=BOARD_H * BOARD_W + 10, help="Max moves per game.") # Added
 
     g_train = p.add_argument_group("Training (Connect Four)")
     g_train.add_argument("--epochs", type=int, default=10000, help="Total training epochs.")
