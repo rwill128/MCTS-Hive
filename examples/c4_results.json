@@ -1,17 +1,37 @@
 {
   "ratings": {
-    "search_4": 1402.0925679913598,
-    "search_6": 1411.6933518390376,
-    "hybrid_4": 1728.458651623261,
-    "hybrid_6": 1763.8439660318372,
-    "minimax_6": 1713.8959248527171,
-    "minimax_5": 1654.651190159089,
-    "adv_mcts_zero_2100": 1568.6909641887453,
-    "minimax_4": 1604.434118723343,
-    "adv_mcts_zero_2200": 1529.4846885517368,
-    "adv_mcts_zero_2000": 1525.3044134795884,
-    "adv_mcts_zero_2300": 1504.808585050927,
-    "adv_mcts_zero_2400": 1517.075375478382
+    "search_4": 1367.971741435405,
+    "search_6": 1397.0105208615591,
+    "hybrid_4": 1681.6554973856366,
+    "hybrid_6": 1769.9760815847853,
+    "minimax_6": 1726.6301142687412,
+    "minimax_5": 1687.5954546887876,
+    "minimax_4": 1584.8738093662005,
+    "adv_mcts_zero_ep000100": 1500.0,
+    "adv_mcts_zero_ep000200": 1500.0,
+    "adv_mcts_zero_ep000300": 1500.0,
+    "adv_mcts_zero_ep000400": 1500.0,
+    "adv_mcts_zero_ep000500": 1491.9606107321297,
+    "adv_mcts_zero_ep000600": 1508.2339858056755,
+    "adv_mcts_zero_ep000700": 1518.6860270893096,
+    "adv_mcts_zero_ep000800": 1509.7163017292335,
+    "adv_mcts_zero_ep000900": 1500.0,
+    "adv_mcts_zero_ep001000": 1507.8647111495861,
+    "adv_mcts_zero_ep001100": 1495.7925596841696,
+    "adv_mcts_zero_ep001200": 1490.0402321785034,
+    "adv_mcts_zero_ep001300": 1496.0491391143103,
+    "adv_mcts_zero_ep001400": 1497.4201256751012,
+    "adv_mcts_zero_ep001500": 1497.2405614152888,
+    "adv_mcts_zero_ep001600": 1507.015631716053,
+    "adv_mcts_zero_ep001700": 1495.2892702892068,
+    "adv_mcts_zero_ep001800": 1505.5268832797187,
+    "adv_mcts_zero_ep001900": 1518.064547410193,
+    "adv_mcts_zero_ep002000": 1505.7132240823653,
+    "adv_mcts_zero_ep002100": 1494.188548160676,
+    "adv_mcts_zero_ep002200": 1503.8246320563424,
+    "adv_mcts_zero_ep002300": 1520.2038817161517,
+    "adv_mcts_zero_ep002400": 1494.880652512846,
+    "adv_mcts_zero_last": 1505.6450258326693
   },
   "pair_results": {
     "iter50_vs_iter600": {
@@ -785,7 +805,7 @@
       "l": 0
     },
     "hybrid_4_vs_search_4": {
-      "w": 8,
+      "w": 9,
       "d": 1,
       "l": 14
     },
@@ -1752,7 +1772,7 @@
     "search_6_vs_minimax_6": {
       "w": 1,
       "d": 0,
-      "l": 4
+      "l": 5
     },
     "iter400_vs_minimax_6": {
       "w": 0,
@@ -1875,7 +1895,7 @@
       "l": 4
     },
     "minimax_6_vs_hybrid_4": {
-      "w": 6,
+      "w": 7,
       "d": 1,
       "l": 0
     },
@@ -1925,7 +1945,7 @@
       "l": 0
     },
     "minimax_6_vs_search_4": {
-      "w": 5,
+      "w": 6,
       "d": 0,
       "l": 0
     },
@@ -4302,7 +4322,7 @@
     "search_4_vs_minimax_5": {
       "w": 0,
       "d": 0,
-      "l": 4
+      "l": 5
     },
     "adv_mcts_zero_1300_vs_adv_mcts_zero_2000": {
       "w": 0,
@@ -4347,7 +4367,7 @@
     "minimax_5_vs_hybrid_4": {
       "w": 0,
       "d": 0,
-      "l": 5
+      "l": 6
     },
     "check2_vs_adv_mcts_zero_1500": {
       "w": 0,
@@ -4667,7 +4687,7 @@
     "minimax_6_vs_minimax_5": {
       "w": 0,
       "d": 0,
-      "l": 3
+      "l": 4
     },
     "minimax_5_vs_adv_mcts_zero_1100": {
       "w": 1,
@@ -4995,7 +5015,7 @@
       "l": 0
     },
     "minimax_4_vs_minimax_5": {
-      "w": 1,
+      "w": 2,
       "d": 0,
       "l": 0
     },
@@ -5017,7 +5037,7 @@
     "hybrid_4_vs_minimax_4": {
       "w": 0,
       "d": 1,
-      "l": 0
+      "l": 1
     },
     "adv_mcts_zero_2200_vs_adv_mcts_zero_2100": {
       "w": 0,
@@ -5133,6 +5153,251 @@
       "w": 0,
       "d": 0,
       "l": 1
+    },
+    "minimax_6_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep001700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_last_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000700_vs_search_6": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001800_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "search_6_vs_adv_mcts_zero_ep001200": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002400_vs_search_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep000600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002000_vs_search_6": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "search_4_vs_adv_mcts_zero_ep000700": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep000800_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep001000": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001200_vs_hybrid_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep000500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep000700": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep001200": {
+      "w": 2,
+      "d": 0,
+      "l": 0
+    },
+    "search_6_vs_adv_mcts_zero_ep002200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001400_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep002400_vs_hybrid_6": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001900_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001600_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep002100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002200_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_4_vs_adv_mcts_zero_ep000800": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep001300": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000600_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_ep002300": {
+      "w": 0,
+      "d": 0,
+      "l": 2
+    },
+    "hybrid_6_vs_adv_mcts_zero_ep001500": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "search_6_vs_adv_mcts_zero_ep001400": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001600_vs_minimax_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "search_4_vs_adv_mcts_zero_ep001900": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "minimax_6_vs_adv_mcts_zero_ep002400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep002400_vs_hybrid_4": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "hybrid_4_vs_adv_mcts_zero_ep001400": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_5_vs_adv_mcts_zero_ep001100": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001600": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep000800_vs_hybrid_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "minimax_6_vs_adv_mcts_zero_ep001900": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001600_vs_minimax_6": {
+      "w": 0,
+      "d": 1,
+      "l": 0
+    },
+    "minimax_4_vs_adv_mcts_zero_ep001200": {
+      "w": 1,
+      "d": 0,
+      "l": 0
+    },
+    "adv_mcts_zero_ep001000_vs_minimax_5": {
+      "w": 0,
+      "d": 0,
+      "l": 1
+    },
+    "adv_mcts_zero_ep001900_vs_hybrid_4": {
+      "w": 1,
+      "d": 0,
+      "l": 0
     }
   },
   "pair_index": 0,

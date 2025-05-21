@@ -286,39 +286,43 @@ def game_counts(data: dict, names: List[str]) -> Dict[str, int]:
 
 
 def choose_pair(names: List[str], players_configs: Dict[str, Dict], data: dict, az_vs_others_only: bool) -> Tuple[Tuple[int, int], int] | None:
-    """Chooses a pair of players to play. 
-    If az_vs_others_only is True, ensures AlphaZero players don't play each other.
+    """Chooses a pair of players to play.
+    If az_vs_others_only is True, ensures one player is AlphaZero type and the other is not.
+    Otherwise, selects uniformly at random from all possible unique pairs.
     """
     num_players = len(names)
     if num_players < 2:
-        # raise ValueError("Need at least two players to choose a pair.")
         print("Warning: Less than two players available, cannot choose a pair.")
-        return None # Return None if no pair can be chosen
+        return None
 
     possible_pairs = []
+    az_types = {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}
+
     for i in range(num_players):
         for j in range(i + 1, num_players):
             player_i_name = names[i]
             player_j_name = names[j]
             
-            player_i_type = players_configs.get(player_i_name, {}).get("type", "mcts")
-            player_j_type = players_configs.get(player_j_name, {}).get("type", "mcts")
-            
-            # Define what constitutes an "AlphaZero" type for this rule
-            az_types = {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}
+            player_i_config = players_configs.get(player_i_name, {})
+            player_j_config = players_configs.get(player_j_name, {})
 
+            player_i_type = player_i_config.get("type", "mcts")
+            player_j_type = player_j_config.get("type", "mcts")
+            
             is_player_i_az = player_i_type in az_types
             is_player_j_az = player_j_type in az_types
 
-            if az_vs_others_only and is_player_i_az and is_player_j_az:
-                continue # Skip AZ vs AZ if flag is set
-            
-            possible_pairs.append((i, j))
+            if az_vs_others_only:
+                # Rule: Exactly one player must be an AZ type
+                if is_player_i_az != is_player_j_az: # XOR condition: one is True, the other is False
+                    possible_pairs.append((i, j))
+            else:
+                # Original behavior: allow any pair
+                possible_pairs.append((i, j))
     
     if not possible_pairs:
-        # This can happen if all remaining players are AZ and az_vs_others_only is True
-        print("Warning: No valid pairs found based on current matchmaking rules (e.g., az_vs_others_only).")
-        return None # Return None if no pair can be chosen
+        print("Warning: No valid pairs found based on current matchmaking rules.")
+        return None
 
     i, j = random.choice(possible_pairs)
 
@@ -629,7 +633,7 @@ def generate_player_configs_from_checkpoints(source_checkpoint_dir: Path, target
     print(f"Will generate player JSONs in: {target_player_json_dir}")
 
     checkpoints_found = list(source_checkpoint_dir.glob("c4_chkpt_ep*.pt"))
-    checkpoints_found += list(source_checkpoint_dir.glob("last_c4_model.pt")) # Also include last model
+    checkpoints_found += list(source_checkpoint_dir.glob("last_c4_model.pt"))
 
     if not checkpoints_found:
         print(f"No .pt checkpoints found in {source_checkpoint_dir} matching expected patterns.")
@@ -646,40 +650,27 @@ def generate_player_configs_from_checkpoints(source_checkpoint_dir: Path, target
                 epoch_num = int(base_name.split("_ep")[-1])
                 player_name = f"adv_mcts_zero_ep{epoch_num:06d}"
             except ValueError:
-                player_name = f"adv_mcts_zero_{base_name.replace('c4_chkpt_','')}" # Fallback naming
+                player_name = f"adv_mcts_zero_{base_name.replace('c4_chkpt_','')}"
         elif base_name == "last_c4_model":
             player_name = "adv_mcts_zero_last"
         else:
             player_name = f"adv_mcts_zero_{base_name}"
 
-        # Construct relative path for JSON if possible, or absolute
-        # For robustness, using absolute path might be safer if tournament is run from different CWD
-        # However, player JSONs often use paths relative to project structure.
-        # Let's try to make it relative to the parent of target_player_json_dir if source_checkpoint_dir is a sub-dir
-        # For simplicity now, let's use a path that's relative to where the JSONs are expected to be read from
-        # Assuming c4_players and examples/c4_checkpoints_az are siblings under MCTS-Hive/
-        # The target_player_json_dir is ../c4_players relative to examples/ dir
-        # The source_checkpoint_dir is examples/c4_checkpoints_az
-        # So, weights path in JSON should be like "../examples/c4_checkpoints_az/filename.pt"
-        try:
-            # Convert to string before calling string's replace method
-            relative_path_obj = Path(os.path.relpath(ckpt_path.resolve(), target_player_json_dir.resolve().parent))
-            weights_path_for_json = str(relative_path_obj).replace("\\", "/")
-        except ValueError: 
-            weights_path_for_json = str(ckpt_path.resolve()).replace("\\", "/")
-            print(f"Warning: Could not form relative path for {ckpt_path}, using absolute path in JSON.")
+        # Create path like "c4_checkpoints_az/c4_chkpt_ep000300.pt"
+        # This assumes source_checkpoint_dir itself is the folder name we want in the path.
+        # e.g., if source_checkpoint_dir is "examples/c4_checkpoints_az", its name is "c4_checkpoints_az".
+        weights_path_for_json = str(Path(source_checkpoint_dir.name) / ckpt_path.name).replace("\\", "/")
 
         player_config = {
-            "type": "alphazero_c4", # Use the new unified type
-            "architecture": "new_style", # Assuming these are from the new training script
+            "type": "alphazero_c4", 
+            "architecture": "new_style", 
             "model_path": weights_path_for_json,
-            "mcts_simulations": 100, # Default for evaluation, can be overridden
+            "mcts_simulations": 100, 
             "c_puct": 1.41,
-            "nn_channels": 128, # Default C4 new arch params
+            "nn_channels": 128, 
             "nn_blocks": 10
-            # Add other default AZ player params if needed, like device (defaults to cpu in player class)
         }
-
+        
         json_file_path = target_player_json_dir / f"{player_name}.json"
         
         if json_file_path.exists():
