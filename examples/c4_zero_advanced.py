@@ -631,6 +631,29 @@ def run(parsed_cli_args=None) -> None:
                 if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop:
                     save_buffer_experiences(buf, buffer_file_path)
                     print(f"Saved replay buffer at epoch {ep}")
+                # Self-play data generation after training
+                for g in range(args_global.games_per_epoch):
+                    learning_net.eval()
+                    game_hist = play_one_game(
+                        learning_net, game_adapter, learning_mcts_instance,
+                        "self", None, None,
+                        temp_schedule, args_global.mcts_simulations,
+                        args_global.mcts_simulations_opponent,
+                        max_moves=args_global.max_game_moves,
+                        debug_mode=args_global.debug_single_loop
+                    )
+                    # Add new experiences to buffer
+                    if isinstance(buf, PrioritizedReplayBuffer):
+                        for exp in game_hist:
+                            buf.add(exp)
+                    else:
+                        buf.extend(game_hist)
+                    learning_net.train()
+                    games_collected_this_session += 1
+                    # Optionally save buffer after collecting
+                    if ep % args_global.save_buffer_every == 0 and not args_global.debug_single_loop:
+                        save_buffer_experiences(buf, buffer_file_path)
+                        print(f"Epoch {ep} | Added game {g+1}/{args_global.games_per_epoch}, Buffer {len(buf)}")
 
     except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
