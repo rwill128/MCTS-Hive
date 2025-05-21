@@ -632,28 +632,76 @@ def run(parsed_cli_args=None) -> None:
                     save_buffer_experiences(buf, buffer_file_path)
                     print(f"Saved replay buffer at epoch {ep}")
                 # Self-play data generation after training
-                for g in range(args_global.games_per_epoch):
-                    learning_net.eval()
-                    game_hist = play_one_game(
-                        learning_net, game_adapter, learning_mcts_instance,
-                        "self", None, None,
-                        temp_schedule, args_global.mcts_simulations,
-                        args_global.mcts_simulations_opponent,
-                        max_moves=args_global.max_game_moves,
-                        debug_mode=args_global.debug_single_loop
-                    )
-                    # Add new experiences to buffer
-                    if isinstance(buf, PrioritizedReplayBuffer):
-                        for exp in game_hist:
-                            buf.add(exp)
-                    else:
-                        buf.extend(game_hist)
-                    learning_net.train()
-                    games_collected_this_session += 1
-                    # Optionally save buffer after collecting
-                    if ep % args_global.save_buffer_every == 0 and not args_global.debug_single_loop:
-                        save_buffer_experiences(buf, buffer_file_path)
-                        print(f"Epoch {ep} | Added game {g+1}/{args_global.games_per_epoch}, Buffer {len(buf)}")
+                if args_global.num_parallel_selfplay <= 1:
+                    for g in range(args_global.games_per_epoch):
+                        learning_net.eval()
+                        game_hist = play_one_game(
+                            learning_net, game_adapter, learning_mcts_instance,
+                            "self", None, None,
+                            temp_schedule, args_global.mcts_simulations,
+                            args_global.mcts_simulations_opponent,
+                            max_moves=args_global.max_game_moves,
+                            debug_mode=args_global.debug_single_loop
+                        )
+                        if isinstance(buf, PrioritizedReplayBuffer):
+                            for exp in game_hist:
+                                buf.add(exp)
+                        else:
+                            buf.extend(game_hist)
+                        learning_net.train()
+                        games_collected_this_session += 1
+                        if ep % args_global.save_buffer_every == 0 and not args_global.debug_single_loop:
+                            save_buffer_experiences(buf, buffer_file_path)
+                            print(f"Epoch {ep} | Added game {g+1}/{args_global.games_per_epoch}, Buffer {len(buf)}")
+                else:
+                    # Parallel self-play actors
+                    sp_weights_path = ckdir / f'selfplay_weights_ep{ep:06d}.pt'
+                    torch.save({'net': learning_net.state_dict()}, sp_weights_path)
+                    nn_arch_config = {'channels': args_global.channels, 'blocks': args_global.blocks}
+                    mcts_config_learning = {'c_puct': args_global.c_puct, 'dirichlet_alpha': args_global.dirichlet_alpha, 'dirichlet_epsilon': args_global.dirichlet_epsilon, 'mcts_simulations_learning': args_global.mcts_simulations, 'mcts_simulations_opponent': args_global.mcts_simulations_opponent}
+                    opponent_config = {'type': 'self'}
+                    selfplay_dir = ckdir / 'selfplay_exps'
+                    selfplay_dir.mkdir(exist_ok=True)
+                    seed_base = ep * args_global.num_parallel_selfplay
+                    with concurrent.futures.ProcessPoolExecutor(max_workers=args_global.num_parallel_selfplay) as executor:
+                        futures = []
+                        for wid in range(args_global.num_parallel_selfplay):
+                            futures.append(
+                                executor.submit(
+                                    self_play_actor_worker,
+                                    wid,
+                                    str(sp_weights_path),
+                                    'ConnectFour',
+                                    nn_arch_config,
+                                    mcts_config_learning,
+                                    opponent_config,
+                                    str(selfplay_dir),
+                                    temp_schedule,
+                                    args_global.max_game_moves,
+                                    dev,
+                                    seed_base + wid,
+                                    args_global.debug_single_loop
+                                )
+                            )
+                        for fut in concurrent.futures.as_completed(futures):
+                            saved_filepath, rec_count, wid = fut.result()
+                            if saved_filepath:
+                                try:
+                                    new_exps = pickle.load(open(saved_filepath, 'rb'))
+                                except Exception:
+                                    continue
+                                if isinstance(buf, PrioritizedReplayBuffer):
+                                    for exp in new_exps:
+                                        buf.add(exp)
+                                else:
+                                    buf.extend(new_exps)
+                                games_collected_this_session += 1
+                                if not args_global.debug_single_loop:
+                                    print(f"Epoch {ep} | Actor {wid} added game exps ({len(new_exps)}) buffer {len(buf)}")
+                    try:
+                        sp_weights_path.unlink()
+                    except Exception:
+                        pass
 
     except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
