@@ -567,6 +567,7 @@ def run(parsed_cli_args=None) -> None:
     
     overall_training_steps = 0 # For W&B step logging
     games_collected_this_session = 0 # To track games generated in this run
+    opponent_checkpoints_pool: deque[Path] = deque(maxlen=args_global.max_opponent_pool_size)
 
     try:
         for ep in range(start_ep, args_global.epochs + 1):
@@ -628,6 +629,11 @@ def run(parsed_cli_args=None) -> None:
                                   "scheduler": scheduler.state_dict() if scheduler else None}
                     torch.save(full_state, state_path)
                     print(f"Saved checkpoint: {ckpt_path} and state: {state_path}")
+                    if opponent_checkpoints_pool.maxlen is not None and opponent_checkpoints_pool.maxlen > 0 : # Add to opponent pool
+                        opponent_checkpoints_pool.append(ckpt_path)
+                        if args_global.debug_single_loop:
+                            print(f"[DEBUG C4] Added {ckpt_path} to opponent pool. Pool size: {len(opponent_checkpoints_pool)}")
+
                 if ep % args_global.save_buffer_every == 0 and len(buf) > 0 and not args_global.debug_single_loop:
                     save_buffer_experiences(buf, buffer_file_path)
                     print(f"Saved replay buffer at epoch {ep}")
@@ -658,50 +664,115 @@ def run(parsed_cli_args=None) -> None:
                     sp_weights_path = ckdir / f'selfplay_weights_ep{ep:06d}.pt'
                     torch.save({'net': learning_net.state_dict()}, sp_weights_path)
                     nn_arch_config = {'channels': args_global.channels, 'blocks': args_global.blocks}
-                    mcts_config_learning = {'c_puct': args_global.c_puct, 'dirichlet_alpha': args_global.dirichlet_alpha, 'dirichlet_epsilon': args_global.dirichlet_epsilon, 'mcts_simulations_learning': args_global.mcts_simulations, 'mcts_simulations_opponent': args_global.mcts_simulations_opponent}
-                    opponent_config = {'type': 'self'}
-                    selfplay_dir = ckdir / 'selfplay_exps'
-                    selfplay_dir.mkdir(exist_ok=True)
-                    seed_base = ep * args_global.num_parallel_selfplay
+                    mcts_config_learning = {'c_puct': args_global.c_puct, 'dirichlet_alpha': args_global.dirichlet_alpha, 
+                                            'dirichlet_epsilon': args_global.dirichlet_epsilon, 
+                                            'mcts_simulations_learning': args_global.mcts_simulations, 
+                                            'mcts_simulations_opponent': args_global.mcts_simulations_opponent}
+                    # opponent_config = {'type': 'self'} # This will be set per game below
+
+                    selfplay_dir = ckdir / 'selfplay_exps' # Directory for temporary experience files from workers
+                    selfplay_dir.mkdir(exist_ok=True, parents=True) # Ensure it exists
+                    
+                    seed_base = ep * args_global.games_per_epoch # Ensure unique seeds across epochs for same worker game index
+
+                    if args_global.debug_single_loop:
+                        print(f"[DEBUG C4 ep {ep}] Parallel self-play. Games per epoch: {args_global.games_per_epoch}, Workers: {args_global.num_parallel_selfplay}")
+                        print(f"[DEBUG C4 ep {ep}] Opponent pool size: {len(opponent_checkpoints_pool)}, Past self prob: {args_global.play_past_self_prob}")
+
                     with concurrent.futures.ProcessPoolExecutor(max_workers=args_global.num_parallel_selfplay) as executor:
                         futures = []
-                        for wid in range(args_global.num_parallel_selfplay):
+                        for game_idx_in_epoch in range(args_global.games_per_epoch):
+                            current_opponent_config = {}
+                            # Decide opponent for this specific game
+                            if len(opponent_checkpoints_pool) > 0 and random.random() < args_global.play_past_self_prob:
+                                chosen_opponent_path = random.choice(list(opponent_checkpoints_pool))
+                                current_opponent_config = {
+                                    "type": "past_checkpoint",
+                                    "path": str(chosen_opponent_path),
+                                    "mcts_config": { # Pass opponent MCTS params from CLI args
+                                        "c_puct_opponent": args_global.c_puct_opponent,
+                                        "mcts_simulations_opponent": args_global.mcts_simulations_opponent
+                                    }
+                                }
+                                if args_global.debug_single_loop:
+                                    print(f"[DEBUG C4 ep {ep}, game {game_idx_in_epoch}] Playing vs PAST: {chosen_opponent_path.name}")
+                            else:
+                                current_opponent_config = {"type": "self"}
+                                if args_global.debug_single_loop:
+                                    print(f"[DEBUG C4 ep {ep}, game {game_idx_in_epoch}] Playing vs SELF.")
+                            
+                            # Worker ID can cycle if games_per_epoch > num_parallel_selfplay
+                            worker_id_for_game = game_idx_in_epoch % args_global.num_parallel_selfplay
+                            game_seed = seed_base + game_idx_in_epoch # Unique seed for each game
+
                             futures.append(
                                 executor.submit(
                                     self_play_actor_worker,
-                                    wid,
+                                    worker_id_for_game, # Pass the cycling worker_id
                                     str(sp_weights_path),
-                                    'ConnectFour',
+                                    'ConnectFour', # Hardcoded for c4_zero_advanced
                                     nn_arch_config,
-                                    mcts_config_learning,
-                                    opponent_config,
+                                    mcts_config_learning, # Learning agent's MCTS config
+                                    current_opponent_config, # Opponent's config for this game
                                     str(selfplay_dir),
                                     temp_schedule,
                                     args_global.max_game_moves,
-                                    dev,
-                                    seed_base + wid,
+                                    dev, # Device for worker (can be "cpu" if main is "cuda" for workers)
+                                    game_seed, # Seed for this game
                                     args_global.debug_single_loop
                                 )
                             )
+                        
+                        games_processed_this_epoch = 0
                         for fut in concurrent.futures.as_completed(futures):
-                            saved_filepath, rec_count, wid = fut.result()
+                            saved_filepath, rec_count, completed_worker_id = fut.result()
                             if saved_filepath:
                                 try:
                                     new_exps = pickle.load(open(saved_filepath, 'rb'))
-                                except Exception:
+                                    # Cleanup the temp file after loading
+                                    try: Path(saved_filepath).unlink()
+                                    except OSError as e_del: print(f"Warning: Could not delete temp exp file {saved_filepath}: {e_del}")
+
+                                except Exception as e_load:
+                                    print(f"Error loading experiences from {saved_filepath}: {e_load}")
                                     continue
+                                
                                 if isinstance(buf, PrioritizedReplayBuffer):
                                     for exp in new_exps:
                                         buf.add(exp)
-                                else:
+                                else: # Deque
                                     buf.extend(new_exps)
+                                
                                 games_collected_this_session += 1
+                                games_processed_this_epoch +=1
                                 if not args_global.debug_single_loop:
-                                    print(f"Epoch {ep} | Actor {wid} added game exps ({len(new_exps)}) buffer {len(buf)}")
+                                    if games_processed_this_epoch % (max(1, args_global.games_per_epoch // 5)) == 0 or games_processed_this_epoch == args_global.games_per_epoch : # Log progress
+                                        print(f"Epoch {ep} | Games {games_processed_this_epoch}/{args_global.games_per_epoch} collected | Worker {completed_worker_id} added {len(new_exps)} states | Buffer size {len(buf)}")
+                                elif args_global.debug_single_loop:
+                                     print(f"[DEBUG C4 ep {ep}] Worker {completed_worker_id} added {len(new_exps)} states from {Path(saved_filepath).name if saved_filepath else 'N/A'}. Buffer {len(buf)}")
+                            else: # No saved filepath, likely an error in worker or no experiences generated
+                                print(f"Warning: Worker {completed_worker_id} returned no experience file path for a game in epoch {ep}.")
+                                
+                    # Clean up the temporary weights file used by workers for this epoch
                     try:
                         sp_weights_path.unlink()
-                    except Exception:
-                        pass
+                        if args_global.debug_single_loop: print(f"[DEBUG C4 ep {ep}] Deleted self-play weights: {sp_weights_path.name}")
+                    except OSError as e:
+                        print(f"Warning: Could not delete self-play weights {sp_weights_path}: {e}")
+            
+            # W&B Logging at end of epoch
+            if args_global.use_wandb and wandb.run:
+                log_data = {
+                    "epoch": ep,
+                    "total_loss": loss if 'loss' in locals() else None, # Only if training happened
+                    "buffer_size": len(buf),
+                    "learning_rate": opt.param_groups[0]['lr'],
+                    "games_collected_session": games_collected_this_session,
+                }
+                if isinstance(buf, PrioritizedReplayBuffer):
+                    log_data["per_beta"] = buf.beta
+                
+                wandb.log(log_data, step=ep) # Use epoch as step
 
     except KeyboardInterrupt: print("\nTraining interrupted.")
     finally:
@@ -857,7 +928,7 @@ def self_play_actor_worker(
                 actual_opponent_type = "self"; opp_net = None; opp_mcts = None # Fallback
         else:
             # This case means main process said "past_checkpoint" but didn't provide a path.
-            if debug_mode: print(f"[ACTOR {worker_id}] Opponent type was 'past_checkpoint' but no path provided. Defaulting to self-play.")
+            if debug_mode: print(f"[ACTOR {worker_id}] Opponent type was 'past_checkpoint' but no path provided by main. Defaulting to self-play.")
             actual_opponent_type = "self"
     
     st = game_adapter_worker.c4_game.getInitialState()
@@ -883,11 +954,23 @@ def self_play_actor_worker(
             if actual_opponent_type == "self":
                 mcts_to_use = learning_mcts 
                 sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
-            else: # Past checkpoint opponent
-                mcts_to_use = opp_mcts
-                sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
-        
-        if mcts_to_use is None: mcts_to_use = learning_mcts 
+            else: # Past checkpoint opponent, opp_mcts should be initialized
+                if opp_mcts is not None:
+                    mcts_to_use = opp_mcts
+                    # Sims for opponent already in mcts_config_learning["mcts_simulations_opponent"]
+                    # Or from opponent_config["mcts_config"]["mcts_simulations_opponent"] if specifically set
+                    # The MCTS for opponent (opp_mcts) was initialized with its own C_PUCT, so that's fine.
+                    # The number of simulations for the opponent is generally passed via mcts_config_learning from main args.
+                    sims_for_current_move = mcts_config_learning.get("mcts_simulations_opponent", 50) # Fallback if not in dict
+                else: # Should not happen if configured correctly, fallback to self-play logic
+                    if debug_mode: print(f"[ACTOR {worker_id}] Opponent MCTS was None for past player. Fallback to learning MCTS for opponent.")
+                    mcts_to_use = learning_mcts
+                    sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
+
+        if mcts_to_use is None: # Should ideally not be reached if logic above is sound
+            if debug_mode: print(f"[ACTOR {worker_id}] mcts_to_use is None unexpectedly. Defaulting to learning_mcts.")
+            mcts_to_use = learning_mcts 
+            sims_for_current_move = mcts_config_learning["mcts_simulations_learning"] if is_learning_turn else mcts_config_learning["mcts_simulations_opponent"]
         
         legal_actions = game_adapter_worker.getLegalActions(st)
         if not legal_actions: 
