@@ -3,7 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.10 (mcts)" />
   </component>
-  <component name="ProjectRootManager" version="2" languageLevel="JDK_22" project-jdk-name="Python 3.10 (mcts)" project-jdk-type="Python SDK">
-    <output url="file://$PROJECT_DIR$/out" />
-  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.11 (MCTS-Hive)" project-jdk-type="Python SDK" />
 </project>

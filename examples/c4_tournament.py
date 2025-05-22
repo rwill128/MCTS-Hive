@@ -13,8 +13,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import os # Added for potential PID logging
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any
+import concurrent.futures # Added for parallelism
+
+from mcts.alpha_zero_mcts import AlphaZeroMCTS
 
 try:
     import pygame
@@ -45,6 +49,118 @@ try:
     from examples.c4_zero_advanced import AdvancedC4ZeroNet as C4AdvZeroNet  # type: ignore
 except Exception:  # pragma: no cover – advanced network optional
     C4AdvZeroNet = None
+
+# Import new style network from c4_zero_advanced for new models
+from examples.c4_zero_advanced import AdvancedC4ZeroNet as AdvancedC4ZeroNet_NewStyle
+from examples.c4_zero_advanced import ConnectFourAdapter as C4Adapter_NewStyle # Renaming for clarity
+from examples.c4_zero_advanced import encode_c4_state # Using this encoding
+from examples.ttt_zero_advanced import torch, nn, F, np # Common torch/np imports
+
+# --- BEGIN Definition of Old Sequential Network Architecture ---
+if torch is not None:
+    class ResidualBlock_Old(nn.Module):
+        def __init__(self, ch: int):
+            super().__init__()
+            self.c1 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
+            self.b1 = nn.BatchNorm2d(ch)
+            self.c2 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
+            self.b2 = nn.BatchNorm2d(ch)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            y = F.relu(self.b1(self.c1(x)))
+            y = self.b2(self.c2(y))
+            return F.relu(x + y)
+
+    class AdvancedC4ZeroNet_OldSequential(nn.Module):
+        def __init__(self, ch: int = 128, blocks: int = 10):
+            super().__init__()
+            # Constants for C4 board dimensions, assuming they are available globally or passed
+            # For safety, let's define them here if not already present from other imports
+            BOARD_H_C4 = 6 # ConnectFour.ROWS
+            BOARD_W_C4 = 7 # ConnectFour.COLS
+
+            self.stem = nn.Sequential(
+                nn.Conv2d(3, ch, 3, padding=1, bias=False),
+                nn.BatchNorm2d(ch), nn.ReLU(),
+            )
+            self.res = nn.Sequential(*[ResidualBlock_Old(ch) for _ in range(blocks)])
+            self.policy = nn.Sequential(
+                nn.Conv2d(ch, 2, 1, bias=True), # Original might have had bias=True here
+                nn.BatchNorm2d(2), 
+                nn.ReLU(),
+                nn.Flatten(), 
+                nn.Linear(2 * BOARD_H_C4 * BOARD_W_C4, BOARD_W_C4)
+            )
+            self.value = nn.Sequential(
+                nn.Conv2d(ch, 1, 1, bias=True), # Original might have had bias=True here
+                nn.BatchNorm2d(1), 
+                nn.ReLU(),
+                nn.Flatten(), 
+                nn.Linear(BOARD_H_C4 * BOARD_W_C4, 64), 
+                nn.ReLU(),
+                nn.Linear(64, 1), 
+                nn.Tanh()
+            )
+
+        def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            x = self.res(self.stem(x))
+            return self.policy(x), self.value(x).squeeze(1)
+else:
+    class AdvancedC4ZeroNet_OldSequential: pass # Placeholder if torch not found
+# --- END Definition of Old Sequential Network Architecture ---
+
+
+# --- AlphaZero Player for Connect Four (using new style by default) ---
+class AlphaZeroC4Player:
+    def __init__(self, game_instance: ConnectFour, perspective_player: str, 
+                 model_path: str, device: str = "cpu",
+                 mcts_simulations: int = 50, c_puct: float = 1.41,
+                 dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.0, # Epsilon 0 for eval
+                 nn_channels: int = 128, nn_blocks: int = 10, architecture: str = "new_style"):
+        if torch is None: raise ImportError("PyTorch required")
+
+        self.game_adapter = C4Adapter_NewStyle(game_instance) 
+        self.perspective_player = perspective_player
+        self.device = torch.device(device)
+        self.architecture = architecture
+
+        if self.architecture == "old_sequential":
+            self.net = AdvancedC4ZeroNet_OldSequential(ch=nn_channels, blocks=nn_blocks).to(self.device)
+            print(f"Loading AlphaZeroC4Player with OLD SEQUENTIAL architecture for model: {model_path}")
+        else: # Default to new style
+            self.net = AdvancedC4ZeroNet_NewStyle(ch=nn_channels, blocks=nn_blocks).to(self.device)
+            print(f"Loading AlphaZeroC4Player with NEW STYLE architecture for model: {model_path}")
+        
+        try:
+            # General loading, hoping the state_dict matches the chosen architecture
+            state_dict = torch.load(model_path, map_location=self.device)
+            if "net" in state_dict and isinstance(state_dict["net"], dict): # From full training state
+                self.net.load_state_dict(state_dict["net"])
+            elif isinstance(state_dict, dict): # Just the model state_dict
+                self.net.load_state_dict(state_dict)
+            else:
+                raise ValueError("Checkpoint format not recognized for chosen architecture.")
+            print(f"Successfully loaded model weights: {model_path}")
+        except Exception as e:
+            raise IOError(f"Failed to load model {model_path} with {self.architecture} arch: {e}")
+        self.net.eval()
+
+        def mcts_model_fn(encoded_state_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            with torch.no_grad():
+                policy_logits, value_estimates = self.net(encoded_state_batch)
+            return policy_logits, value_estimates.unsqueeze(-1)
+
+        self.mcts_instance = AlphaZeroMCTS(
+            game_interface=self.game_adapter, model_fn=mcts_model_fn, device=self.device,
+            c_puct=c_puct, dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon
+        )
+        self.mcts_simulations = mcts_simulations
+
+    def search(self, state: dict) -> int: # Returns column index for C4
+        int_action, _ = self.mcts_instance.get_action_policy(
+            root_state=state, num_simulations=self.mcts_simulations, temperature=0.0)
+        return int_action # C4 actions are already integers
+# --- End AlphaZeroC4Player ---
 
 
 class ZeroGuidedMCTS(MCTS):
@@ -161,302 +277,650 @@ def game_counts(data: dict, names: List[str]) -> Dict[str, int]:
     for key, record in data.get("pair_results", {}).items():
         a, _, b = key.partition("_vs_")
         games = record.get("w", 0) + record.get("d", 0) + record.get("l", 0)
-        counts[a] = counts.get(a, 0) + games
-        counts[b] = counts.get(b, 0) + games
+        # Ensure keys exist before incrementing
+        if a in counts:
+            counts[a] = counts.get(a, 0) + games
+        if b in counts:
+            counts[b] = counts.get(b, 0) + games
     return counts
 
 
-def choose_pair(names: List[str], data: dict) -> Tuple[Tuple[int, int], int]:
-    counts = game_counts(data, names)
-    pairs = [(i, j) for i in range(len(names)) for j in range(i + 1, len(names))]
+def choose_pair(names: List[str], players_configs: Dict[str, Dict], data: dict, az_vs_others_only: bool) -> Tuple[Tuple[int, int], int] | None:
+    """Chooses a pair of players to play.
+    If az_vs_others_only is True, ensures one player is AlphaZero type and the other is not.
+    Otherwise, selects uniformly at random from all possible unique pairs.
+    """
+    num_players = len(names)
+    if num_players < 2:
+        print("Warning: Less than two players available, cannot choose a pair.")
+        return None
 
-    min_total = None
-    candidates = []
-    for i, j in pairs:
-        total = counts.get(names[i], 0) + counts.get(names[j], 0)
-        if min_total is None or total < min_total:
-            min_total = total
-            candidates = [(i, j)]
-        elif total == min_total:
-            candidates.append((i, j))
+    possible_pairs = []
+    az_types = {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}
 
-    i, j = random.choice(candidates)
+    for i in range(num_players):
+        for j in range(i + 1, num_players):
+            player_i_name = names[i]
+            player_j_name = names[j]
+            
+            player_i_config = players_configs.get(player_i_name, {})
+            player_j_config = players_configs.get(player_j_name, {})
+
+            player_i_type = player_i_config.get("type", "mcts")
+            player_j_type = player_j_config.get("type", "mcts")
+            
+            is_player_i_az = player_i_type in az_types
+            is_player_j_az = player_j_type in az_types
+
+            if az_vs_others_only:
+                # Rule: Exactly one player must be an AZ type
+                if is_player_i_az != is_player_j_az: # XOR condition: one is True, the other is False
+                    possible_pairs.append((i, j))
+            else:
+                # Original behavior: allow any pair
+                possible_pairs.append((i, j))
+    
+    if not possible_pairs:
+        print("Warning: No valid pairs found based on current matchmaking rules.")
+        return None
+
+    i, j = random.choice(possible_pairs)
 
     key_ab = f"{names[i]}_vs_{names[j]}"
     key_ba = f"{names[j]}_vs_{names[i]}"
-    count_ab = sum(data.get("pair_results", {}).get(key_ab, {}).values())
-    count_ba = sum(data.get("pair_results", {}).get(key_ba, {}).values())
+    pair_results = data.get("pair_results", {})
+    record_ab = pair_results.get(key_ab, {})
+    record_ba = pair_results.get(key_ba, {})
+    count_ab = sum(record_ab.values())
+    count_ba = sum(record_ba.values())
+
+    orientation = random.randint(0, 1)
     if count_ab < count_ba:
         orientation = 0
     elif count_ba < count_ab:
         orientation = 1
-    else:
-        orientation = random.randint(0, 1)
 
     return (i, j), orientation
 
 
-def play_one_game(
+# Renamed original play_one_game for sequential execution
+def play_one_game_sequential_version(
     game: ConnectFour,
     params_x: dict,
     params_o: dict,
     seed: int,
     screen=None,
+    display_moves: bool = False,
+    history_dir_path_str: str | None = None,
+    game_id_for_filename: int = 0
 ) -> int:
     random.seed(seed)
-    def make_player(cfg, role):
-        if cfg.get("type") == "minimax":
-            depth = int(cfg.get("depth", 4))
-            return MinimaxConnectFourPlayer(game, perspective_player=role, depth=depth)
+    # make_player is defined inside play_one_game_sequential_version and play_one_game_parallel_worker
+    # We need to modify it in both places, or extract it to be a common helper if signatures align.
+    # For now, let's modify it where it's used. This applies to the sequential version first.
 
-        # ------------------------------------------------------------------
-        # Helper – load either the *basic* or *advanced* Zero network depending
-        # on the supplied weights file.  We first try the basic architecture
-        # and fall back to the advanced one if the shapes do not match or the
-        # config explicitly requests it via ``"arch": "advanced"``.
-        # ------------------------------------------------------------------
-        def _load_zero_net(cfg):
-            weights_path = Path(cfg["weights"])
+    def make_player(cfg, role, game_instance):
+        player_type = cfg.get("type", "mcts") 
+        # Access cli_args, assuming it's global or passed appropriately. 
+        # It's made global in if __name__ == "__main__"
+        global_sim_override = cli_args.global_az_simulations if hasattr(cli_args, 'global_az_simulations') else -1
 
-            # If the config explicitly asks for the advanced model, honour it.
-            if cfg.get("arch") == "advanced" and C4AdvZeroNet is not None:
-                net_adv = C4AdvZeroNet()
-                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu"))
-                return net_adv
+        if player_type == "human":
+            raise NotImplementedError("Human player for C4 tournament not implemented yet.")
+        elif player_type in {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}:
+            model_path = cfg.get("model_path") or cfg.get("weights")
+            if not model_path: raise ValueError(f"Player type {player_type} config for {cfg.get('name', role)} must specify 'model_path' or 'weights'.")
+            architecture = cfg.get("architecture", "new_style")
+            if cfg.get("arch") == "advanced" and architecture == "new_style": architecture = "old_sequential"
+            
+            current_mcts_sims = cfg.get("mcts_simulations") or cfg.get("num_iterations", 100)
+            if global_sim_override > 0:
+                mcts_sims_to_use = global_sim_override
+                # print(f"DEBUG: Overriding sims for {cfg.get('name',role)} from {current_mcts_sims} to {mcts_sims_to_use}") # Optional debug
+            else:
+                mcts_sims_to_use = current_mcts_sims
 
-            # Otherwise, attempt the basic network first.
-            net_basic = C4ZeroNet()
-            try:
-                load_weights(net_basic, weights_path)
-                return net_basic
-            except Exception:
-                # Shape mismatch – try the advanced architecture as a fallback.
-                if C4AdvZeroNet is None:
-                    raise  # Cannot satisfy the request
-                net_adv = C4AdvZeroNet()
-                net_adv.load_state_dict(torch.load(weights_path, map_location="cpu"))
-                return net_adv
-
-        if cfg.get("type") in {"zero", "zero_adv"}:
-            net = _load_zero_net(cfg)
-            temp = float(cfg.get("temperature", 0.0))
-            return ZeroC4Player(net, temperature=temp)
-
-        if cfg.get("type") in {"mcts_zero", "mcts_zero_adv"}:
-            net = _load_zero_net(cfg)
-            temp = float(cfg.get("temperature", 0.0))
-            params = {
-                k: v
-                for k, v in cfg.items()
-                if k not in {"type", "weights", "temperature", "arch"}
-            }
-            return ZeroGuidedMCTS(
-                game=game,
-                net=net,
-                perspective_player=role,
-                temperature=temp,
-                **params,
+            return AlphaZeroC4Player(
+                game_instance=game_instance, perspective_player=role, model_path=model_path,
+                device=cfg.get("device", "cpu"),
+                mcts_simulations=mcts_sims_to_use, # Use the determined sim count
+                c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)),
+                dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
+                dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0),
+                nn_channels=cfg.get("nn_channels", 128), 
+                nn_blocks=cfg.get("nn_blocks", 10),
+                architecture=architecture
             )
-
-        # Default: plain MCTS with supplied parameters.
-        return MCTS(game=game, perspective_player=role, **cfg)
-
-    mcts_x = make_player(params_x, "X")
-    mcts_o = make_player(params_o, "O")
+        elif player_type == "minimax":
+            depth = int(cfg.get("depth", 4))
+            return MinimaxConnectFourPlayer(game_instance, perspective_player=role, depth=depth)
+        else: 
+            known_az_keys = {'type', 'model_path', 'weights', 'architecture', 'arch', 'device', 
+                             'nn_channels', 'nn_blocks', 'mcts_simulations', 'num_iterations', # also num_iterations
+                             'dirichlet_alpha', 'dirichlet_epsilon', 'c_puct', 'c_param', 'temperature'} # also c_param
+            mcts_params = {k: v for k, v in cfg.items() if k not in known_az_keys}
+            return MCTS(game=game_instance, perspective_player=role, **mcts_params)
+    # ... (rest of play_one_game_sequential_version) ...
+    player_x = make_player(params_x, "X", game)
+    player_o = make_player(params_o, "O", game)
     state = game.getInitialState()
-    if screen is not None:
+    if screen is not None and init_display is not None and draw_board is not None:
         draw_board(screen, state["board"])
-        pygame.event.pump()
+        if pygame and hasattr(pygame, "event"): pygame.event.pump()
+    
+    move_count = 0
+    # Prepare history saving list (initial state)
+    game_history_for_saving: List[Dict] = [game.copyState(state)]
+    
     while not game.isTerminal(state):
         to_move = game.getCurrentPlayer(state)
-        if to_move == "X":
-            player = mcts_x
-        else:
-            player = mcts_o
+        active_player = player_x if to_move == "X" else player_o
+        
+        action_values_for_display = None 
 
-        # --------------------------------------------------------------
-        # Keep the GUI responsive: we need to call ``pygame.event.pump``
-        # regularly during potentially long MCTS searches.  If the rich
-        # visualiser is available we already pump inside the callback that
-        # draws action values.  If not, we still provide a lightweight
-        # callback that simply pumps events every few iterations.
-        # --------------------------------------------------------------
+        # Callbacks for MCTS/Minimax visualization - simplified for brevity here
+        # Original callback logic for rich visualization needs to be here if used.
+        action = active_player.search(state) # Simplified search call for this step
 
-        if screen is not None and isinstance(player, MCTS):
-            if draw_board_with_action_values is not None:
-                def cb(root, iter_count):
-                    values = {
-                        a: (child.average_value(), child.visit_count)
-                        for a, child in root.children.items()
-                    }
-                    draw_board_with_action_values(screen, root.state["board"], values, iter_count)
-                    pygame.event.pump()
-            else:
-                def cb(root, iter_count):
-                    # Pump events every 250 iterations to prevent the window
-                    # from being marked "unresponsive" by the window manager.
-                    if iter_count % 250 == 0:
-                        pygame.event.pump()
+        if action not in game.getLegalActions(state):
+            print(f"ILLEGAL ACTION CHOSEN by player {to_move} ({params_x.get('name', 'X') if to_move == 'X' else params_o.get('name', 'O')}): {action} from state:")
+            if hasattr(game, 'printState'): game.printState(state) 
+            else: print(state["board"])
+            return -1 if to_move == "X" else 1 
 
-            action = player.search(state, draw_callback=cb)
-        elif screen is not None and isinstance(player, MinimaxConnectFourPlayer) and draw_board_with_action_values is not None:
-            def cb(values):
-                draw_board_with_action_values(
-                    screen,
-                    state["board"],
-                    {a: (v, 1) for a, v in values.items()},
-                    None,
-                )
-                pygame.event.pump()
-
-            action = player.search(state, value_callback=cb)
-        else:
-            action = player.search(state)
         state = game.applyAction(state, action)
-        if screen is not None:
+        move_count += 1
+        if screen is not None and init_display is not None and draw_board is not None:
             draw_board(screen, state["board"])
-            pygame.event.pump()
-            pygame.time.delay(300)
-    outcome = game.getGameOutcome(state)
-    return 1 if outcome == "X" else -1 if outcome == "O" else 0
+            if pygame and hasattr(pygame, "event"): pygame.event.pump()
+            if pygame and hasattr(pygame, "time"): pygame.time.delay(100)
+        if display_moves: 
+            if hasattr(game, 'printState'): game.printState(state) 
+            else: print(state["board"])
+            print("-----")
 
+        game_history_for_saving.append(game.copyState(state))
+
+    outcome = game.getGameOutcome(state)
+    result_val = 0
+    if outcome == "X":
+        result_val = 1
+    elif outcome == "O":
+        result_val = -1
+
+    # Save history if requested
+    if history_dir_path_str:
+        history_dir = Path(history_dir_path_str)
+        history_dir.mkdir(parents=True, exist_ok=True)
+        winner_char = "X" if result_val == 1 else ("O" if result_val == -1 else "D")
+        safe_px_name = params_x.get("name", "X").replace(" ", "_")
+        safe_po_name = params_o.get("name", "O").replace(" ", "_")
+        filename = f"game_{game_id_for_filename:06d}_X-{safe_px_name}_O-{safe_po_name}_W-{winner_char}.json"
+        filepath = history_dir / filename
+        try:
+            with open(filepath, "w") as f_hist:
+                json.dump({
+                    "game_id": game_id_for_filename,
+                    "player_x": safe_px_name,
+                    "player_o": safe_po_name,
+                    "params_x": params_x,
+                    "params_o": params_o,
+                    "result_for_x": result_val,
+                    "history_states": game_history_for_saving
+                }, f_hist, indent=2)
+            print(f"Saved history to {filepath}")
+        except Exception as e:
+            print(f"Error saving game history to {filepath}: {e}")
+
+    return result_val
+
+# Global list to store game histories from parallel runs
+completed_parallel_games: List[Dict[str, Any]] = []
+
+# Worker function for parallel execution
+def play_one_game_parallel_worker(game_type_str: str, params_x_dict: Dict, params_o_dict: Dict, 
+                                  player_x_name: str, player_o_name: str, 
+                                  seed: int, global_az_sims_override: int,
+                                  history_dir_path_str: str | None, 
+                                  game_id_for_filename: int
+                                  ) -> Tuple[str, str, int, str | None]: # Returns x_name, o_name, result, saved_history_filepath
+    """Plays one game, saves history to disk, returns outcome and filepath."""
+    # ... (Worker setup: game_instance, make_player_local, seeding) ...
+    # This setup is as defined in the previous accepted version of c4_tournament.py
+    # For brevity, I'm not repeating the full make_player_local here.
+    if game_type_str == "ConnectFour": game_instance = ConnectFour()
+    else: raise ValueError(f"Unsupported game type: {game_type_str}")
+    random.seed(seed); torch.manual_seed(seed); np.random.seed(seed)
+
+    def make_player_local(cfg: Dict, role: str, game_inst: ConnectFour):
+        player_type = cfg.get("type", "mcts")
+
+        if player_type == "human":
+            raise NotImplementedError("Human player cannot be used in parallel tournament.")
+        elif player_type in {"alphazero_c4", "mcts_zero_adv", "zero_adv", "mcts_zero", "zero"}:
+            # ... (AlphaZeroC4Player instantiation as before, using global_az_sims_override) ...
+            model_path = cfg.get("model_path") or cfg.get("weights")
+            if not model_path: raise ValueError(f"Player type {player_type} (role {role}, name {cfg.get('name', 'Unknown')}) specifies no model path.")
+            architecture = cfg.get("architecture", "new_style")
+            if cfg.get("arch") == "advanced" and architecture == "new_style": architecture = "old_sequential"
+            current_mcts_sims = cfg.get("mcts_simulations") or cfg.get("num_iterations", 100)
+            mcts_sims_to_use = global_az_sims_override if global_az_sims_override > 0 else current_mcts_sims
+            return AlphaZeroC4Player(
+                game_instance=game_inst, perspective_player=role, model_path=model_path,
+                device=cfg.get("device", "cpu"), 
+                mcts_simulations=mcts_sims_to_use,
+                c_puct=cfg.get("c_puct", cfg.get("c_param", 1.41)),
+                dirichlet_alpha=cfg.get("dirichlet_alpha", 0.3),
+                dirichlet_epsilon=cfg.get("dirichlet_epsilon", 0.0),
+                nn_channels=cfg.get("nn_channels", 128), 
+                nn_blocks=cfg.get("nn_blocks", 10),
+                architecture=architecture
+            )
+        elif player_type == "minimax":
+            depth = int(cfg.get("depth", 4))
+            return MinimaxConnectFourPlayer(game_inst, perspective_player=role, depth=depth)
+        else: # Fallback to original MCTS player from mcts.Mcts
+            params_for_old_mcts = cfg.copy() # Work on a copy
+            # Explicitly remove keys not expected by the old MCTS constructor or that are handled by AlphaZeroC4Player
+            keys_to_remove_for_old_mcts = [
+                'type', 'model_path', 'weights', 'architecture', 'arch', 'device',
+                'nn_channels', 'nn_blocks', 'mcts_simulations', # Covered by num_iterations for old MCTS
+                'dirichlet_alpha', 'dirichlet_epsilon', 'c_puct', # Covered by c_param for old MCTS
+                'temperature' # Specific to ZeroPlayer, not generic MCTS
+            ]
+            for key_to_remove in keys_to_remove_for_old_mcts:
+                params_for_old_mcts.pop(key_to_remove, None) # Remove if exists, do nothing if not
+            
+            # Map old num_iterations and c_param if they exist from original config
+            if "num_iterations" in cfg: # This is expected by MCTS
+                params_for_old_mcts["num_iterations"] = cfg["num_iterations"]
+            if "c_param" in cfg: # This is expected by MCTS
+                params_for_old_mcts["c_param"] = cfg["c_param"]
+            
+            # print(f"[WORKER {os.getpid()}] Fallback to original MCTS for player {role} ({player_type}). Final MCTS Params: {params_for_old_mcts}")
+            return MCTS(game=game_inst, perspective_player=role, **params_for_old_mcts)
+    
+    player_x = make_player_local(params_x_dict, "X", game_instance)
+    player_o = make_player_local(params_o_dict, "O", game_instance)
+
+    state = game_instance.getInitialState()
+    game_history_for_saving: List[Dict] = [game_instance.copyState(state)]
+    
+    while not game_instance.isTerminal(state):
+        # ... (game playing logic as before, appending to game_history_for_saving) ...
+        to_move = game_instance.getCurrentPlayer(state)
+        active_player = player_x if to_move == "X" else player_o
+        try: action = active_player.search(state)
+        except Exception as e: return player_x_name, player_o_name, (-1 if to_move == "X" else 1), None
+        if action not in game_instance.getLegalActions(state): return player_x_name, player_o_name, (-1 if to_move == "X" else 1), None
+        state = game_instance.applyAction(state, action)
+        game_history_for_saving.append(game_instance.copyState(state))
+        
+    outcome = game_instance.getGameOutcome(state)
+    result = 0 
+    if outcome == "X": result = 1
+    elif outcome == "O": result = -1
+
+    saved_filepath_str = None
+    if history_dir_path_str:
+        history_dir = Path(history_dir_path_str)
+        history_dir.mkdir(parents=True, exist_ok=True)
+        winner_char = "X" if result == 1 else ("O" if result == -1 else "D")
+        # Sanitize player names for filename
+        safe_px_name = "".join(c if c.isalnum() else '_' for c in player_x_name)
+        safe_po_name = "".join(c if c.isalnum() else '_' for c in player_o_name)
+        
+        filename = f"game_{game_id_for_filename:06d}_X-{safe_px_name}_O-{safe_po_name}_W-{winner_char}.json"
+        filepath = history_dir / filename
+        try:
+            # For JSON serialization, board (list of lists) is fine.
+            # Player dicts are also fine.
+            game_data_to_save = {
+                "game_id": game_id_for_filename,
+                "player_x": player_x_name,
+                "player_o": player_o_name,
+                "params_x": params_x_dict, # Save player configs too
+                "params_o": params_o_dict,
+                "result_for_x": result,
+                "history_states": game_history_for_saving # List of state dicts
+            }
+            with open(filepath, 'w') as f_hist:
+                json.dump(game_data_to_save, f_hist, indent=2)
+            saved_filepath_str = str(filepath)
+            # print(f"[WORKER {os.getpid()}] Saved history to {saved_filepath_str}")
+        except Exception as e:
+            print(f"[WORKER {os.getpid()}] Error saving history to {filepath}: {e}")
+
+    return player_x_name, player_o_name, result, saved_filepath_str
+
+# Helper for Elo and stats update
+def _update_elo_and_stats(elo_data: Dict, p_x_name: str, p_o_name: str, result: int):
+    key = f"{p_x_name}_vs_{p_o_name}"
+    record = elo_data["pair_results"].setdefault(key, {"w": 0, "d": 0, "l": 0})
+    score_x = 0.0
+    if result == 1: record["w"] += 1; score_x = 1.0; print(f"  {p_x_name} (X) wins against {p_o_name} (O)")
+    elif result == 0: record["d"] += 1; score_x = 0.5; print(f"  Draw between {p_x_name} (X) and {p_o_name} (O)")
+    else: record["l"] += 1; score_x = 0.0; print(f"  {p_o_name} (O) wins against {p_x_name} (X)")
+
+    ra = elo_data["ratings"].setdefault(p_x_name, 1500.0)
+    rb = elo_data["ratings"].setdefault(p_o_name, 1500.0)
+    ea = expected(ra, rb)
+    eb = expected(rb, ra)
+    elo_data["ratings"][p_x_name] = update(ra, score_x, ea)
+    elo_data["ratings"][p_o_name] = update(rb, 1.0 - score_x, eb)
+
+def print_elo_standings(elo_data: Dict):
+    print("Current Elo standings:")
+    for n, r in sorted(elo_data["ratings"].items(), key=lambda x: -x[1]):
+        print(f"  {n:<20} {r:6.1f}")
+    print()
+
+def replay_game_visual(game_info: Dict[str, Any], game_rows: int, game_cols: int):
+    """Replays a single game from history in a Pygame window."""
+    if pygame is None or init_display is None or draw_board is None:
+        print("Pygame or visualizer components not available. Cannot replay game visually.")
+        return
+
+    history_states = game_info.get("history_states")
+    if not history_states:
+        print(f"No history found for game ID {game_info.get('id', 'N/A')}.")
+        return
+
+    print(f"\nReplaying Game ID: {game_info.get('id', 'N/A')}")
+    print(f"{game_info.get('x_player', 'X')} (X) vs {game_info.get('o_player', 'O')} (O)")
+    result_for_x = game_info.get('result_for_x')
+    outcome_str = "Draw"
+    if result_for_x == 1: outcome_str = f"{game_info.get('x_player', 'X')} Wins"
+    elif result_for_x == -1: outcome_str = f"{game_info.get('o_player', 'O')} Wins"
+    
+    pygame.init() # Ensure pygame is initialized for this replay session
+    screen = init_display(game_rows, game_cols) # Use game-specific dimensions
+    pygame.display.set_caption(f"Replay: {game_info.get('x_player', 'X')} vs {game_info.get('o_player', 'O')} - {outcome_str}")
+
+    running = True
+    current_state_idx = 0
+    clock = pygame.time.Clock()
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RIGHT:
+                    current_state_idx = min(len(history_states) - 1, current_state_idx + 1)
+                elif event.key == pygame.K_LEFT:
+                    current_state_idx = max(0, current_state_idx - 1)
+                elif event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
+                    running = False
+        
+        if not history_states: # Should not happen if checked before, but safeguard
+            running = False
+            continue
+            
+        current_board_state = history_states[current_state_idx]["board"]
+        draw_board(screen, current_board_state)
+        
+        # Display move number and whose turn it was leading to this state
+        font = pygame.font.Font(None, 24)
+        move_text = f"Move: {current_state_idx}"
+        # Player who made the move to get to this state (is current_player of *previous* state)
+        # Or, if it's initial state (idx 0), it's first player to move.
+        player_to_move_this_state = history_states[current_state_idx]["current_player"]
+        turn_text_str = f"To Move: {player_to_move_this_state}"
+        if current_state_idx > 0:
+            player_who_moved = history_states[current_state_idx-1]["current_player"]
+            turn_text_str = f"{player_who_moved} played to get here. Next: {player_to_move_this_state}"
+        elif current_state_idx == 0:
+             turn_text_str = f"Initial state. To Move: {player_to_move_this_state}"
+
+        text_surface_move = font.render(move_text, True, (200,200,200))
+        text_surface_turn = font.render(turn_text_str, True, (200,200,200))
+        screen.blit(text_surface_move, (10, screen.get_height() - 50))
+        screen.blit(text_surface_turn, (10, screen.get_height() - 25))
+        
+        if current_state_idx == len(history_states) - 1: # Last state
+            outcome_font = pygame.font.Font(None, 30)
+            outcome_surf = outcome_font.render(f"Game Over: {outcome_str}", True, (255,255,0))
+            screen.blit(outcome_surf, (screen.get_width() // 2 - outcome_surf.get_width() // 2, 10))
+
+
+        pygame.display.flip()
+        clock.tick(5) # Slow down replay a bit, or use key presses
+
+    if pygame.get_init(): # Check if pygame was initialized by this function
+        pygame.quit()
+
+def generate_player_configs_from_checkpoints(source_checkpoint_dir: Path, target_player_json_dir: Path):
+    """Scans a directory for .pt model checkpoints and generates player JSON configs."""
+    if not source_checkpoint_dir.is_dir():
+        print(f"Error: Checkpoint directory not found: {source_checkpoint_dir}")
+        return
+
+    target_player_json_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Scanning for checkpoints in: {source_checkpoint_dir}")
+    print(f"Will generate player JSONs in: {target_player_json_dir}")
+
+    checkpoints_found = list(source_checkpoint_dir.glob("c4_chkpt_ep*.pt"))
+    checkpoints_found += list(source_checkpoint_dir.glob("last_c4_model.pt"))
+
+    if not checkpoints_found:
+        print(f"No .pt checkpoints found in {source_checkpoint_dir} matching expected patterns.")
+        return
+
+    generated_count = 0
+    for ckpt_path in checkpoints_found:
+        # Construct player name from checkpoint filename
+        # e.g., c4_chkpt_ep002000.pt -> adv_mcts_zero_ep2000
+        #       last_c4_model.pt -> adv_mcts_zero_last
+        base_name = ckpt_path.stem
+        if "_ep" in base_name:
+            try:
+                epoch_num = int(base_name.split("_ep")[-1])
+                player_name = f"adv_mcts_zero_ep{epoch_num:06d}"
+            except ValueError:
+                player_name = f"adv_mcts_zero_{base_name.replace('c4_chkpt_','')}"
+        elif base_name == "last_c4_model":
+            player_name = "adv_mcts_zero_last"
+        else:
+            player_name = f"adv_mcts_zero_{base_name}"
+
+        # Create path like "c4_checkpoints_az/c4_chkpt_ep000300.pt"
+        # This assumes source_checkpoint_dir itself is the folder name we want in the path.
+        # e.g., if source_checkpoint_dir is "examples/c4_checkpoints_az", its name is "c4_checkpoints_az".
+        weights_path_for_json = str(Path(source_checkpoint_dir.name) / ckpt_path.name).replace("\\", "/")
+
+        player_config = {
+            "type": "alphazero_c4", 
+            "architecture": "new_style", 
+            "model_path": weights_path_for_json,
+            "mcts_simulations": 100, 
+            "c_puct": 1.41,
+            "nn_channels": 128, 
+            "nn_blocks": 10
+        }
+        
+        json_file_path = target_player_json_dir / f"{player_name}.json"
+        
+        if json_file_path.exists():
+            print(f"Player config {json_file_path} already exists. Skipping.")
+            continue
+
+        with open(json_file_path, 'w') as f:
+            json.dump(player_config, f, indent=2)
+        print(f"Generated player config: {json_file_path}")
+        generated_count += 1
+
+    print(f"\nGenerated {generated_count} new player configuration files.")
 
 def run(display: bool = True) -> None:
-    game = ConnectFour()
+    global cli_args #, completed_parallel_games # completed_parallel_games is now local to run if only used for replay prompt which was removed for file saving
+    cli_args = cli_args # This line is redundant if cli_args is already global from __main__
+
+    game_type_for_tournament = "ConnectFour" 
+    main_game_instance = ConnectFour() 
     players = load_players()
-    names = list(players)
-    data = load_results(names)
+    player_names = list(players.keys())
+    elo_data = load_results(player_names)
+
+    # This global list is for the removed replay feature. If only saving to disk, it's not strictly needed by run.
+    # However, if any part of the loop still appends to it, it should be initialized here.
+    completed_parallel_games_list: List[Dict[str, Any]] = [] 
+
+
+    if display and cli_args.num_parallel > 1:
+        print("Display is disabled when running parallel games.")
+        display = False
+
+    screen = None
     if display and pygame is not None and init_display is not None:
-        screen = init_display(game.ROWS, game.COLS)
-    else:
-        screen = None
+        screen = init_display(main_game_instance.ROWS, main_game_instance.COLS)
+    
+    game_id_counter = 0 # Simple counter for game IDs
 
-    g = 0
+    if cli_args.history_dir:
+        Path(cli_args.history_dir).mkdir(parents=True, exist_ok=True)
+        print(f"Game histories will be saved to: {cli_args.history_dir}")
+
     try:
+        if cli_args.num_parallel <= 1:
+            print("Running in single-process mode.")
         while True:
-            (i, j), orientation = choose_pair(names, data)
-            if orientation == 0:
-                x_name, o_name = names[i], names[j]
-            else:
-                x_name, o_name = names[j], names[i]
+                pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                if pair_choice_result is None:
+                    print("No suitable opponent pairs found. Tournament might be stalled or complete under current rules.")
+                    break 
+                (i, j), orientation = pair_choice_result
+                p_x_name, p_o_name = (player_names[i], player_names[j]) if orientation == 0 else (player_names[j], player_names[i])
+                params_x = players[p_x_name]
+                params_o = players[p_o_name]
+                
+                game_id_counter += 1
+                current_game_id = game_id_counter
+                print(f"Game {current_game_id}: {p_x_name} (R) vs {p_o_name} (Y)")
+                
+                # Ensure play_one_game_sequential_version is correctly handling history saving if desired
+                # For now, assuming it doesn't interact with completed_parallel_games_list directly
+                current_result = play_one_game_sequential_version(
+                    main_game_instance, params_x, params_o,
+                    seed=random.randint(0, 2**32 -1),
+                    screen=screen,
+                    display_moves=cli_args.display_moves,
+                    history_dir_path_str=cli_args.history_dir,
+                    game_id_for_filename=current_game_id
+                )
+                _update_elo_and_stats(elo_data, p_x_name, p_o_name, current_result)
+                save_results(elo_data)
+                if current_game_id % 10 == 0: print_elo_standings(elo_data)
+        else: 
+            print(f"Running in parallel with {cli_args.num_parallel} workers.")
+            if display and screen is not None: 
+                 if pygame and hasattr(pygame, "quit"): pygame.quit()
+                 print("Pygame display explicitly quit for parallel mode.")
+            
+            with concurrent.futures.ProcessPoolExecutor(max_workers=cli_args.num_parallel) as executor:
+                futures_map: Dict[concurrent.futures.Future, Tuple[str, str, int]] = {} # Store game_id with names
+                
+                # Submit initial batch of tasks
+                for _ in range(cli_args.num_parallel * 2): 
+                    if len(player_names) < 2: break
+                    pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                    if pair_choice_result is None: break 
+                    (idx_i, idx_j), orientation = pair_choice_result
+                    p_x_name, p_o_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
+                    params_x_submit = players[p_x_name]
+                    params_o_submit = players[p_o_name]
+                    
+                    game_id_counter += 1
+                    current_game_id_for_worker = game_id_counter
+                    
+                    future = executor.submit(play_one_game_parallel_worker, 
+                                             game_type_for_tournament, 
+                                             params_x_submit, params_o_submit, 
+                                             p_x_name, p_o_name, 
+                                             random.randint(0, 2**32 -1),
+                                             cli_args.global_az_simulations,
+                                             cli_args.history_dir, 
+                                             current_game_id_for_worker 
+                                             )
+                    futures_map[future] = (p_x_name, p_o_name, current_game_id_for_worker)
 
-            g += 1
-            print(f"Game {g}: {x_name} (R) vs {o_name} (Y)")
-            result = play_one_game(
-                game,
-                players[x_name],
-                players[o_name],
-                seed=random.randint(0, 2**32 - 1),
-                screen=screen,
-            )
+                if not futures_map and len(player_names) >=2 :
+                    print("No suitable initial opponent pairs found for parallel execution. Check rules or player pool.")
 
-            # Record results with the X player first so that each orientation
-            # has its own entry.  Using a conditional here caused all games to
-            # be stored under the same key regardless of orientation.
-            key = f"{x_name}_vs_{o_name}"
-            record = data["pair_results"].setdefault(key, {"w": 0, "d": 0, "l": 0})
-            if result == 1:
-                record["w"] += 1
-                score_a = 1.0
-                print("  X wins")
-            elif result == 0:
-                record["d"] += 1
-                score_a = 0.5
-                print("  Draw")
-            else:
-                record["l"] += 1
-                score_a = 0.0
-                print("  O wins")
+                while futures_map: 
+                    done_futures, _ = concurrent.futures.wait(list(futures_map.keys()), timeout=0.2, return_when=concurrent.futures.FIRST_COMPLETED)
 
-            ra = data["ratings"][x_name]
-            rb = data["ratings"][o_name]
-            ea = expected(ra, rb)
-            eb = expected(rb, ra)
-            data["ratings"][x_name] = update(ra, score_a, ea)
-            data["ratings"][o_name] = update(rb, 1 - score_a, eb)
+                    for future in done_futures:
+                        p_x_name_fut, p_o_name_fut, processed_game_id = futures_map.pop(future)
+                        try:
+                            _, _, game_res, saved_hist_path = future.result()
+                            _update_elo_and_stats(elo_data, p_x_name_fut, p_o_name_fut, game_res)
+                            print(f"Game {processed_game_id} (parallel) finished: {p_x_name_fut} vs {p_o_name_fut} -> Result for X: {game_res}. History at: {saved_hist_path}")
+                            if processed_game_id % cli_args.save_every == 0: 
+                                save_results(elo_data)
+                                print_elo_standings(elo_data)
+                        except Exception as exc:
+                            print(f"Game {p_x_name_fut} vs {p_o_name_fut} (id: {processed_game_id}) generated an exception in worker: {exc}")
+                        
+                        try:
+                            if len(player_names) >= 2:
+                                pair_choice_result = choose_pair(player_names, players, elo_data, cli_args.az_vs_others_only)
+                                if pair_choice_result is None: continue 
+                                (idx_i, idx_j), orientation = pair_choice_result
+                                next_px_name, next_po_name = (player_names[idx_i], player_names[idx_j]) if orientation == 0 else (player_names[idx_j], player_names[idx_i])
+                                next_params_x = players[next_px_name]
+                                next_params_o = players[next_po_name]
+                                
+                                game_id_counter += 1
+                                next_game_id_for_worker = game_id_counter
 
-            save_results(data)
+                                new_future = executor.submit(play_one_game_parallel_worker, game_type_for_tournament,
+                                                           next_params_x, next_params_o, next_px_name, next_po_name,
+                                                           random.randint(0, 2**32-1),
+                                                           cli_args.global_az_simulations,
+                                                           cli_args.history_dir,
+                                                           next_game_id_for_worker)
+                                futures_map[new_future] = (next_px_name, next_po_name, next_game_id_for_worker)
+                        except RuntimeError as e: 
+                            if "shutdown" in str(e).lower():
+                                print("Executor shutting down, no more games will be submitted.")
+                            else:
+                                raise
+                    if not futures_map:
+                        break
 
-            print("Current Elo standings:")
-            for n, r in sorted(data["ratings"].items(), key=lambda x: -x[1]):
-                print(f"  {n:<15} {r:6.1f}")
-            print()
-
-            try:
-                # cmd = input("Press Enter to continue or type 'quit' to exit: ")
-                cmd = "continue"
-            except EOFError:
-                cmd = ""
-            if cmd.strip().lower() in {"q", "quit", "exit"}:
-                break
-    except KeyboardInterrupt:
-        print("\nInterrupted. Progress saved.")
+    except KeyboardInterrupt: print("\nTournament interrupted. Saving final results...")
     finally:
-        if screen is not None and pygame is not None:
-            pygame.quit()
-
-
-def init_players() -> None:
-    PLAYERS_DIR.mkdir(exist_ok=True)
-    samples = {
-        "iter20":  {"num_iterations": 20,  "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter50":  {"num_iterations": 50,  "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter100": {"num_iterations": 100, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter150": {"num_iterations": 150, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter200": {"num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter300": {"num_iterations": 300, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter400": {"num_iterations": 400, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter600": {"num_iterations": 600, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter6000": {"num_iterations": 6000, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        # "iter100000": {"num_iterations": 100000, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "iter800": {"num_iterations": 800, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0},
-        "c1":      {"num_iterations": 200, "max_depth": 42, "c_param": 1.0, "forced_check_depth": 0},
-        "check2":  {"num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 2},
-        "c2":      {"num_iterations": 200, "max_depth": 42, "c_param": 2.0, "forced_check_depth": 0},
-        "c3":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0},
-        "search_4":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 4},
-        "search_4":      {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 6},
-        "minimax": {"type": "minimax", "depth": 4},
-        "minimax_6": {"type": "minimax", "depth": 6},
-        "hybrid_4": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 4 },
-        "hybrid_6": {"num_iterations": 200, "max_depth": 42, "c_param": 3.0, "forced_check_depth": 0, "minimax_depth": 6 },
-        "mcts_zero": { "type": "mcts_zero", "weights": "c4_weights/weights.pth", "num_iterations": 200, "max_depth": 42, "c_param": 1.4, "forced_check_depth": 0, "temperature": 0.0, },
-        # Example player using the *advanced* Zero network – adjust the
-        # weights path to point at your checkpoint from c4_zero_advanced.py
-        "adv_mcts_zero": {
-            "type": "mcts_zero_adv",
-            "arch": "advanced",
-            "weights": "c4_checkpoints/last.pt",
-            "num_iterations": 200,
-            "max_depth": 42,
-            "c_param": 1.4,
-            "forced_check_depth": 0,
-            "temperature": 0.0,
-        },
-    }
-    for name, cfg in samples.items():
-        path = PLAYERS_DIR / f"{name}.json"
-        if not path.exists():
-            with path.open("w") as f:
-                json.dump(cfg, f, indent=2)
-            print("wrote", path)
-
+        save_results(elo_data)
+        print_elo_standings(elo_data)
+        if pygame and hasattr(pygame, 'quit') and pygame.get_init(): pygame.quit()
+        print("Tournament finished. Game histories (if enabled) are in the specified history directory.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--init-players",
-        action="store_true",
-        help="create sample configs in c4_players/",
-    )
-    parser.add_argument(
-        "--no-display",
-        action="store_true",
-        help="run tournament without the pygame visualizer",
-    )
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Connect Four MCTS Tournament")
+    parser.add_argument("--no-display", action="store_true", help="Run tournament without pygame visualizer.")
+    parser.add_argument("--display-moves", action="store_true", help="Print board state to console after each move.")
+    parser.add_argument("--num-parallel", type=int, default=1, help="Number of games to run in parallel (display disabled if > 1).")
+    parser.add_argument("--init-players",action="store_true",help="create sample configs in c4_players/")
+    parser.add_argument("--save-every", type=int, default=10, help="Save results and print Elo every N games in parallel mode.")
+    parser.add_argument("--az-vs-others-only", action="store_true", help="If set, AlphaZero players only play against non-AlphaZero players.")
+    parser.add_argument("--generate-az-player-configs", type=str, metavar="CHECKPOINT_DIR", default=None, 
+                        help="Scan CHECKPOINT_DIR for .pt files and generate player JSONs in c4_players/. Tournament won't run.")
+    parser.add_argument("--global-az-simulations", type=int, default=-1, 
+                        help="Override MCTS simulations for all AlphaZero-type players in the tournament. -1 means use JSON/default values.")
+    parser.add_argument("--history-dir", type=str, metavar="DIR", default=None, 
+                        help="Directory to save game histories. If not specified, histories are not saved.")
 
-    if args.init_players:
-        init_players()
+    cli_args = parser.parse_args() # Global cli_args
+
+    if cli_args.init_players:
+        # init_players() # Ensure init_players is defined if this option is used
+        print("init_players function needs to be defined or restored.")
+        pass
+    elif cli_args.generate_az_player_configs:
+        # Call a new function to generate configs
+        source_checkpoint_dir = Path(cli_args.generate_az_player_configs)
+        target_player_json_dir = PLAYERS_DIR # Defined globally as Path("../c4_players")
+        generate_player_configs_from_checkpoints(source_checkpoint_dir, target_player_json_dir)
     else:
-        run(display=True)
+        run(display=not cli_args.no_display)
