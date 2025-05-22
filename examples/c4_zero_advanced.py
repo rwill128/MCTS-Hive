@@ -14,13 +14,15 @@ Four environment. Key features include:
 """
 
 from __future__ import annotations
+import os # Ensure os is imported early
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1' # Suppress pygame community message globally for this script and its children
+
 import argparse
 import random
 from collections import deque
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 import concurrent.futures
-import os
 import time
 import pickle
 
@@ -42,12 +44,6 @@ try:
     import wandb # Added for Weights & Biases
 except ImportError:
     wandb = None # Allow running without wandb if not installed
-
-if torch:
-    print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"Current CUDA device: {torch.cuda.current_device()}")
-        print(f"Device name: {torch.cuda.get_device_name(0)}")
 
 from simple_games.connect_four import ConnectFour
 from mcts.alpha_zero_mcts import AlphaZeroMCTS
@@ -197,7 +193,7 @@ def play_one_game(
     mcts_simulations_learning: int, # Sims for the learning agent
     mcts_simulations_opponent: int, # Sims for the opponent agent (can be different)
     max_moves: int = BOARD_H * BOARD_W, 
-    debug_mode: bool = False
+    debug_mode: bool = True
 ) -> List[Tuple[dict, np.ndarray, int]]:
     if torch is None or np is None: raise RuntimeError("PyTorch and NumPy are required")
     
@@ -374,7 +370,7 @@ def load_experiences_to_buffer(target_buffer: PrioritizedReplayBuffer | deque, p
         print(f"Buffer file {path} not found. Starting empty.")
         return
     try:
-        data = torch.load(path, weights_only=False) 
+        data = torch.load(path, weights_only=False) # Must be False for arbitrary buffer data
     except Exception as e:
         print(f"Error loading buffer from {path}: {e}. Starting empty.")
         return
@@ -462,7 +458,7 @@ def run(parsed_cli_args=None) -> None:
     start_ep = 1
     if args_global.resume_full_state and state_path.exists() and not args_global.debug_single_loop:
         print("Resuming full training state from", state_path)
-        st_checkpoint = torch.load(state_path, map_location=dev) 
+        st_checkpoint = torch.load(state_path, map_location=dev, weights_only=False) # Full state, not just weights
         learning_net.load_state_dict(st_checkpoint["net"])
         opt.load_state_dict(st_checkpoint["opt"])
         start_ep = int(st_checkpoint.get("epoch", 1)) + 1
@@ -485,7 +481,9 @@ def run(parsed_cli_args=None) -> None:
 
     elif args_global.resume_weights and not args_global.debug_single_loop:
         print("Resuming weights only from", args_global.resume_weights)
-        learning_net.load_state_dict(torch.load(args_global.resume_weights, map_location=dev))
+        # For resume_weights, we are loading only the state_dict of the model
+        state_dict_to_load = torch.load(args_global.resume_weights, map_location=dev, weights_only=True)
+        learning_net.load_state_dict(state_dict_to_load)
         # Optimizer and scheduler are fresh, using current cli_args.lr
         if args_global.lr_scheduler == "cosine":
             t_max_epochs = args_global.lr_t_max if args_global.lr_t_max > 0 else args_global.epochs
@@ -746,10 +744,9 @@ def run(parsed_cli_args=None) -> None:
                                 games_collected_this_session += 1
                                 games_processed_this_epoch +=1
                                 if not args_global.debug_single_loop:
-                                    if games_processed_this_epoch % (max(1, args_global.games_per_epoch // 5)) == 0 or games_processed_this_epoch == args_global.games_per_epoch : # Log progress
-                                        print(f"Epoch {ep} | Games {games_processed_this_epoch}/{args_global.games_per_epoch} collected | Worker {completed_worker_id} added {len(new_exps)} states | Buffer size {len(buf)}")
+                                    print(f"Epoch {ep} | Games {games_processed_this_epoch}/{args_global.games_per_epoch} collected | Worker {completed_worker_id} added {len(new_exps)} states | Buffer size {len(buf)}")
                                 elif args_global.debug_single_loop:
-                                     print(f"[DEBUG C4 ep {ep}] Worker {completed_worker_id} added {len(new_exps)} states from {Path(saved_filepath).name if saved_filepath else 'N/A'}. Buffer {len(buf)}")
+                                    print(f"[DEBUG C4 ep {ep}] Worker {completed_worker_id} added {len(new_exps)} states from {Path(saved_filepath).name if saved_filepath else 'N/A'}. Buffer {len(buf)}")
                             else: # No saved filepath, likely an error in worker or no experiences generated
                                 print(f"Warning: Worker {completed_worker_id} returned no experience file path for a game in epoch {ep}.")
                                 
@@ -873,9 +870,10 @@ def self_play_actor_worker(
     max_game_moves: int,
     worker_dev_str: str,
     seed: int,
-    debug_mode: bool = False 
+    debug_mode: bool = False
 ) -> Tuple[str | None, int, int]:
     """Plays one game in a worker process, saves history, returns filepath and stats."""
+    # os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1' # Moved to top of script
     
     if debug_mode: print(f"[ACTOR {worker_id} PID {os.getpid()}] Started. Seed: {seed}. Opponent type: {opponent_config['type']}")
     
@@ -892,7 +890,7 @@ def self_play_actor_worker(
 
     learning_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
     try:
-        state_d = torch.load(current_learning_net_state_dict_path, map_location=worker_device)
+        state_d = torch.load(current_learning_net_state_dict_path, map_location=worker_device, weights_only=True)
         if "net" in state_d: learning_net.load_state_dict(state_d["net"])
         else: learning_net.load_state_dict(state_d)
     except Exception as e:
@@ -913,7 +911,7 @@ def self_play_actor_worker(
         if opponent_checkpoint_path_from_config:
             opp_net = NNClass(ch=nn_arch_config["channels"], blocks=nn_arch_config["blocks"]).to(worker_device)
             try:
-                opp_sd = torch.load(opponent_checkpoint_path_from_config, map_location=worker_device)
+                opp_sd = torch.load(opponent_checkpoint_path_from_config, map_location=worker_device, weights_only=True)
                 if "net" in opp_sd: opp_net.load_state_dict(opp_sd["net"])
                 else: opp_net.load_state_dict(opp_sd)
                 opp_net.eval()
@@ -1004,6 +1002,10 @@ def self_play_actor_worker(
     final_history_for_learner: List[Tuple[dict, np.ndarray, int]] = []
     for recorded_s, recorded_pi, _ in game_history_tuples:
         final_history_for_learner.append((recorded_s, recorded_pi, z_outcome))
+
+    # Debug log for very short games from learner's perspective
+    if debug_mode and len(final_history_for_learner) < 7: # Arbitrary threshold for "short"
+        print(f"[ACTOR {worker_id} SHORT GAME DEBUG] Game moves: {move_no}, Winner: {winner}, Learner ('{learning_agent_char_in_game}') Exps: {len(final_history_for_learner)}, Opponent: {actual_opponent_type}")
 
     saved_filepath = None
     if final_history_for_learner and experience_save_dir:
