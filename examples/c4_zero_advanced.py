@@ -951,7 +951,7 @@ def self_play_actor_worker(
         else: # Opponent's turn
             if actual_opponent_type == "self":
                 mcts_to_use = learning_mcts 
-                sims_for_current_move = mcts_config_learning["mcts_simulations_opponent"]
+                sims_for_current_move = mcts_config_learning["mcts_simulations_learning"]
             else: # Past checkpoint opponent, opp_mcts should be initialized
                 if opp_mcts is not None:
                     mcts_to_use = opp_mcts
